@@ -120,6 +120,72 @@ public final class TodoStore: ObservableObject {
         }
     }
 
+    public func delete(_ item: TodoItem) {
+        do {
+            let data = try readData(fileURL)
+            let newData = try TodoWriteback.delete(
+                line: item.rawLine,
+                sectionDate: item.sectionDate,
+                occurrence: item.occurrence,
+                in: data
+            )
+            lastWrittenData = newData
+            try writeData(newData, fileURL)
+            apply(newData)
+        } catch {
+            // Stale line, vanished file, write failure: never guess. Reload truth.
+            lastWrittenData = nil
+            reload()
+        }
+    }
+
+    /// Looks up a currently displayed item by its id, across every section.
+    /// Lets the swipe coordinator act on a row it only knows by id.
+    public func item(withID id: String) -> TodoItem? {
+        let all = todayItems + carriedItems + upcomingItems + backlogItems + archiveItems
+        return all.first { $0.id == id }
+    }
+
+    public func setInProgress(_ item: TodoItem, _ inProgress: Bool) {
+        do {
+            let data = try readData(fileURL)
+            let newData = try TodoWriteback.setInProgress(
+                line: item.rawLine,
+                sectionDate: item.sectionDate,
+                occurrence: item.occurrence,
+                inProgress: inProgress,
+                in: data
+            )
+            lastWrittenData = newData
+            try writeData(newData, fileURL)
+            apply(newData)
+        } catch {
+            // Stale line, vanished file, write failure: never guess. Reload truth.
+            lastWrittenData = nil
+            reload()
+        }
+    }
+
+    public func setNote(_ item: TodoItem, _ note: String) {
+        do {
+            let data = try readData(fileURL)
+            let newData = try TodoWriteback.setNote(
+                line: item.rawLine,
+                sectionDate: item.sectionDate,
+                occurrence: item.occurrence,
+                note: note,
+                in: data
+            )
+            lastWrittenData = newData
+            try writeData(newData, fileURL)
+            apply(newData)
+        } catch {
+            // Stale line, vanished file, write failure: never guess. Reload truth.
+            lastWrittenData = nil
+            reload()
+        }
+    }
+
     public func add(_ title: String) {
         let trimmed = title.trimmingCharacters(in: .whitespaces)
         guard !trimmed.isEmpty else { return }

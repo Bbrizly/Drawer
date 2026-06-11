@@ -5,7 +5,8 @@ public enum TodoParser {
     /// date, so "## Mon 2026-06-08" works. A "## " heading with no date
     /// (or an impossible one like 2026-13-99) ends the current date section.
     static let dateRegex = #/\d{4}-\d{2}-\d{2}/#
-    private static let taskRegex = #/^\s*- \[([ xX])\] (.*)$/#
+    // "/" marks an in-progress task, the same glyph Obsidian uses.
+    private static let taskRegex = #/^\s*- \[([ xX/])\] (.*)$/#
     private static let durationRegex = #/\((\d+)m\)\s*$/#
 
     // DateFormatter is thread-safe for parsing since macOS 10.9.
@@ -37,6 +38,16 @@ public enum TodoParser {
         return isValidDate(date) ? date : nil
     }
 
+    /// True for a description line: indented (leading space or tab), not
+    /// blank, and not itself a checkbox task. These lines, sitting directly
+    /// under a task, form that task's note. Shared with TodoWriteback so
+    /// reading and editing agree on where a note starts and ends.
+    static func isDescriptionLine(_ text: String) -> Bool {
+        guard let first = text.first, first == " " || first == "\t" else { return false }
+        if text.trimmingCharacters(in: .whitespaces).isEmpty { return false }
+        return text.wholeMatch(of: taskRegex) == nil
+    }
+
     /// Section key for a "## " heading: its date, "backlog"/"archive" for
     /// headings titled exactly "Backlog"/"Archive" (any case), nil
     /// otherwise. Shared with TodoWriteback so toggle scoping agrees with
@@ -59,12 +70,15 @@ public enum TodoParser {
         // so splitting on "\n" alone would never split CRLF files.
         let lines = text.split(omittingEmptySubsequences: false, whereSeparator: \.isNewline)
             .map(String.init)
-        for line in lines {
+        var i = 0
+        while i < lines.count {
+            let line = lines[i]
             if line.trimmingCharacters(in: .whitespaces).hasPrefix("```") {
                 inFence.toggle()
+                i += 1
                 continue
             }
-            if inFence { continue }
+            if inFence { i += 1; continue }
             if line.hasPrefix("## ") {
                 currentSubsection = nil // subheadings don't outlive their section
                 if let key = sectionKey(fromHeading: line) {
@@ -76,15 +90,22 @@ public enum TodoParser {
                 } else {
                     currentDate = nil // non-date section: tasks below are not day tasks
                 }
+                i += 1
                 continue
             }
             if line.hasPrefix("### ") {
                 let title = String(line.dropFirst(4)).trimmingCharacters(in: .whitespaces)
                 currentSubsection = title.isEmpty ? nil : title
+                i += 1
                 continue
             }
-            guard let date = currentDate, let m = line.wholeMatch(of: taskRegex) else { continue }
-            let isDone = String(m.1).lowercased() == "x"
+            guard let date = currentDate, let m = line.wholeMatch(of: taskRegex) else {
+                i += 1
+                continue
+            }
+            let marker = String(m.1)
+            let isDone = marker.lowercased() == "x"
+            let isInProgress = marker == "/"
             let fullTitle = String(m.2)
             var minutes = 25
             var title = fullTitle
@@ -94,14 +115,24 @@ public enum TodoParser {
                 title = String(fullTitle[..<dm.range.lowerBound])
                     .trimmingCharacters(in: .whitespaces)
             }
+            // Indented lines right below the task are its description.
+            var noteLines: [String] = []
+            var j = i + 1
+            while j < lines.count, isDescriptionLine(lines[j]) {
+                noteLines.append(lines[j].trimmingCharacters(in: .whitespaces))
+                j += 1
+            }
+            let note = noteLines.isEmpty ? nil : noteLines.joined(separator: "\n")
             let occurrenceKey = date + "|" + line
             let occurrence = occurrences[occurrenceKey, default: 0]
             occurrences[occurrenceKey] = occurrence + 1
             itemsByDate[date, default: []].append(TodoItem(
                 rawLine: line, title: title, isDone: isDone,
+                isInProgress: isInProgress,
                 minutes: minutes, sectionDate: date, occurrence: occurrence,
-                subsection: currentSubsection
+                subsection: currentSubsection, note: note
             ))
+            i = j // skip the consumed description lines
         }
         return order.map { DaySection(date: $0, items: itemsByDate[$0] ?? []) }
     }

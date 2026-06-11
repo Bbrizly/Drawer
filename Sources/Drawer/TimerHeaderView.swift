@@ -46,7 +46,12 @@ struct TimerHeaderView: View {
             .padding(.leading, 11)
             .padding(.trailing, 7)
             .padding(.vertical, 7)
-            .background(.quaternary.opacity(0.55), in: RoundedRectangle(cornerRadius: 12))
+            // A thin outline, not a filled pill, so the idle timer reads as a
+            // plain control instead of looking permanently selected.
+            .background(
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .strokeBorder(.quaternary, lineWidth: 1)
+            )
             .fixedSize(horizontal: true, vertical: false)
         case .running, .paused:
             HStack(spacing: 8) {

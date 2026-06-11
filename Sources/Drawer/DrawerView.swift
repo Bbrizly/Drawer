@@ -17,12 +17,19 @@ struct DrawerView: View {
     @AppStorage("archiveExpanded") private var archiveExpanded = false
     @AppStorage("drawerTheme") private var themeRaw = DrawerTheme.default.rawValue
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @StateObject private var celebration = CelebrationCenter()
+    @StateObject private var swipe = SwipeCoordinator()
+    @StateObject private var scrollMonitor = ScrollSwipeMonitor()
 
     private var theme: DrawerTheme { DrawerTheme(rawValue: themeRaw) ?? .default }
 
     var body: some View {
         ZStack {
             PanelBackground(theme: theme)
+                // Pin the background to its active appearance so the glass /
+                // material does not brighten when the panel becomes key on click
+                // and dim when it resigns. controlActiveState drives that styling.
+                .environment(\.controlActiveState, .active)
 
             VStack(alignment: .leading, spacing: 13) {
                 HStack(alignment: .center, spacing: 10) {
@@ -112,14 +119,14 @@ struct DrawerView: View {
                         if !today.isEmpty {
                             sectionHeader("Today", count: today.count, isPrimary: true)
                             ForEach(today) { item in
-                                TaskRowView(item: item, store: store)
+                                taskRow(item)
                             }
                         }
                         if !carried.isEmpty {
                             sectionHeader("Carried over", count: carried.count)
                                 .padding(.top, 8)
                             ForEach(carried) { item in
-                                TaskRowView(item: item, store: store)
+                                taskRow(item)
                             }
                         }
                         let upcoming = showTomorrow ? arranged(store.upcomingItems) : []
@@ -127,7 +134,7 @@ struct DrawerView: View {
                             sectionHeader(store.upcomingLabel, count: upcoming.count)
                                 .padding(.top, 8)
                             ForEach(upcoming) { item in
-                                TaskRowView(item: item, store: store)
+                                taskRow(item)
                             }
                         }
                         collapsibleSection(
@@ -151,11 +158,27 @@ struct DrawerView: View {
                 .scrollIndicators(.hidden)
             }
             .padding(14)
+
+            // Confetti renders here, above the scroll view, so pieces are never
+            // clipped by the list. Rows report checkbox points in "panel" space.
+            ConfettiLayer(center: celebration)
         }
+        .coordinateSpace(.named("panel"))
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .fontDesign(theme.fontDesign)
         .environment(\.drawerTheme, theme)
+        .environmentObject(celebration)
+        .environmentObject(swipe)
         .animation(reduceMotion ? nil : .easeOut(duration: 0.18), value: showingAdd)
+        .onAppear {
+            scrollMonitor.start(swipe)
+            // A right swipe on a row reports its id here. Flip its file marker.
+            swipe.onProgress = { [weak store] id in
+                guard let store, let item = store.item(withID: id) else { return }
+                store.setInProgress(item, !item.isInProgress)
+            }
+        }
+        .onDisappear { scrollMonitor.stop() }
     }
 
     /// One run of consecutive tasks sharing a "### " subheading (or none).
@@ -234,11 +257,18 @@ struct DrawerView: View {
                             .padding(.bottom, 2)
                     }
                     ForEach(group.items) { item in
-                        TaskRowView(item: item, store: store)
+                        taskRow(item)
                     }
                 }
             }
         }
+    }
+
+    /// One task row, wired so its note editor can ask the panel for the
+    /// keyboard (the panel is non-activating, so a focused field is not
+    /// enough on its own).
+    private func taskRow(_ item: TodoItem) -> some View {
+        TaskRowView(item: item, store: store, requestKeyboard: onNeedsKeyboard)
     }
 
     private func sectionHeader(
@@ -312,6 +342,16 @@ struct DrawerView: View {
                 }
                 .map(\.element)
         }
+        // In-progress tasks always float to the very top of their section, so
+        // what you are actively working on stays in view. Stable otherwise.
+        out = out.enumerated()
+            .sorted { a, b in
+                if a.element.isInProgress != b.element.isInProgress {
+                    return a.element.isInProgress
+                }
+                return a.offset < b.offset
+            }
+            .map(\.element)
         return out
     }
 }

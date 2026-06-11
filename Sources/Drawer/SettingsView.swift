@@ -33,6 +33,8 @@ private struct GeneralSettingsView: View {
     @AppStorage("hotkeyPreset") private var hotkeyRaw = HotkeyPreset.ctrlOptSpace.rawValue
     @AppStorage("defaultMinutesText") private var defaultMinutes = "25"
     @AppStorage("completionSound") private var completionSound = true
+    @AppStorage("taskCelebration") private var taskCelebration = true
+    @AppStorage("taskCelebrationSound") private var taskCelebrationSound = true
     @AppStorage("panelWidth") private var panelWidth = 300.0
     @AppStorage("panelCompactHeight") private var panelHeight = 440.0
     @AppStorage("showTomorrow") private var showTomorrow = true
@@ -50,6 +52,13 @@ private struct GeneralSettingsView: View {
                     }
                 }
                 .pickerStyle(.segmented)
+                Toggle(isOn: $taskCelebration) {
+                    Text("Celebrate completed tasks")
+                    Text("Confetti and a haptic tap when you check a task off.")
+                }
+                Toggle("Play a pop sound", isOn: $taskCelebrationSound)
+                    .disabled(!taskCelebration)
+                    .padding(.leading, 16)
             }
             Section("Tasks file") {
                 HStack(alignment: .firstTextBaseline) {

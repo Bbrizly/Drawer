@@ -19,6 +19,55 @@ final class TodoParserTests: XCTestCase {
         XCTAssertEqual(sections[0].items[1].minutes, 25) // default
     }
 
+    func testParsesInProgressMarker() {
+        let text = """
+        ## 2026-06-07
+        - [/] Working on this now
+        - [ ] Not started
+        - [x] Finished
+        """
+        let items = TodoParser.parse(text)[0].items
+        XCTAssertTrue(items[0].isInProgress)
+        XCTAssertFalse(items[0].isDone)
+        XCTAssertEqual(items[0].title, "Working on this now")
+        XCTAssertFalse(items[1].isInProgress)
+        XCTAssertFalse(items[2].isInProgress)
+        XCTAssertTrue(items[2].isDone)
+    }
+
+    func testParsesIndentedDescription() {
+        let text = """
+        ## 2026-06-07
+        - [ ] Call the landlord
+            Ask about the lease renewal.
+            Mention the broken heater too.
+        - [ ] Next task
+        """
+        let items = TodoParser.parse(text)[0].items
+        XCTAssertEqual(items.count, 2)
+        XCTAssertEqual(items[0].title, "Call the landlord")
+        XCTAssertEqual(
+            items[0].note,
+            "Ask about the lease renewal.\nMention the broken heater too."
+        )
+        XCTAssertNil(items[1].note)
+    }
+
+    func testDescriptionStopsAtBlankLine() {
+        let text = "## 2026-06-07\n- [ ] Task\n    a detail\n\n    not part of it\n"
+        let items = TodoParser.parse(text)[0].items
+        XCTAssertEqual(items.count, 1)
+        XCTAssertEqual(items[0].note, "a detail")
+    }
+
+    func testNestedTaskIsNotADescription() {
+        let text = "## 2026-06-07\n- [ ] Parent\n    - [ ] Child\n"
+        let items = TodoParser.parse(text)[0].items
+        XCTAssertEqual(items.count, 2)
+        XCTAssertNil(items[0].note)
+        XCTAssertEqual(items[1].title, "Child")
+    }
+
     func testUppercaseXAndIndent() {
         let text = "## 2026-06-07\n  - [X] done thing"
         let items = TodoParser.parse(text)[0].items

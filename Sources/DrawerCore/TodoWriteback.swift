@@ -61,9 +61,189 @@ public enum TodoWriteback {
 
             var out = data
             let current = out[boxIndex]
-            out[boxIndex] = (current == UInt8(ascii: " "))
-                ? UInt8(ascii: "x")
-                : UInt8(ascii: " ")
+            // Checking a blank or in-progress "/" task completes it. Only an
+            // already-done task toggles back to blank.
+            let done = current == UInt8(ascii: "x") || current == UInt8(ascii: "X")
+            out[boxIndex] = done ? UInt8(ascii: " ") : UInt8(ascii: "x")
+            return out
+        }
+        throw WritebackError.lineNotFound
+    }
+
+    /// Sets the checkbox on the exact line to "/" (in progress) when
+    /// `inProgress` is true, or back to " " (blank) when false. Scoped to the
+    /// matching section and occurrence, like `toggle`. Touches only that one
+    /// byte. Throws if the line is not found as a checkbox line.
+    public static func setInProgress(
+        line rawLine: String,
+        sectionDate: String,
+        occurrence: Int = 0,
+        inProgress: Bool,
+        in data: Data
+    ) throws -> Data {
+        guard !rawLine.isEmpty else { throw WritebackError.lineNotFound }
+
+        var currentDate: String?
+        var inFence = false
+        var seen = 0
+        for line in try markdownLines(in: data) {
+            if line.text.trimmingCharacters(in: .whitespaces).hasPrefix("```") {
+                inFence.toggle()
+                continue
+            }
+            if inFence { continue }
+            if line.text.hasPrefix("## ") {
+                currentDate = TodoParser.sectionKey(fromHeading: line.text)
+                continue
+            }
+            guard currentDate == sectionDate,
+                  line.text == rawLine,
+                  let boxIndex = checkboxIndex(in: data, lineRange: line.contentRange)
+            else {
+                continue
+            }
+            if seen < occurrence {
+                seen += 1
+                continue
+            }
+
+            var out = data
+            out[boxIndex] = inProgress ? UInt8(ascii: "/") : UInt8(ascii: " ")
+            return out
+        }
+        throw WritebackError.lineNotFound
+    }
+
+    /// Removes the exact line `rawLine` (with its line ending) only inside
+    /// sections whose date matches `sectionDate`. `occurrence` selects among
+    /// identical lines, matching TodoParser's occurrence numbering. Any
+    /// indented description lines directly under the task go with it, so no
+    /// orphaned note text is left behind. Touches nothing else in the file.
+    /// Throws if the line is not found as a checkbox line in that section.
+    public static func delete(
+        line rawLine: String,
+        sectionDate: String,
+        occurrence: Int = 0,
+        in data: Data
+    ) throws -> Data {
+        guard !rawLine.isEmpty else { throw WritebackError.lineNotFound }
+
+        let lines = try markdownLines(in: data)
+        var currentDate: String?
+        var inFence = false
+        var seen = 0
+        var index = lines.startIndex
+        while index < lines.endIndex {
+            let line = lines[index]
+            if line.text.trimmingCharacters(in: .whitespaces).hasPrefix("```") {
+                inFence.toggle()
+                index += 1
+                continue
+            }
+            if inFence { index += 1; continue }
+            if line.text.hasPrefix("## ") {
+                currentDate = TodoParser.sectionKey(fromHeading: line.text)
+                index += 1
+                continue
+            }
+            guard currentDate == sectionDate,
+                  line.text == rawLine,
+                  checkboxIndex(in: data, lineRange: line.contentRange) != nil
+            else {
+                index += 1
+                continue
+            }
+            if seen < occurrence {
+                seen += 1
+                index += 1
+                continue
+            }
+
+            var end = line.fullRange.upperBound
+            var k = index + 1
+            while k < lines.endIndex, TodoParser.isDescriptionLine(lines[k].text) {
+                end = lines[k].fullRange.upperBound
+                k += 1
+            }
+            var out = data
+            out.removeSubrange(line.fullRange.lowerBound..<end)
+            return out
+        }
+        throw WritebackError.lineNotFound
+    }
+
+    /// Sets (or clears) the description under the matched task. `note` is
+    /// written as indented lines directly below the task, one per "\n". An
+    /// empty note removes any existing description block. Replaces whatever
+    /// description was there, and touches nothing else. Throws if the line
+    /// is not found as a checkbox line in that section.
+    public static func setNote(
+        line rawLine: String,
+        sectionDate: String,
+        occurrence: Int = 0,
+        note: String,
+        in data: Data
+    ) throws -> Data {
+        guard !rawLine.isEmpty else { throw WritebackError.lineNotFound }
+
+        let lines = try markdownLines(in: data)
+        let newline = preferredNewline(in: lines, data: data)
+        var currentDate: String?
+        var inFence = false
+        var seen = 0
+        var index = lines.startIndex
+        while index < lines.endIndex {
+            let line = lines[index]
+            if line.text.trimmingCharacters(in: .whitespaces).hasPrefix("```") {
+                inFence.toggle()
+                index += 1
+                continue
+            }
+            if inFence { index += 1; continue }
+            if line.text.hasPrefix("## ") {
+                currentDate = TodoParser.sectionKey(fromHeading: line.text)
+                index += 1
+                continue
+            }
+            guard currentDate == sectionDate,
+                  line.text == rawLine,
+                  checkboxIndex(in: data, lineRange: line.contentRange) != nil
+            else {
+                index += 1
+                continue
+            }
+            if seen < occurrence {
+                seen += 1
+                index += 1
+                continue
+            }
+
+            // Existing description block: indented lines right below the task.
+            var blockEnd = line.fullRange.upperBound
+            var k = index + 1
+            while k < lines.endIndex, TodoParser.isDescriptionLine(lines[k].text) {
+                blockEnd = lines[k].fullRange.upperBound
+                k += 1
+            }
+
+            let indent = String(rawLine.prefix { $0 == " " || $0 == "\t" }) + "    "
+            let trimmed = note.trimmingCharacters(in: .whitespacesAndNewlines)
+            var insertion = Data()
+            if !trimmed.isEmpty {
+                // Task line had no trailing newline (last line of file): add one
+                // before the note so the block sits on its own lines.
+                if line.contentRange.upperBound == line.fullRange.upperBound {
+                    insertion.append(newline)
+                }
+                for noteLine in trimmed.components(separatedBy: "\n") {
+                    let clean = noteLine.trimmingCharacters(in: .whitespaces)
+                    insertion.append(Data((indent + clean).utf8))
+                    insertion.append(newline)
+                }
+            }
+
+            var out = data
+            out.replaceSubrange(line.fullRange.upperBound..<blockEnd, with: insertion)
             return out
         }
         throw WritebackError.lineNotFound
@@ -135,7 +315,8 @@ public enum TodoWriteback {
         let idx = m.upperBound
         guard idx < lineRange.upperBound else { return nil }
         let b = data[idx]
-        let valid = b == UInt8(ascii: " ") || b == UInt8(ascii: "x") || b == UInt8(ascii: "X")
+        let valid = b == UInt8(ascii: " ") || b == UInt8(ascii: "x")
+            || b == UInt8(ascii: "X") || b == UInt8(ascii: "/")
         return valid ? idx : nil
     }
 

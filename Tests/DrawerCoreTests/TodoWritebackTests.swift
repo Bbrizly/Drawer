@@ -11,6 +11,142 @@ final class TodoWritebackTests: XCTestCase {
         )
     }
 
+    func testMarksInProgress() throws {
+        let data = Data("## 2026-06-07\n- [ ] task one\n- [ ] task two\n".utf8)
+        let out = try TodoWriteback.setInProgress(
+            line: "- [ ] task one", sectionDate: "2026-06-07", inProgress: true, in: data
+        )
+        XCTAssertEqual(
+            String(data: out, encoding: .utf8),
+            "## 2026-06-07\n- [/] task one\n- [ ] task two\n"
+        )
+    }
+
+    func testClearsInProgress() throws {
+        let data = Data("## 2026-06-07\n- [/] task one\n".utf8)
+        let out = try TodoWriteback.setInProgress(
+            line: "- [/] task one", sectionDate: "2026-06-07", inProgress: false, in: data
+        )
+        XCTAssertEqual(
+            String(data: out, encoding: .utf8),
+            "## 2026-06-07\n- [ ] task one\n"
+        )
+    }
+
+    func testTogglingInProgressTaskCompletesIt() throws {
+        let data = Data("## 2026-06-07\n- [/] task one\n".utf8)
+        let out = try TodoWriteback.toggle(
+            line: "- [/] task one", sectionDate: "2026-06-07", in: data
+        )
+        XCTAssertEqual(
+            String(data: out, encoding: .utf8),
+            "## 2026-06-07\n- [x] task one\n"
+        )
+    }
+
+    func testDeletesLineFromSection() throws {
+        let data = Data("## 2026-06-07\n- [ ] task one\n- [ ] task two\n".utf8)
+        let out = try TodoWriteback.delete(
+            line: "- [ ] task one", sectionDate: "2026-06-07", in: data
+        )
+        XCTAssertEqual(
+            String(data: out, encoding: .utf8),
+            "## 2026-06-07\n- [ ] task two\n"
+        )
+    }
+
+    func testDeleteScopedToSectionAndOccurrence() throws {
+        let data = Data("## 2026-06-07\n- [ ] dup\n- [ ] dup\n## Backlog\n- [ ] dup\n".utf8)
+        let out = try TodoWriteback.delete(
+            line: "- [ ] dup", sectionDate: "2026-06-07", occurrence: 1, in: data
+        )
+        XCTAssertEqual(
+            String(data: out, encoding: .utf8),
+            "## 2026-06-07\n- [ ] dup\n## Backlog\n- [ ] dup\n"
+        )
+    }
+
+    func testDeletesLastLineWithoutTrailingNewline() throws {
+        let data = Data("## 2026-06-07\n- [ ] only".utf8)
+        let out = try TodoWriteback.delete(
+            line: "- [ ] only", sectionDate: "2026-06-07", in: data
+        )
+        XCTAssertEqual(String(data: out, encoding: .utf8), "## 2026-06-07\n")
+    }
+
+    func testDeleteLineNotFoundThrows() {
+        let data = Data("## 2026-06-07\n- [ ] task\n".utf8)
+        XCTAssertThrowsError(
+            try TodoWriteback.delete(line: "- [ ] nope", sectionDate: "2026-06-07", in: data)
+        )
+    }
+
+    func testDeleteRemovesDescriptionWithTask() throws {
+        let data = Data("## 2026-06-07\n- [ ] task\n    a note\n    more\n- [ ] keep\n".utf8)
+        let out = try TodoWriteback.delete(
+            line: "- [ ] task", sectionDate: "2026-06-07", in: data
+        )
+        XCTAssertEqual(
+            String(data: out, encoding: .utf8),
+            "## 2026-06-07\n- [ ] keep\n"
+        )
+    }
+
+    func testSetNoteAddsDescription() throws {
+        let data = Data("## 2026-06-07\n- [ ] task\n- [ ] other\n".utf8)
+        let out = try TodoWriteback.setNote(
+            line: "- [ ] task", sectionDate: "2026-06-07", note: "why this matters", in: data
+        )
+        XCTAssertEqual(
+            String(data: out, encoding: .utf8),
+            "## 2026-06-07\n- [ ] task\n    why this matters\n- [ ] other\n"
+        )
+    }
+
+    func testSetNoteReplacesExistingDescription() throws {
+        let data = Data("## 2026-06-07\n- [ ] task\n    old note\n- [ ] other\n".utf8)
+        let out = try TodoWriteback.setNote(
+            line: "- [ ] task", sectionDate: "2026-06-07", note: "new note", in: data
+        )
+        XCTAssertEqual(
+            String(data: out, encoding: .utf8),
+            "## 2026-06-07\n- [ ] task\n    new note\n- [ ] other\n"
+        )
+    }
+
+    func testSetNoteMultiLineDescription() throws {
+        let data = Data("## 2026-06-07\n- [ ] task\n".utf8)
+        let out = try TodoWriteback.setNote(
+            line: "- [ ] task", sectionDate: "2026-06-07", note: "line one\nline two", in: data
+        )
+        XCTAssertEqual(
+            String(data: out, encoding: .utf8),
+            "## 2026-06-07\n- [ ] task\n    line one\n    line two\n"
+        )
+    }
+
+    func testSetNoteEmptyRemovesDescription() throws {
+        let data = Data("## 2026-06-07\n- [ ] task\n    old note\n- [ ] other\n".utf8)
+        let out = try TodoWriteback.setNote(
+            line: "- [ ] task", sectionDate: "2026-06-07", note: "", in: data
+        )
+        XCTAssertEqual(
+            String(data: out, encoding: .utf8),
+            "## 2026-06-07\n- [ ] task\n- [ ] other\n"
+        )
+    }
+
+    func testSetNoteOnLastLineWithoutTrailingNewline() throws {
+        let data = Data("## 2026-06-07\n- [ ] task".utf8)
+        let out = try TodoWriteback.setNote(
+            line: "- [ ] task", sectionDate: "2026-06-07", note: "detail", in: data
+        )
+        XCTAssertEqual(
+            String(data: out, encoding: .utf8),
+            "## 2026-06-07\n- [ ] task\n    detail\n"
+        )
+    }
+
     func testTogglesCheckedToUnchecked() throws {
         let data = Data("- [x] done\n".utf8)
         let out = try TodoWriteback.toggle(line: "- [x] done", in: data)
