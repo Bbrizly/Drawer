@@ -156,7 +156,7 @@ final class TodoParserTests: XCTestCase {
         XCTAssertEqual(sections[0].items.map(\.title), ["day task"]) // backlog NOT attached
     }
 
-    func testDisplayTodayAndNearestEarlierCarryover() {
+    func testDisplayCarriesAllEarlierUndoneOldestFirst() {
         let text = """
         ## 2026-06-01
         - [ ] old unchecked
@@ -170,9 +170,31 @@ final class TodoParserTests: XCTestCase {
         """
         let d = TodoParser.display(sections: TodoParser.parse(text), today: "2026-06-07")
         XCTAssertEqual(d.today.map(\.title), ["today task"])
-        XCTAssertEqual(d.carried.map(\.title), ["recent unchecked"]) // nearest earlier, unchecked only
+        // Every earlier day's unchecked items carry, oldest first. Done items drop.
+        XCTAssertEqual(d.carried.map(\.title), ["old unchecked", "recent unchecked"])
         XCTAssertEqual(d.upcoming.map(\.title), ["future task"])     // nearest future
         XCTAssertEqual(d.upcomingDate, "2026-06-09")
+    }
+
+    func testCarryoverDoesNotStopAtNearestDay() {
+        // Regression: a fresh day section with a couple of tasks must not bury
+        // everything still open on prior days.
+        let text = """
+        ## 2026-06-07
+        - [ ] call housing
+        - [ ] send the dms
+        - [x] done thing
+        ## 2026-06-08
+        - [ ] poke chris
+        ## 2026-06-10
+        - [ ] youssef resume
+        - [ ] reply raj
+        """
+        let d = TodoParser.display(sections: TodoParser.parse(text), today: "2026-06-11")
+        XCTAssertEqual(
+            d.carried.map(\.title),
+            ["call housing", "send the dms", "poke chris", "youssef resume", "reply raj"]
+        )
     }
 
     func testUpcomingIncludesCheckedItems() {

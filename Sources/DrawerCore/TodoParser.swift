@@ -152,13 +152,15 @@ public enum TodoParser {
         let archive = sections.filter { $0.date == archiveKey }.flatMap(\.items)
 
         let todayItems = days.filter { $0.date == today }.flatMap(\.items)
-        // ISO dates compare correctly as strings
-        let nearestEarlier = days.map(\.date).filter { $0 < today }.max()
-        let carried = nearestEarlier.map { earlier in
-            days.filter { $0.date == earlier }
-                .flatMap(\.items)
-                .filter { !$0.isDone }
-        } ?? []
+        // Carry every unfinished task from ALL earlier days, oldest first.
+        // Taking only the nearest earlier day silently dropped anything left
+        // open on older days the moment a newer day section appeared.
+        // ISO dates compare and sort correctly as strings.
+        let carried = days
+            .filter { $0.date < today }
+            .sorted { $0.date < $1.date }
+            .flatMap(\.items)
+            .filter { !$0.isDone }
         // Next planned day, so an evening glance shows tomorrow's list.
         // Includes checked items: hiding completed is the view's job
         // (the "Hide completed" toggle), not a display-rule decision.
