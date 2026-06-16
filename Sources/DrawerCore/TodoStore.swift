@@ -98,6 +98,23 @@ public final class TodoStore: ObservableObject {
             lastWrittenData = nil
             if data == last { return }
         }
+        // Sweep done tasks older than the keep window into Archive > Done.
+        // Idempotent and only writes when something actually moved, so the
+        // follow-up watcher event is caught by the suppression check above.
+        if let text = String(data: data, encoding: .utf8) {
+            let swept = TodoArchiver.archiveCompleted(in: text, today: todayProvider())
+            if swept != text, let sweptData = swept.data(using: .utf8) {
+                do {
+                    lastWrittenData = sweptData
+                    try writeData(sweptData, fileURL)
+                    apply(sweptData)
+                    return
+                } catch {
+                    lastWrittenData = nil
+                    // Fall through and show the data we already read.
+                }
+            }
+        }
         apply(data)
     }
 
