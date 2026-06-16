@@ -6,8 +6,12 @@ struct DrawerView: View {
     @ObservedObject var timer: FocusTimer
     var onToggleSize: () -> Void = {}
     var onNeedsKeyboard: () -> Void = {}
+    var notes: NotesStore? = nil
+    var onToggleTeleprompter: () -> Void = {}
 
     @State private var showingAdd = false
+    @State private var showingNotes = false
+    @AppStorage("notesPaneHeight") private var notesPaneHeight = 160.0
     @State private var newTaskTitle = ""
     @FocusState private var addFieldFocused: Bool
     @AppStorage("hideCompleted") private var hideCompleted = false
@@ -74,36 +78,51 @@ struct DrawerView: View {
                                 addFieldFocused = true
                             }
                         }
-                        Menu {
-                            Toggle("Hide completed", isOn: $hideCompleted)
-                            Toggle("Unchecked first", isOn: $uncheckedFirst)
-                        } label: {
-                            Image(systemName: "line.3.horizontal.decrease")
-                                .font(.system(size: 13, weight: .semibold))
-                                .foregroundStyle(
-                                    hideCompleted || uncheckedFirst
-                                        ? Color.accentColor
-                                        : Color.secondary
-                                )
-                                .frame(width: 30, height: 30)
-                                .background(
-                                    hideCompleted || uncheckedFirst
-                                        ? Color.accentColor.opacity(0.14)
-                                        : Color.clear,
-                                    in: RoundedRectangle(cornerRadius: 9, style: .continuous)
-                                )
-                                .contentShape(
-                                    RoundedRectangle(cornerRadius: 9, style: .continuous)
-                                )
+                        if notesEnabled && notes != nil {
+                            DrawerIconButton(
+                                systemName: "note.text",
+                                accessibilityLabel: "Notes",
+                                helpText: "Open a scratchpad with a teleprompter.",
+                                isSelected: showingNotes
+                            ) {
+                                showingNotes.toggle()
+                                if showingNotes {
+                                    onNeedsKeyboard()
+                                }
+                            }
                         }
-                        .menuStyle(.button)
-                        .buttonStyle(.plain)
-                        .menuIndicator(.hidden)
-                        .fixedSize()
-                        .frame(width: 30, height: 30)
-                        .accessibilityLabel("Filter tasks")
-                        .accessibilityHint("Show task filtering and sorting options.")
-                        .help("Filter and sort")
+                        if filterMenuEnabled {
+                            Menu {
+                                Toggle("Hide completed", isOn: $hideCompleted)
+                                Toggle("Unchecked first", isOn: $uncheckedFirst)
+                            } label: {
+                                Image(systemName: "line.3.horizontal.decrease")
+                                    .font(.system(size: 13, weight: .semibold))
+                                    .foregroundStyle(
+                                        hideCompleted || uncheckedFirst
+                                            ? AnyShapeStyle(theme.accent)
+                                            : AnyShapeStyle(.secondary)
+                                    )
+                                    .frame(width: 30, height: 30)
+                                    .background(
+                                        hideCompleted || uncheckedFirst
+                                            ? theme.accent.opacity(0.14)
+                                            : Color.clear,
+                                        in: RoundedRectangle(cornerRadius: 9, style: .continuous)
+                                    )
+                                    .contentShape(
+                                        RoundedRectangle(cornerRadius: 9, style: .continuous)
+                                    )
+                            }
+                            .menuStyle(.button)
+                            .buttonStyle(.plain)
+                            .menuIndicator(.hidden)
+                            .fixedSize()
+                            .frame(width: 30, height: 30)
+                            .accessibilityLabel("Filter tasks")
+                            .accessibilityHint("Show task filtering and sorting options.")
+                            .help("Filter and sort")
+                        }
                         DrawerIconButton(
                             systemName: "arrow.up.left.and.arrow.down.right",
                             accessibilityLabel: "Expand or collapse drawer",
@@ -140,13 +159,22 @@ struct DrawerView: View {
                     .transition(.move(edge: .top).combined(with: .opacity))
                 }
 
+                if showingNotes, let notes {
+                    NotesPaneView(
+                        notes: notes,
+                        height: $notesPaneHeight,
+                        onToggleTeleprompter: onToggleTeleprompter,
+                        onNeedsKeyboard: onNeedsKeyboard
+                    )
+                }
+
                 ScrollView {
                     VStack(alignment: .leading, spacing: 5) {
                         if let msg = store.statusMessage {
                             statusView(msg)
                         }
                         let today = arranged(store.todayItems)
-                        let carried = arranged(store.carriedItems)
+                        let carried = carriedSectionEnabled ? arranged(store.carriedItems) : []
                         if !today.isEmpty {
                             sectionHeader("Today", count: today.count, isPrimary: true)
                             ForEach(today) { item in
@@ -201,18 +229,28 @@ struct DrawerView: View {
         .coordinateSpace(.named("panel"))
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .fontDesign(theme.fontDesign)
+        .tint(theme.accent)
+        // Set the base ink once so .secondary / .tertiary derive from it. The
+        // art-directed themes carry their own ink; the rest keep .primary.
+        .foregroundStyle(theme.primaryInk)
         .environment(\.drawerTheme, theme)
         .environmentObject(celebration)
         .environmentObject(swipe)
         .animation(reduceMotion ? nil : .easeOut(duration: 0.18), value: showingAdd)
+        .animation(reduceMotion ? nil : .easeOut(duration: 0.18), value: showingNotes)
+        .animation(reduceMotion ? nil : .easeOut(duration: 0.18), value: sound.isPlaying)
         .onAppear {
             scrollMonitor.start(swipe)
+            swipe.deleteEnabled = swipeDeleteEnabled
+            swipe.progressEnabled = swipeProgressEnabled
             // A right swipe on a row reports its id here. Flip its file marker.
             swipe.onProgress = { [weak store] id in
                 guard let store, let item = store.item(withID: id) else { return }
                 store.setInProgress(item, !item.isInProgress)
             }
         }
+        .onChange(of: swipeDeleteEnabled) { _, on in swipe.deleteEnabled = on }
+        .onChange(of: swipeProgressEnabled) { _, on in swipe.progressEnabled = on }
         .onDisappear { scrollMonitor.stop() }
     }
 
