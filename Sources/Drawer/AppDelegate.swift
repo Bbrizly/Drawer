@@ -16,6 +16,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var toggleMenuItem: NSMenuItem?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        FontLoader.registerBundledFonts() // the Pixel theme's typeface
         UserDefaults.standard.register(defaults: [
             "drawerFilePath": AppPaths.defaultDrawerFile,
             "panelWidth": 300.0,

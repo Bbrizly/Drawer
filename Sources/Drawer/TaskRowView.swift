@@ -52,7 +52,7 @@ struct TaskRowView: View {
                 checkbox
 
                 Text(item.title)
-                    .font(.callout)
+                    .font(theme.titleFont)
                     .fontWeight(item.isInProgress ? .semibold : .regular)
                     .lineSpacing(2)
                     .strikethrough(item.isDone)
@@ -92,12 +92,12 @@ struct TaskRowView: View {
             // A thin accent bar marks an in-progress row at a glance.
             if item.isInProgress {
                 Capsule()
-                    .fill(Color.accentColor)
+                    .fill(theme.accent)
                     .frame(width: 3)
                     .padding(.vertical, 4)
             }
         }
-        .contentShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .contentShape(RoundedRectangle(cornerRadius: theme.rowCornerRadius, style: .continuous))
         .accessibilityAction(named: item.isInProgress ? "Clear in progress" : "Mark in progress") {
             store.setInProgress(item, !item.isInProgress)
         }
@@ -118,20 +118,18 @@ struct TaskRowView: View {
     }
 
     private var checkboxSymbol: String {
-        if item.isDone { return "checkmark.circle.fill" }
-        if item.isInProgress { return "circle.lefthalf.filled" }
-        return "circle"
+        theme.checkboxSymbol(done: item.isDone, inProgress: item.isInProgress)
     }
 
     /// In-progress rows get a soft accent wash so they read as "live" without
     /// shouting. Otherwise the usual hover tint.
     @ViewBuilder
     private var rowBackground: some View {
-        let shape = RoundedRectangle(cornerRadius: 10, style: .continuous)
+        let shape = RoundedRectangle(cornerRadius: theme.rowCornerRadius, style: .continuous)
         if item.isInProgress {
-            shape.fill(Color.accentColor.opacity(isRowHovering ? 0.22 : 0.16))
+            shape.fill(theme.accent.opacity(isRowHovering ? 0.22 : 0.16))
         } else if isRowHovering {
-            shape.fill(Color.primary.opacity(0.055))
+            shape.fill(theme.primaryInk.opacity(0.06))
         } else {
             shape.fill(Color.clear)
         }
@@ -145,7 +143,7 @@ struct TaskRowView: View {
             .foregroundStyle(.white)
             .frame(width: swipe.progressWidth)
             .frame(maxHeight: .infinity)
-            .background(Color.accentColor)
+            .background(theme.accent)
             .accessibilityHidden(true)
     }
 

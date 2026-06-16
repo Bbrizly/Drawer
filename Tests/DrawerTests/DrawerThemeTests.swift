@@ -1,3 +1,4 @@
+import AppKit
 @testable import Drawer
 import SwiftUI
 import XCTest
@@ -26,5 +27,27 @@ final class DrawerThemeTests: XCTestCase {
     func testEnvironmentDefault() {
         let env = EnvironmentValues()
         XCTAssertEqual(env.drawerTheme, .liquidGlass)
+    }
+
+    func testThreeNewThemesExist() {
+        for theme in [DrawerTheme.medieval, .pixel, .artistic] {
+            XCTAssertTrue(theme.isArtDirected)
+            XCTAssertNotNil(theme.sectionHeaderStyle)
+        }
+    }
+
+    func testPixelUsesSquareCheckboxes() {
+        XCTAssertEqual(DrawerTheme.pixel.checkboxSymbol(done: false, inProgress: false), "square")
+        XCTAssertEqual(DrawerTheme.pixel.checkboxSymbol(done: true, inProgress: false), "checkmark.square.fill")
+        // The round themes keep circles.
+        XCTAssertEqual(DrawerTheme.medieval.checkboxSymbol(done: false, inProgress: false), "circle")
+    }
+
+    func testBundledPixelFontRegisters() {
+        FontLoader.registerBundledFonts()
+        XCTAssertTrue(
+            NSFontManager.shared.availableFontFamilies.contains(FontLoader.pixelFamily),
+            "The Pixelify Sans face should register from the resource bundle."
+        )
     }
 }

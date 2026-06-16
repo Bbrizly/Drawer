@@ -8,6 +8,7 @@ struct DrawerIconButton: View {
     var isSelected = false
     var action: () -> Void
 
+    @Environment(\.drawerTheme) private var theme
     @State private var isHovering = false
 
     var body: some View {
@@ -40,17 +41,17 @@ struct DrawerIconButton: View {
             return AnyShapeStyle(Color.white)
         }
         if isSelected {
-            return AnyShapeStyle(Color.accentColor)
+            return AnyShapeStyle(theme.accent)
         }
         return AnyShapeStyle(Color.secondary)
     }
 
     private var backgroundStyle: AnyShapeStyle {
         if isProminent {
-            return AnyShapeStyle(Color.accentColor.gradient)
+            return AnyShapeStyle(theme.accent.gradient)
         }
         if isSelected {
-            return AnyShapeStyle(Color.accentColor.opacity(0.14))
+            return AnyShapeStyle(theme.accent.opacity(0.14))
         }
         return AnyShapeStyle(isHovering ? Color.secondary.opacity(0.12) : Color.clear)
     }

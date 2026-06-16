@@ -4,6 +4,7 @@ import SwiftUI
 struct TimerHeaderView: View {
     @ObservedObject var timer: FocusTimer
     @AppStorage("defaultMinutesText") private var minutesText = "25"
+    @Environment(\.drawerTheme) private var theme
 
     var body: some View {
         switch timer.phase {
@@ -60,7 +61,8 @@ struct TimerHeaderView: View {
                         .font(.system(size: 9, weight: .bold))
                         .tracking(0.8)
                         .foregroundStyle(
-                            timer.phase == .running ? Color.accentColor : Color.secondary
+                            timer.phase == .running
+                                ? AnyShapeStyle(theme.accent) : AnyShapeStyle(.secondary)
                         )
                     Text(FocusTimer.format(timer.remaining))
                         .font(.system(size: 30, weight: .semibold, design: .rounded)

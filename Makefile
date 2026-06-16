@@ -16,6 +16,7 @@ app:
 	cp Resources/Info.plist $(APP)/Contents/Info.plist
 	cp Resources/AppIcon.icns $(APP)/Contents/Resources/AppIcon.icns
 	cp $(BINARY) $(APP)/Contents/MacOS/Drawer
+	cp -R .build/release/Drawer_Drawer.bundle $(APP)/Contents/Resources/ 2>/dev/null || true
 	codesign --force --sign - $(APP)
 
 run: app

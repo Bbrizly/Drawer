@@ -276,13 +276,15 @@ struct DrawerView: View {
         count: Int,
         isPrimary: Bool = false
     ) -> some View {
-        let titleColor: AnyShapeStyle = theme.sectionHeaderTinted
-            ? AnyShapeStyle(.tint)
-            : AnyShapeStyle(isPrimary ? AnyShapeStyle(.primary) : AnyShapeStyle(.secondary))
+        let headerStyle = theme.sectionHeaderStyle
+        let titleColor: AnyShapeStyle = headerStyle
+            ?? (theme.sectionHeaderTinted
+                ? AnyShapeStyle(.tint)
+                : AnyShapeStyle(isPrimary ? AnyShapeStyle(.primary) : AnyShapeStyle(.secondary)))
         return HStack(spacing: 7) {
-            if isPrimary && !theme.sectionHeaderTinted {
+            if isPrimary && !theme.sectionHeaderTinted && headerStyle == nil {
                 Circle()
-                    .fill(Color.accentColor)
+                    .fill(theme.accent)
                     .frame(width: 5, height: 5)
             }
             Text(theme.sectionHeaderUppercased ? title.uppercased() : title)

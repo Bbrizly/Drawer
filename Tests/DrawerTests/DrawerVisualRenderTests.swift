@@ -10,6 +10,7 @@ final class DrawerVisualRenderTests: XCTestCase {
         guard let outputDirectory = ProcessInfo.processInfo.environment["DRAWER_RENDER_DIR"] else {
             throw XCTSkip("Set DRAWER_RENDER_DIR to generate visual review images.")
         }
+        FontLoader.registerBundledFonts() // so the Pixel theme renders in its real face
 
         let sampleFile = FileManager.default.temporaryDirectory
             .appendingPathComponent("drawer-visual-\(UUID().uuidString).md")
