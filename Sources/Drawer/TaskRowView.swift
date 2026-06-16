@@ -232,9 +232,10 @@ struct TaskRowView: View {
             }
         } else if let note = item.note {
             VStack(alignment: .leading, spacing: 4) {
-                Text(note)
+                Text(linkified(note))
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                    .tint(.blue)
                     .textSelection(.enabled)
                     .fixedSize(horizontal: false, vertical: true)
                 Button(action: beginEditNote) {
