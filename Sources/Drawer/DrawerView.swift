@@ -16,10 +16,24 @@ struct DrawerView: View {
     @AppStorage("backlogExpanded") private var backlogExpanded = false
     @AppStorage("archiveExpanded") private var archiveExpanded = false
     @AppStorage("drawerTheme") private var themeRaw = DrawerTheme.default.rawValue
+    // Feature flags (see FeatureFlag). Each gates a slice of the UI so the app
+    // can be stripped to the bare task list.
+    @AppStorage("feature.focusTimer") private var focusTimerEnabled = true
+    @AppStorage("feature.focusSound") private var focusSoundEnabled = true
+    @AppStorage("feature.filterMenu") private var filterMenuEnabled = true
+    @AppStorage("feature.notes") private var notesEnabled = true
+    @AppStorage("feature.carriedSection") private var carriedSectionEnabled = true
+    @AppStorage("feature.backlogSection") private var backlogSectionEnabled = true
+    @AppStorage("feature.archiveSection") private var archiveSectionEnabled = true
+    @AppStorage("feature.swipeDelete") private var swipeDeleteEnabled = true
+    @AppStorage("feature.swipeProgress") private var swipeProgressEnabled = true
+    @AppStorage("focusSoundKind") private var focusSoundKind = "pink"
+    @AppStorage("focusSoundVolume") private var focusSoundVolume = 0.5
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @StateObject private var celebration = CelebrationCenter()
     @StateObject private var swipe = SwipeCoordinator()
     @StateObject private var scrollMonitor = ScrollSwipeMonitor()
+    @StateObject private var sound = FocusSoundPlayer()
 
     private var theme: DrawerTheme { DrawerTheme(rawValue: themeRaw) ?? .default }
 
@@ -33,7 +47,19 @@ struct DrawerView: View {
 
             VStack(alignment: .leading, spacing: 13) {
                 HStack(alignment: .center, spacing: 10) {
-                    TimerHeaderView(timer: timer)
+                    if focusTimerEnabled {
+                        TimerHeaderView(timer: timer)
+                    }
+                    if focusSoundEnabled {
+                        DrawerIconButton(
+                            systemName: sound.isPlaying ? "speaker.wave.2.fill" : "speaker.slash.fill",
+                            accessibilityLabel: sound.isPlaying ? "Stop focus sound" : "Play focus sound",
+                            helpText: "Play pink or brown noise to focus. Pick the sound in Settings.",
+                            isProminent: sound.isPlaying
+                        ) {
+                            sound.toggle()
+                        }
+                    }
                     Spacer(minLength: 8)
                     HStack(spacing: 2) {
                         DrawerIconButton(
@@ -87,7 +113,12 @@ struct DrawerView: View {
                         }
                     }
                     .padding(3)
-                    .background(.quaternary.opacity(0.45), in: RoundedRectangle(cornerRadius: 12))
+                    .background(theme.controlFill, in: RoundedRectangle(cornerRadius: 12))
+                }
+
+                if focusSoundEnabled && sound.isPlaying {
+                    soundControls
+                        .transition(.move(edge: .top).combined(with: .opacity))
                 }
 
                 if showingAdd {
@@ -137,18 +168,22 @@ struct DrawerView: View {
                                 taskRow(item)
                             }
                         }
-                        collapsibleSection(
-                            title: "BACKLOG",
-                            items: store.backlogItems,
-                            isExpanded: $backlogExpanded,
-                            helpText: "Tasks under \"## Backlog\" in the file"
-                        )
-                        collapsibleSection(
-                            title: "ARCHIVE",
-                            items: store.archiveItems,
-                            isExpanded: $archiveExpanded,
-                            helpText: "Tasks under \"## Archive\" in the file"
-                        )
+                        if backlogSectionEnabled {
+                            collapsibleSection(
+                                title: "BACKLOG",
+                                items: store.backlogItems,
+                                isExpanded: $backlogExpanded,
+                                helpText: "Tasks under \"## Backlog\" in the file"
+                            )
+                        }
+                        if archiveSectionEnabled {
+                            collapsibleSection(
+                                title: "ARCHIVE",
+                                items: store.archiveItems,
+                                isExpanded: $archiveExpanded,
+                                helpText: "Tasks under \"## Archive\" in the file"
+                            )
+                        }
                         if today.isEmpty && carried.isEmpty && upcoming.isEmpty
                             && store.statusMessage == nil {
                             emptyState
@@ -298,6 +333,56 @@ struct DrawerView: View {
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 4)
+    }
+
+    /// The slide-in row under the header: pick the sound, set the volume.
+    /// Sits in the full panel width so it stays readable on a narrow panel.
+    private var soundControls: some View {
+        HStack(spacing: 9) {
+            Menu {
+                ForEach(FocusSoundPlayer.options, id: \.id) { opt in
+                    Button { focusSoundKind = opt.id } label: {
+                        Label(opt.label, systemImage: opt.symbol)
+                    }
+                }
+            } label: {
+                HStack(spacing: 5) {
+                    Image(systemName: currentSound.symbol)
+                        .font(.system(size: 11, weight: .semibold))
+                    Text(currentSound.label)
+                        .font(.system(size: 12, weight: .semibold))
+                    Image(systemName: "chevron.up.chevron.down")
+                        .font(.system(size: 7, weight: .bold))
+                        .foregroundStyle(.tertiary)
+                }
+                .foregroundStyle(.primary)
+                .padding(.horizontal, 9)
+                .padding(.vertical, 6)
+                .background(.quaternary.opacity(0.7), in: RoundedRectangle(cornerRadius: 8))
+                .contentShape(RoundedRectangle(cornerRadius: 8))
+            }
+            .menuStyle(.button)
+            .buttonStyle(.plain)
+            .menuIndicator(.hidden)
+            .fixedSize()
+
+            Image(systemName: "speaker.fill")
+                .font(.system(size: 9))
+                .foregroundStyle(.tertiary)
+            Slider(value: $focusSoundVolume, in: 0...1)
+                .controlSize(.small)
+            Image(systemName: "speaker.wave.3.fill")
+                .font(.system(size: 9))
+                .foregroundStyle(.tertiary)
+        }
+        .padding(.horizontal, 11)
+        .padding(.vertical, 8)
+        .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 11))
+    }
+
+    private var currentSound: (id: String, label: String, symbol: String) {
+        FocusSoundPlayer.options.first { $0.id == focusSoundKind }
+            ?? FocusSoundPlayer.options[1]
     }
 
     private func statusView(_ message: String) -> some View {

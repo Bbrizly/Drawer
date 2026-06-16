@@ -19,6 +19,10 @@ final class SwipeCoordinator: ObservableObject {
     /// Set once by the view. Called when a right swipe crosses the trigger
     /// threshold, with the row id, so the store can flip its in-progress flag.
     var onProgress: ((String) -> Void)?
+    /// Feature flags. When a direction is off, the row can't slide that way and
+    /// its action never fires, so both inputs (mouse and trackpad) honor it.
+    var deleteEnabled = true
+    var progressEnabled = true
 
     func offset(for id: String) -> CGFloat { offsets[id] ?? 0 }
     func isOpen(_ id: String) -> Bool { openID == id }
@@ -29,7 +33,9 @@ final class SwipeCoordinator: ObservableObject {
     func drag(id: String, translationX: CGFloat) {
         if let open = openID, open != id { offsets[open] = 0; openID = nil }
         let base: CGFloat = openID == id ? -deleteWidth : 0
-        offsets[id] = max(-deleteWidth - 20, min(progressWidth + 20, base + translationX))
+        let lower: CGFloat = deleteEnabled ? -deleteWidth - 20 : 0
+        let upper: CGFloat = progressEnabled ? progressWidth + 20 : 0
+        offsets[id] = max(lower, min(upper, base + translationX))
     }
 
     /// Snap open or closed on release. A left swipe past half the delete width
@@ -37,10 +43,10 @@ final class SwipeCoordinator: ObservableObject {
     /// fires the in-progress action and snaps the row back to rest.
     func end(id: String) {
         let off = offset(for: id)
-        if off < -deleteWidth / 2 {
+        if deleteEnabled, off < -deleteWidth / 2 {
             offsets[id] = -deleteWidth
             openID = id
-        } else if off > progressWidth / 2 {
+        } else if progressEnabled, off > progressWidth / 2 {
             offsets[id] = 0
             if openID == id { openID = nil }
             onProgress?(id)

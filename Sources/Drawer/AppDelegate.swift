@@ -25,7 +25,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             "completionSound": true,
             "showTomorrow": true,
             "drawerTheme": DrawerTheme.default.rawValue,
+            "focusSoundKind": "pink",
+            "focusSoundVolume": 0.5,
         ])
+        // Every feature defaults to on.
+        FeatureFlag.registerDefaults()
 
         // SMAppService replaces the manually-added login item; register once.
         if !UserDefaults.standard.bool(forKey: "didRegisterLoginItem") {
@@ -151,9 +155,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func notifyComplete(_ title: String) {
-        if UserDefaults.standard.bool(forKey: "completionSound") {
-            NSSound(named: "Glass")?.play()
-        }
+        // "Sound when timer ends" feature: off means no chime and no banner.
+        guard UserDefaults.standard.bool(forKey: "completionSound") else { return }
+        NSSound(named: "Glass")?.play()
         guard Bundle.main.bundleIdentifier != nil else { return }
         let content = UNMutableNotificationContent()
         content.title = "Focus session done"

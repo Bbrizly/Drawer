@@ -11,6 +11,10 @@ struct TaskRowView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @AppStorage("taskCelebration") private var taskCelebration = true
     @AppStorage("taskCelebrationSound") private var taskCelebrationSound = true
+    @AppStorage("feature.taskNotes") private var taskNotesEnabled = true
+    @AppStorage("feature.minuteBadges") private var minuteBadgesEnabled = true
+    @AppStorage("feature.swipeDelete") private var swipeDeleteEnabled = true
+    @AppStorage("feature.swipeProgress") private var swipeProgressEnabled = true
     @EnvironmentObject private var celebration: CelebrationCenter
     @EnvironmentObject private var swipe: SwipeCoordinator
     @State private var isCheckboxHovering = false
@@ -41,9 +45,14 @@ struct TaskRowView: View {
                 .offset(x: swipe.deleteWidth + min(offset, 0))
             rowContent
                 .offset(x: offset)
-                .gesture(swipeGesture)
+                // Disable the swipe entirely when neither direction is on, but
+                // keep the checkbox and tap-to-expand working (.subviews).
+                .gesture(
+                    swipeGesture,
+                    including: swipeDeleteEnabled || swipeProgressEnabled ? .all : .subviews
+                )
         }
-        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: theme.rowCornerRadius, style: .continuous))
     }
 
     private var rowContent: some View {
@@ -60,14 +69,14 @@ struct TaskRowView: View {
                     .fixedSize(horizontal: false, vertical: true) // wrap, never truncate
                     .frame(maxWidth: .infinity, alignment: .leading)
 
-                if item.note != nil && !isExpanded {
+                if taskNotesEnabled && item.note != nil && !isExpanded {
                     Image(systemName: "text.alignleft")
                         .font(.system(size: 10, weight: .semibold))
                         .foregroundStyle(.tertiary)
                         .help("Has a description")
                 }
 
-                if item.minutes != 25 && !item.isDone {
+                if minuteBadgesEnabled && item.minutes != 25 && !item.isDone {
                     Text("\(item.minutes)m")
                         .font(.system(size: 10, weight: .semibold, design: .rounded))
                         .foregroundStyle(.secondary)
@@ -80,7 +89,7 @@ struct TaskRowView: View {
             .contentShape(Rectangle())
             .onTapGesture(perform: toggleExpand)
 
-            if isExpanded {
+            if isExpanded && taskNotesEnabled {
                 noteArea
                     .padding(.leading, 32) // line up under the title, past the checkbox
             }
@@ -286,6 +295,7 @@ struct TaskRowView: View {
 
     private func toggleExpand() {
         if swipe.isOpen(item.id) { closeSwipe(); return }
+        guard taskNotesEnabled else { return } // notes off: tap does nothing
         if reduceMotion {
             isExpanded.toggle()
         } else {

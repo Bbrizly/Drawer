@@ -17,10 +17,13 @@ struct SettingsView: View {
             )
             .tabItem { Label("General", systemImage: "gearshape") }
 
+            FeatureSettingsView()
+                .tabItem { Label("Features", systemImage: "switch.2") }
+
             HelpView()
                 .tabItem { Label("Help", systemImage: "questionmark.circle") }
         }
-        .frame(width: 420, height: 460)
+        .frame(width: 420, height: 520)
     }
 }
 
@@ -32,33 +35,49 @@ private struct GeneralSettingsView: View {
     @AppStorage("drawerFilePath") private var filePath = AppPaths.defaultDrawerFile
     @AppStorage("hotkeyPreset") private var hotkeyRaw = HotkeyPreset.ctrlOptSpace.rawValue
     @AppStorage("defaultMinutesText") private var defaultMinutes = "25"
-    @AppStorage("completionSound") private var completionSound = true
-    @AppStorage("taskCelebration") private var taskCelebration = true
-    @AppStorage("taskCelebrationSound") private var taskCelebrationSound = true
     @AppStorage("panelWidth") private var panelWidth = 300.0
     @AppStorage("panelCompactHeight") private var panelHeight = 440.0
-    @AppStorage("showTomorrow") private var showTomorrow = true
     @AppStorage("drawerTheme") private var themeRaw = DrawerTheme.default.rawValue
+    @AppStorage("focusSoundKind") private var focusSoundKind = "pink"
+    @AppStorage("focusSoundVolume") private var focusSoundVolume = 0.5
     @State private var launchAtLogin = SMAppService.mainApp.status == .enabled
     @State private var revertingHotkey = false
     @State private var showHotkeyError = false
 
     var body: some View {
         Form {
-            Section("Appearance") {
-                Picker("Theme", selection: $themeRaw) {
+            Section("Theme") {
+                LazyVGrid(
+                    columns: [GridItem(.adaptive(minimum: 108), spacing: 10)],
+                    spacing: 10
+                ) {
                     ForEach(DrawerTheme.allCases) { theme in
-                        Text(theme.displayName).tag(theme.rawValue)
+                        ThemeSwatch(theme: theme, selected: themeRaw == theme.id)
+                            .onTapGesture {
+                                withAnimation(.snappy(duration: 0.2)) {
+                                    themeRaw = theme.id
+                                }
+                            }
+                    }
+                }
+                .padding(.vertical, 4)
+            }
+            Section("Focus sound") {
+                Picker("Sound", selection: $focusSoundKind) {
+                    ForEach(FocusSoundPlayer.options, id: \.id) { opt in
+                        Text(opt.label).tag(opt.id)
                     }
                 }
                 .pickerStyle(.segmented)
-                Toggle(isOn: $taskCelebration) {
-                    Text("Celebrate completed tasks")
-                    Text("Confetti and a haptic tap when you check a task off.")
+                HStack {
+                    Image(systemName: "speaker.fill").foregroundStyle(.secondary)
+                    Slider(value: $focusSoundVolume, in: 0...1)
+                    Image(systemName: "speaker.wave.3.fill").foregroundStyle(.secondary)
                 }
-                Toggle("Play a pop sound", isOn: $taskCelebrationSound)
-                    .disabled(!taskCelebration)
-                    .padding(.leading, 16)
+                Text("Also adjustable from the speaker button in the header. "
+                     + "Pink masks chatter, brown is deeper, ocean swells like surf.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
             Section("Tasks file") {
                 HStack(alignment: .firstTextBaseline) {
@@ -108,7 +127,6 @@ private struct GeneralSettingsView: View {
                             if digits != newValue { defaultMinutes = digits }
                         }
                 }
-                Toggle("Sound when timer ends", isOn: $completionSound)
             }
             Section("Panel") {
                 HStack {
@@ -127,7 +145,6 @@ private struct GeneralSettingsView: View {
                         .foregroundStyle(.secondary)
                         .frame(width: 32, alignment: .trailing)
                 }
-                Toggle("Show Tomorrow section", isOn: $showTomorrow)
             }
             Section {
                 Toggle("Launch at login", isOn: $launchAtLogin)
@@ -167,6 +184,38 @@ private struct GeneralSettingsView: View {
             filePath = url.path
             onChooseFile(url)
         }
+    }
+}
+
+private struct FeatureSettingsView: View {
+    @StateObject private var model = FeatureFlagsModel()
+
+    var body: some View {
+        Form {
+            Section {
+                Text("Turn any feature on or off. Minimal strips Drawer to just "
+                     + "your task list (Today and carried-over). Everything turns "
+                     + "it all back on.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                HStack {
+                    Button("Minimal") { model.applyMinimal() }
+                    Button("Everything") { model.applyEverything() }
+                    Spacer()
+                }
+            }
+            ForEach(FeatureFlag.groupsInOrder, id: \.self) { group in
+                Section(group) {
+                    ForEach(FeatureFlag.allCases.filter { $0.group == group }) { flag in
+                        Toggle(isOn: model.binding(flag)) {
+                            Text(flag.title)
+                            Text(flag.blurb)
+                        }
+                    }
+                }
+            }
+        }
+        .formStyle(.grouped)
     }
 }
 
@@ -268,9 +317,64 @@ private struct HelpView: View {
     }
 }
 
+/// A live preview tile for one theme: the real panel surface behind a couple of
+/// stand-in ink bars, with the theme's accent and a selection ring. Tapping it
+/// switches the drawer instantly.
+private struct ThemeSwatch: View {
+    let theme: DrawerTheme
+    let selected: Bool
+
+    private let shape = RoundedRectangle(cornerRadius: 12, style: .continuous)
+
+    var body: some View {
+        VStack(spacing: 6) {
+            ZStack(alignment: .topLeading) {
+                PanelBackground(theme: theme)
+                    .clipShape(shape)
+                VStack(alignment: .leading, spacing: 5) {
+                    Circle().fill(theme.accent).frame(width: 9, height: 9)
+                    RoundedRectangle(cornerRadius: 2)
+                        .fill(theme.primaryInk.opacity(0.85))
+                        .frame(width: 48, height: 5)
+                    RoundedRectangle(cornerRadius: 2)
+                        .fill(theme.primaryInk.opacity(0.5))
+                        .frame(width: 34, height: 5)
+                }
+                .padding(11)
+            }
+            .frame(height: 62)
+            .overlay(
+                shape.strokeBorder(
+                    selected ? Color.accentColor : Color.primary.opacity(0.12),
+                    lineWidth: selected ? 2.5 : 1
+                )
+            )
+            Text(theme.displayName)
+                .font(.caption)
+                .fontWeight(selected ? .semibold : .regular)
+                .foregroundStyle(selected ? AnyShapeStyle(.primary) : AnyShapeStyle(.secondary))
+        }
+        .contentShape(Rectangle())
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("\(theme.displayName) theme")
+        .accessibilityAddTraits(selected ? [.isButton, .isSelected] : .isButton)
+    }
+}
+
 enum AppPaths {
     static let defaultDrawerFile = FileManager.default.homeDirectoryForCurrentUser
         .appendingPathComponent("Library/Mobile Documents/iCloud~md~obsidian/Documents")
         .appendingPathComponent("My life/1 Projects/Drawer.md")
         .path
+
+    /// The scratchpad lives in Application Support, out of the iCloud vault so
+    /// it never shows up as a stray note.
+    static var notesFile: URL {
+        let base = FileManager.default
+            .urls(for: .applicationSupportDirectory, in: .userDomainMask).first
+            ?? FileManager.default.homeDirectoryForCurrentUser
+        return base
+            .appendingPathComponent("Drawer", isDirectory: true)
+            .appendingPathComponent("notes.md")
+    }
 }
