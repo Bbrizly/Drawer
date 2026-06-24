@@ -47,4 +47,17 @@ final class TeleprompterScrollTests: XCTestCase {
         scroll.tick(-1)
         XCTAssertEqual(scroll.offset, 0)
     }
+
+    func testScrollByMovesAndClampsBothEnds() {
+        var scroll = TeleprompterScroll(speed: 50)
+        scroll.contentHeight = 1000
+        scroll.viewportHeight = 200 // maxOffset = 800
+        scroll.scroll(by: 120)
+        XCTAssertEqual(scroll.offset, 120, accuracy: 0.0001)
+        scroll.scroll(by: -500)         // clamps at the top
+        XCTAssertEqual(scroll.offset, 0, accuracy: 0.0001)
+        scroll.scroll(by: 100_000)      // clamps at the end
+        XCTAssertEqual(scroll.offset, 800, accuracy: 0.0001)
+        XCTAssertTrue(scroll.atEnd)
+    }
 }

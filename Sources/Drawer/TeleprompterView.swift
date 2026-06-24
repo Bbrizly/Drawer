@@ -152,6 +152,9 @@ struct TeleprompterView: View {
                     .frame(height: 2)
                     .padding(.top, 24)
             }
+            // Catch trackpad / wheel scrolling so the reader can be moved by hand,
+            // whether auto-play is running or paused.
+            .overlay(ScrollCatcher(onScroll: manualScroll))
         }
         .onPreferenceChange(ContentHeightKey.self) { rawContentHeight = $0 }
     }
@@ -166,6 +169,17 @@ struct TeleprompterView: View {
     private func restart() {
         scroll.restart()
         lastTick = nil
+    }
+
+    /// Hand scrolling. Feeds the measured heights in first so the clamp matches
+    /// the auto-scroll end, then moves by the gesture delta. Natural scrolling:
+    /// a swipe up (negative deltaY) reads forward, so the sign is inverted.
+    private func manualScroll(_ deltaY: Double) {
+        guard rawContentHeight > 0 else { return }
+        scroll.viewportHeight = viewportHeight
+        scroll.contentHeight = rawContentHeight + viewportHeight
+        scroll.scroll(by: -deltaY)
+        lastTick = nil // if auto-play is on, continue from here without a jump
     }
 
     private func advance(to now: Date) {
@@ -214,6 +228,41 @@ private struct ContentHeightKey: PreferenceKey {
     static let defaultValue: Double = 0
     static func reduce(value: inout Double, nextValue: () -> Double) {
         value = max(value, nextValue())
+    }
+}
+
+/// A transparent layer that reports vertical scroll deltas, so the reader can be
+/// scrolled by trackpad or wheel. Stays movable by window-background dragging and
+/// scales discrete mouse-wheel notches up to a readable step.
+private struct ScrollCatcher: NSViewRepresentable {
+    var onScroll: (Double) -> Void
+
+    func makeNSView(context: Context) -> NSView { CatcherView(onScroll: onScroll) }
+
+    func updateNSView(_ nsView: NSView, context: Context) {
+        (nsView as? CatcherView)?.onScroll = onScroll
+    }
+
+    final class CatcherView: NSView {
+        var onScroll: (Double) -> Void
+
+        init(onScroll: @escaping (Double) -> Void) {
+            self.onScroll = onScroll
+            super.init(frame: .zero)
+        }
+
+        @available(*, unavailable)
+        required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
+
+        // Let the panel still be dragged by its body.
+        override var mouseDownCanMoveWindow: Bool { true }
+
+        override func scrollWheel(with event: NSEvent) {
+            let raw = event.scrollingDeltaY
+            // Precise (trackpad) deltas are already in points; line-based wheels
+            // come in notches, so scale them to a comfortable step.
+            onScroll(event.hasPreciseScrollingDeltas ? raw : raw * 16)
+        }
     }
 }
 

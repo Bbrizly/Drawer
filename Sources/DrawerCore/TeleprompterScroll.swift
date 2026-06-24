@@ -34,4 +34,10 @@ public struct TeleprompterScroll {
     public mutating func restart() {
         offset = 0
     }
+
+    /// Manually nudges the position by a signed delta (scroll wheel or trackpad),
+    /// clamped to both ends so it never runs past the start or the end.
+    public mutating func scroll(by delta: Double) {
+        offset = min(maxOffset, max(0, offset + delta))
+    }
 }
