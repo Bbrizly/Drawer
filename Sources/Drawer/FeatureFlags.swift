@@ -20,6 +20,7 @@ enum FeatureFlag: String, CaseIterable, Identifiable {
     case tomorrowSection
     case backlogSection
     case archiveSection
+    case workMode
 
     var id: String { rawValue }
 
@@ -50,6 +51,7 @@ enum FeatureFlag: String, CaseIterable, Identifiable {
         case .tomorrowSection: return "Tomorrow section"
         case .backlogSection: return "Backlog section"
         case .archiveSection: return "Archive section"
+        case .workMode: return "Work mode"
         }
     }
 
@@ -70,6 +72,7 @@ enum FeatureFlag: String, CaseIterable, Identifiable {
         case .tomorrowSection: return "The next planned day, for evening planning."
         case .backlogSection: return "Collapsible Backlog at the bottom."
         case .archiveSection: return "Collapsible Archive at the bottom."
+        case .workMode: return "A stopwatch that logs real hours against tasks."
         }
     }
 
@@ -81,6 +84,7 @@ enum FeatureFlag: String, CaseIterable, Identifiable {
         case .taskNotes, .minuteBadges: return "Task rows"
         case .carriedSection, .tomorrowSection, .backlogSection, .archiveSection: return "Sections"
         case .filterMenu, .notes: return "Controls"
+        case .workMode: return "Work"
         }
     }
 
@@ -94,7 +98,7 @@ enum FeatureFlag: String, CaseIterable, Identifiable {
     var defaultValue: Bool { true }
 
     static let groupsInOrder = [
-        "Focus", "Feedback", "Swipe gestures", "Task rows", "Sections", "Controls",
+        "Work", "Focus", "Feedback", "Swipe gestures", "Task rows", "Sections", "Controls",
     ]
 
     static func registerDefaults() {

@@ -35,6 +35,10 @@ final class DrawerVisualRenderTests: XCTestCase {
         let store = TodoStore(fileURL: sampleFile, todayProvider: { "2026-06-07" })
         store.reload()
         let timer = FocusTimer()
+        let workLog = WorkSessionLog(
+            fileURL: FileManager.default.temporaryDirectory
+                .appendingPathComponent("drawer-visual-work-\(UUID().uuidString).jsonl"))
+        let workClock = WorkClock(log: workLog)
 
         let outputURL = URL(fileURLWithPath: outputDirectory, isDirectory: true)
         try FileManager.default.createDirectory(
@@ -50,13 +54,13 @@ final class DrawerVisualRenderTests: XCTestCase {
             let name = theme.rawValue
             UserDefaults.standard.set(theme.rawValue, forKey: "drawerTheme")
             try render(
-                DrawerView(store: store, timer: timer),
+                DrawerView(store: store, timer: timer, workClock: workClock),
                 appearance: .aqua,
                 size: size,
                 to: outputURL.appendingPathComponent("drawer-\(name)-light.png")
             )
             try render(
-                DrawerView(store: store, timer: timer),
+                DrawerView(store: store, timer: timer, workClock: workClock),
                 appearance: .darkAqua,
                 size: size,
                 to: outputURL.appendingPathComponent("drawer-\(name)-dark.png")
@@ -65,7 +69,7 @@ final class DrawerVisualRenderTests: XCTestCase {
         UserDefaults.standard.set(DrawerTheme.liquidGlass.rawValue, forKey: "drawerTheme")
         timer.start(taskTitle: "Focus", seconds: 25 * 60)
         try render(
-            DrawerView(store: store, timer: timer),
+            DrawerView(store: store, timer: timer, workClock: workClock),
             appearance: .darkAqua,
             size: size,
             to: outputURL.appendingPathComponent("drawer-glass-active-dark.png")

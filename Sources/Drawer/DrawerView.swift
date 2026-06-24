@@ -4,6 +4,7 @@ import SwiftUI
 struct DrawerView: View {
     @ObservedObject var store: TodoStore
     @ObservedObject var timer: FocusTimer
+    @ObservedObject var workClock: WorkClock
     var onToggleSize: () -> Void = {}
     var onNeedsKeyboard: () -> Void = {}
     var notes: NotesStore? = nil
@@ -11,6 +12,7 @@ struct DrawerView: View {
 
     @State private var showingAdd = false
     @State private var showingNotes = false
+    @State private var endSummary: WorkSummary?
     @AppStorage("notesPaneHeight") private var notesPaneHeight = 160.0
     @State private var newTaskTitle = ""
     @FocusState private var addFieldFocused: Bool
@@ -29,6 +31,7 @@ struct DrawerView: View {
     @AppStorage("feature.carriedSection") private var carriedSectionEnabled = true
     @AppStorage("feature.backlogSection") private var backlogSectionEnabled = true
     @AppStorage("feature.archiveSection") private var archiveSectionEnabled = true
+    @AppStorage("feature.workMode") private var workModeEnabled = true
     @AppStorage("feature.swipeDelete") private var swipeDeleteEnabled = true
     @AppStorage("feature.swipeProgress") private var swipeProgressEnabled = true
     @AppStorage("focusSoundKind") private var focusSoundKind = "pink"
@@ -51,7 +54,9 @@ struct DrawerView: View {
 
             VStack(alignment: .leading, spacing: 13) {
                 HStack(alignment: .center, spacing: 10) {
-                    if focusTimerEnabled {
+                    if workModeEnabled && workClock.isOn {
+                        WorkModeHeaderView(clock: workClock)
+                    } else if focusTimerEnabled {
                         TimerHeaderView(timer: timer)
                     }
                     if focusSoundEnabled {
@@ -123,6 +128,21 @@ struct DrawerView: View {
                             .accessibilityHint("Show task filtering and sorting options.")
                             .help("Filter and sort")
                         }
+                        if workModeEnabled {
+                            DrawerIconButton(
+                                systemName: workClock.isOn ? "briefcase.fill" : "briefcase",
+                                accessibilityLabel: workClock.isOn ? "End work mode" : "Start work mode",
+                                helpText: "Track real hours on your tasks. Tap a task to start the clock.",
+                                isSelected: workClock.isOn
+                            ) {
+                                if workClock.isOn {
+                                    endSummary = workClock.end(today: TodoStore.localToday())
+                                } else {
+                                    timer.reset() // no hidden focus countdown behind work mode
+                                    workClock.enter()
+                                }
+                            }
+                        }
                         DrawerIconButton(
                             systemName: "arrow.up.left.and.arrow.down.right",
                             accessibilityLabel: "Expand or collapse drawer",
@@ -170,8 +190,23 @@ struct DrawerView: View {
 
                 ScrollView {
                     VStack(alignment: .leading, spacing: 5) {
+                        if let endSummary {
+                            WorkSummaryCard(
+                                summary: endSummary,
+                                requestKeyboard: onNeedsKeyboard,
+                                onEdit: { title, seconds, day in
+                                    self.endSummary = workClock.editSummary(
+                                        title: title, seconds: seconds, on: day)
+                                },
+                                onDone: { self.endSummary = nil }
+                            )
+                            .padding(.bottom, 4)
+                        }
                         if let msg = store.statusMessage {
                             statusView(msg)
+                        }
+                        if let wmMsg = workClock.statusMessage {
+                            statusView(wmMsg)
                         }
                         let today = arranged(store.todayItems)
                         let carried = carriedSectionEnabled ? arranged(store.carriedItems) : []
@@ -236,6 +271,7 @@ struct DrawerView: View {
         .environment(\.drawerTheme, theme)
         .environmentObject(celebration)
         .environmentObject(swipe)
+        .environmentObject(workClock)
         .animation(reduceMotion ? nil : .easeOut(duration: 0.18), value: showingAdd)
         .animation(reduceMotion ? nil : .easeOut(duration: 0.18), value: showingNotes)
         .animation(reduceMotion ? nil : .easeOut(duration: 0.18), value: sound.isPlaying)

@@ -11,6 +11,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var notesStore: NotesStore!
     private var teleprompter: TeleprompterController!
     private var focusTimer: FocusTimer!
+    private var workClock: WorkClock!
     private let hotkey = HotkeyManager()
     private var statusItem: NSStatusItem!
     private var escMonitor: Any?
@@ -50,10 +51,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self?.notifyComplete(title)
         }
 
+        workClock = WorkClock(log: WorkSessionLog(fileURL: AppPaths.workLogFile))
+        workClock.restore()
+
         var controller: PanelController!
         let rootView = DrawerView(
             store: store,
             timer: focusTimer,
+            workClock: workClock,
             onToggleSize: { controller?.toggleSize() },
             onNeedsKeyboard: { controller?.makeKeyIfShown() },
             notes: notesStore,
@@ -109,6 +114,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationWillTerminate(_ notification: Notification) {
         notesStore?.saveNow() // flush anything typed in the last moment
+        workClock?.pause()    // flush an open work segment to the log
     }
 
     private func setupStatusItem() {

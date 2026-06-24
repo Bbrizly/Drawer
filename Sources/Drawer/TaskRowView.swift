@@ -15,8 +15,10 @@ struct TaskRowView: View {
     @AppStorage("feature.minuteBadges") private var minuteBadgesEnabled = true
     @AppStorage("feature.swipeDelete") private var swipeDeleteEnabled = true
     @AppStorage("feature.swipeProgress") private var swipeProgressEnabled = true
+    @AppStorage("feature.workMode") private var workModeEnabled = true
     @EnvironmentObject private var celebration: CelebrationCenter
     @EnvironmentObject private var swipe: SwipeCoordinator
+    @EnvironmentObject private var workClock: WorkClock
     @State private var isCheckboxHovering = false
     @State private var isRowHovering = false
     @State private var checkboxFrame: CGRect = .zero
@@ -84,6 +86,10 @@ struct TaskRowView: View {
                         .padding(.vertical, 3)
                         .background(.quaternary.opacity(0.8), in: Capsule())
                 }
+
+                if workModeEnabled && workClock.isOn && !item.isDone {
+                    workTrackButton
+                }
             }
             // Click anywhere on the task line, not just the title, to expand.
             .contentShape(Rectangle())
@@ -98,8 +104,8 @@ struct TaskRowView: View {
         .padding(.vertical, theme.rowVerticalPadding)
         .background(rowBackground)
         .overlay(alignment: .leading) {
-            // A thin accent bar marks an in-progress row at a glance.
-            if item.isInProgress {
+            // A thin accent bar marks an in-progress or actively-tracked row.
+            if item.isInProgress || isTrackedActive {
                 Capsule()
                     .fill(theme.accent)
                     .frame(width: 3)
@@ -130,12 +136,45 @@ struct TaskRowView: View {
         theme.checkboxSymbol(done: item.isDone, inProgress: item.isInProgress)
     }
 
+    /// This row is the one the work clock is attributed to. Matched by id only,
+    /// so two tasks that merely share a title never both light up or cross-wire
+    /// the track button. (Log attribution is by title; the live pointer is by id.)
+    private var isTracked: Bool {
+        workClock.activeTaskID == item.id
+    }
+
+    private var isTrackedActive: Bool {
+        workModeEnabled && workClock.isOn && isTracked
+    }
+
+    /// Start, pause, or resume tracking this task. A plain `track` on every tap
+    /// would fragment the log and reset elapsed, so the active row toggles.
+    private var workTrackButton: some View {
+        let running = isTracked && workClock.phase == .running
+        return Button {
+            switch (isTracked, workClock.phase) {
+            case (true, .running): workClock.pause()
+            case (true, .paused): workClock.resume()
+            default: workClock.track(taskID: item.id, title: item.title)
+            }
+        } label: {
+            Image(systemName: running ? "pause.circle.fill" : "play.circle")
+                .font(.system(size: 16, weight: .semibold))
+                .foregroundStyle(running ? AnyShapeStyle(.tint) : AnyShapeStyle(.secondary))
+                .frame(width: 24, height: 24)
+                .contentShape(Circle())
+        }
+        .buttonStyle(.plain)
+        .help(running ? "Pause time tracking" : "Track time on this task")
+        .accessibilityLabel(running ? "Pause time tracking" : "Track time on this task")
+    }
+
     /// In-progress rows get a soft accent wash so they read as "live" without
     /// shouting. Otherwise the usual hover tint.
     @ViewBuilder
     private var rowBackground: some View {
         let shape = RoundedRectangle(cornerRadius: theme.rowCornerRadius, style: .continuous)
-        if item.isInProgress {
+        if item.isInProgress || isTrackedActive {
             shape.fill(theme.accent.opacity(isRowHovering ? 0.22 : 0.16))
         } else if isRowHovering {
             shape.fill(theme.primaryInk.opacity(0.06))
@@ -160,6 +199,7 @@ struct TaskRowView: View {
         Button {
             if swipe.isOpen(item.id) { closeSwipe() }
             let willComplete = !item.isDone
+            if willComplete { workClock.taskCompleted(id: item.id, title: item.title) }
             if reduceMotion {
                 store.toggle(item)
             } else {
