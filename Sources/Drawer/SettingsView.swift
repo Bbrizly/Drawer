@@ -40,6 +40,9 @@ private struct GeneralSettingsView: View {
     @AppStorage("drawerTheme") private var themeRaw = DrawerTheme.default.rawValue
     @AppStorage("focusSoundKind") private var focusSoundKind = "pink"
     @AppStorage("focusSoundVolume") private var focusSoundVolume = 0.5
+    @AppStorage("checkOffSound") private var checkOffSound = CheckOffSound.chimeID
+    @AppStorage("checkOffSoundVolume") private var checkOffSoundVolume = 0.8
+    @State private var checkOffOptions = CheckOffSound.options()
     @State private var launchAtLogin = SMAppService.mainApp.status == .enabled
     @State private var revertingHotkey = false
     @State private var showHotkeyError = false
@@ -76,6 +79,40 @@ private struct GeneralSettingsView: View {
                 }
                 Text("Also adjustable from the speaker button in the header. "
                      + "Pink masks chatter, brown is deeper, ocean swells like surf.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            Section("Check-off sound") {
+                HStack {
+                    Picker("Sound", selection: $checkOffSound) {
+                        ForEach(checkOffOptions) { opt in
+                            Text(opt.label).tag(opt.id)
+                        }
+                    }
+                    .onChange(of: checkOffSound) { _, id in
+                        // Play it as you browse so the choice is audible.
+                        CheckOffSoundPlayer.shared.play(id: id, volume: checkOffSoundVolume)
+                    }
+                    Slider(value: $checkOffSoundVolume, in: 0...1)
+                        .frame(width: 90)
+                    Button {
+                        CheckOffSoundPlayer.shared.play(
+                            id: checkOffSound, volume: checkOffSoundVolume
+                        )
+                    } label: {
+                        Image(systemName: "play.circle")
+                    }
+                    .buttonStyle(.borderless)
+                    .help("Preview")
+                }
+                HStack {
+                    Button("Add custom…") { importCheckOffSound() }
+                    Button("Open Sounds folder") { openSoundsFolder() }
+                    Spacer()
+                }
+                Text("Pick the built-in chime, a macOS system sound, or import your "
+                     + "own (wav, aiff, caf, mp3, m4a). Plays only when \"Sound on "
+                     + "check-off\" is on under Features.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -161,6 +198,8 @@ private struct GeneralSettingsView: View {
         .onAppear {
             // Status can change externally (System Settings); never show stale.
             launchAtLogin = SMAppService.mainApp.status == .enabled
+            // A custom sound may have been added or removed since last open.
+            checkOffOptions = CheckOffSound.options()
         }
         .onChange(of: panelWidth) { _, _ in onLayoutChange() }
         .onChange(of: panelHeight) { _, _ in onLayoutChange() }
@@ -184,6 +223,39 @@ private struct GeneralSettingsView: View {
             filePath = url.path
             onChooseFile(url)
         }
+    }
+
+    /// Copy a chosen audio file into the Sounds folder and select it.
+    private func importCheckOffSound() {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = false
+        panel.allowedContentTypes = [.audio]
+        guard panel.runModal() == .OK, let src = panel.url else { return }
+        let dir = CheckOffSound.soundsDir
+        do {
+            try FileManager.default.createDirectory(
+                at: dir, withIntermediateDirectories: true
+            )
+            let dest = dir.appendingPathComponent(src.lastPathComponent)
+            if FileManager.default.fileExists(atPath: dest.path) {
+                try FileManager.default.removeItem(at: dest)
+            }
+            try FileManager.default.copyItem(at: src, to: dest)
+            checkOffOptions = CheckOffSound.options()
+            checkOffSound = "custom:\(src.lastPathComponent)"
+        } catch {
+            NSSound.beep()
+        }
+    }
+
+    private func openSoundsFolder() {
+        let dir = CheckOffSound.soundsDir
+        try? FileManager.default.createDirectory(
+            at: dir, withIntermediateDirectories: true
+        )
+        NSWorkspace.shared.open(dir)
     }
 }
 
@@ -376,5 +448,15 @@ enum AppPaths {
         return base
             .appendingPathComponent("Drawer", isDirectory: true)
             .appendingPathComponent("notes.md")
+    }
+
+    /// Work Mode's session log. JSONL in Application Support, out of the vault.
+    static var workLogFile: URL {
+        let base = FileManager.default
+            .urls(for: .applicationSupportDirectory, in: .userDomainMask).first
+            ?? FileManager.default.homeDirectoryForCurrentUser
+        return base
+            .appendingPathComponent("Drawer", isDirectory: true)
+            .appendingPathComponent("work-sessions.jsonl")
     }
 }
