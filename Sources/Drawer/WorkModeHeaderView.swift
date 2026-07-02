@@ -6,7 +6,7 @@ import SwiftUI
 /// a pause/resume button. Ending work mode lives on the briefcase toggle in the
 /// header, not here.
 struct WorkModeHeaderView: View {
-    @ObservedObject var clock: WorkClock
+    var clock: WorkClock
     @Environment(\.drawerTheme) private var theme
 
     private var running: Bool { clock.phase == .running }
@@ -58,6 +58,7 @@ struct WorkModeHeaderView: View {
         .padding(.trailing, 7)
         .padding(.vertical, 7)
         .background(.quaternary.opacity(0.55), in: RoundedRectangle(cornerRadius: 12))
-        .fixedSize(horizontal: true, vertical: false)
+        // No horizontal fixedSize: when the header row runs out of room the
+        // task title truncates instead of forcing the panel wider.
     }
 }

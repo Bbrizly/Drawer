@@ -24,7 +24,7 @@ struct DrawerIconButton: View {
                 .overlay {
                     if isProminent {
                         RoundedRectangle(cornerRadius: 9, style: .continuous)
-                            .stroke(Color.white.opacity(0.18), lineWidth: 0.5)
+                            .stroke(Palette.onAccent.opacity(0.18), lineWidth: 0.5)
                     }
                 }
                 .contentShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
@@ -38,12 +38,14 @@ struct DrawerIconButton: View {
 
     private var foregroundStyle: AnyShapeStyle {
         if isProminent {
-            return AnyShapeStyle(Color.white)
+            return AnyShapeStyle(Palette.onAccent)
         }
         if isSelected {
             return AnyShapeStyle(theme.accent)
         }
-        return AnyShapeStyle(Color.secondary)
+        // Theme ink, not the system gray, so icons match the surface's world
+        // (walnut on parchment, cool white in the arcade).
+        return AnyShapeStyle(theme.secondaryInk)
     }
 
     private var backgroundStyle: AnyShapeStyle {
@@ -53,6 +55,6 @@ struct DrawerIconButton: View {
         if isSelected {
             return AnyShapeStyle(theme.accent.opacity(0.14))
         }
-        return AnyShapeStyle(isHovering ? Color.secondary.opacity(0.12) : Color.clear)
+        return AnyShapeStyle(isHovering ? theme.primaryInk.opacity(0.09) : Color.clear)
     }
 }

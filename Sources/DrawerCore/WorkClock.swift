@@ -1,24 +1,25 @@
-import Combine
 import Foundation
+import Observation
 
 /// The live Work Mode engine. Counts up across many segments, attributes each to
 /// a task title, and writes a `WorkSession` to the log every time a segment
 /// closes. Modelled on `FocusTimer`: absolute `segmentStart`, a 0.5s ticker for
 /// the display, and state that survives a relaunch.
 @MainActor
-public final class WorkClock: ObservableObject {
+@Observable
+public final class WorkClock {
     public enum Phase: Equatable { case off, running, paused }
 
-    @Published public private(set) var phase: Phase = .off
-    @Published public private(set) var activeTaskID: String?
-    @Published public private(set) var activeTaskTitle: String = ""
-    @Published public private(set) var elapsed: TimeInterval = 0   // current segment only
-    @Published public private(set) var statusMessage: String?
+    public private(set) var phase: Phase = .off
+    public private(set) var activeTaskID: String?
+    public private(set) var activeTaskTitle: String = ""
+    public private(set) var elapsed: TimeInterval = 0   // current segment only
+    public private(set) var statusMessage: String?
 
     /// Logged time for the active task today, excluding the live segment.
-    /// @Published so a change on segment close refreshes the header even though
-    /// `elapsed` also resets in the same breath.
-    @Published private(set) var cachedTodayTotal: TimeInterval = 0
+    /// Tracked by Observation so a change on segment close refreshes the header
+    /// even though `elapsed` also resets in the same breath.
+    private(set) var cachedTodayTotal: TimeInterval = 0
 
     /// What the header shows: today's total on this task, live.
     public var activeTaskTotal: TimeInterval { cachedTodayTotal + elapsed }
@@ -28,8 +29,20 @@ public final class WorkClock: ObservableObject {
     private let calendar: Calendar
     private let defaults: UserDefaults
     private var segmentStart: Date?
-    private var ticker: Timer?
-    private var dayObserver: NSObjectProtocol?
+    // nonisolated(unsafe) so the nonisolated deinit can tear these down. They
+    // are only ever mutated on the main actor, so this is safe in practice.
+    @ObservationIgnored nonisolated(unsafe) private var ticker: Timer?
+    @ObservationIgnored nonisolated(unsafe) private var dayObserver: NSObjectProtocol?
+
+    /// Built once from the fixed `calendar` time zone. Day grouping happens on
+    /// every segment close, so a fresh DateFormatter per call would be wasteful.
+    /// Observation cannot wrap a `lazy` property, so the macro ignores it.
+    @ObservationIgnored private lazy var dayFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "yyyy-MM-dd"
+        f.timeZone = calendar.timeZone
+        return f
+    }()
 
     /// A relaunch within this gap is treated as continuous (crash, quick quit).
     /// Anything longer is dropped rather than logged as work the user did not do.
@@ -62,10 +75,7 @@ public final class WorkClock: ObservableObject {
     public var isOn: Bool { phase != .off }
 
     private func dayString(_ date: Date) -> String {
-        let f = DateFormatter()
-        f.dateFormat = "yyyy-MM-dd"
-        f.timeZone = calendar.timeZone
-        return f.string(from: date)
+        dayFormatter.string(from: date)
     }
 
     // MARK: lifecycle

@@ -1,9 +1,12 @@
 import DrawerCore
 import SwiftUI
 
-struct TaskRowView: View {
+struct TaskRowView: View, Equatable {
     let item: TodoItem
-    @ObservedObject var store: TodoStore
+    /// The store is only used to call mutators; the row never reads its
+    /// published state, so it is a plain reference, not an observed one. That
+    /// keeps a toggle from re-rendering every other row through the store.
+    let store: TodoStore
     /// Makes the panel key so the note editor actually receives typing. The
     /// panel is non-activating, so a focused field alone is not enough.
     var requestKeyboard: () -> Void = {}
@@ -16,19 +19,35 @@ struct TaskRowView: View {
     @AppStorage("feature.swipeDelete") private var swipeDeleteEnabled = true
     @AppStorage("feature.swipeProgress") private var swipeProgressEnabled = true
     @AppStorage("feature.workMode") private var workModeEnabled = true
-    @EnvironmentObject private var celebration: CelebrationCenter
-    @EnvironmentObject private var swipe: SwipeCoordinator
-    @EnvironmentObject private var workClock: WorkClock
+    /// Settings > Text. Titles use it directly; notes ride two points under.
+    @AppStorage("taskFontSize") private var taskFontSize = 13.0
+    @Environment(CelebrationCenter.self) private var celebration
+    @Environment(SwipeCoordinator.self) private var swipe
+    @Environment(WorkClock.self) private var workClock
     @State private var isCheckboxHovering = false
     @State private var isRowHovering = false
     @State private var checkboxFrame: CGRect = .zero
     @State private var isExpanded = false
     @State private var isEditingNote = false
     @State private var draftNote = ""
+    @State private var isEditingTitle = false
+    @State private var draftTitle = ""
     @State private var dragAxis: DragAxis?
     @FocusState private var noteFieldFocused: Bool
+    @FocusState private var titleFieldFocused: Bool
 
     private enum DragAxis { case horizontal, vertical }
+
+    /// Only `item` decides what the row draws. The store and the keyboard
+    /// closure are stable, so two rows with an equal item are equal. Paired with
+    /// `.equatable()` at the call site, this lets SwiftUI skip re-evaluating a
+    /// row the parent rebuilt unchanged (e.g. every other row when one task is
+    /// toggled). Dependency-driven updates still invalidate the row through their
+    /// own channels: the theme and Reduce Motion (environment), the feature
+    /// flags (AppStorage), the work clock (Observation), and the swipe offset.
+    static func == (lhs: TaskRowView, rhs: TaskRowView) -> Bool {
+        lhs.item == rhs.item
+    }
 
     var body: some View {
         // Swipe left (mouse drag or two-finger trackpad) to slide the row off
@@ -62,14 +81,28 @@ struct TaskRowView: View {
             HStack(alignment: .top, spacing: 8) {
                 checkbox
 
-                Text(item.title)
-                    .font(theme.titleFont)
-                    .fontWeight(item.isInProgress ? .semibold : .regular)
-                    .lineSpacing(2)
-                    .strikethrough(item.isDone)
-                    .foregroundStyle(item.isDone ? .secondary : .primary)
-                    .fixedSize(horizontal: false, vertical: true) // wrap, never truncate
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                if isEditingTitle {
+                    TextField("Task", text: $draftTitle)
+                        .textFieldStyle(.plain)
+                        .font(theme.titleFont(size: taskFontSize))
+                        .focused($titleFieldFocused)
+                        .onSubmit(saveTitle)
+                        .onChange(of: titleFieldFocused) { _, focused in
+                            if !focused { saveTitle() }   // save on blur, Apple-style
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                } else {
+                    Text(item.title)
+                        .font(theme.titleFont(size: taskFontSize))
+                        .fontWeight(item.isInProgress ? .semibold : .regular)
+                        .lineSpacing(2)
+                        .strikethrough(item.isDone)
+                        .foregroundStyle(item.isDone ? .secondary : .primary)
+                        .fixedSize(horizontal: false, vertical: true) // wrap, never truncate
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        // Double-click to rename; single tap still expands the row.
+                        .highPriorityGesture(TapGesture(count: 2).onEnded { beginEditTitle() })
+                }
 
                 if taskNotesEnabled && item.note != nil && !isExpanded {
                     Image(systemName: "text.alignleft")
@@ -95,7 +128,9 @@ struct TaskRowView: View {
             .contentShape(Rectangle())
             .onTapGesture(perform: toggleExpand)
 
-            if isExpanded && taskNotesEnabled {
+            // Editing is double-click on the text itself (title and note), so
+            // the expanded area carries no edit buttons.
+            if isExpanded, taskNotesEnabled {
                 noteArea
                     .padding(.leading, 32) // line up under the title, past the checkbox
             }
@@ -117,8 +152,18 @@ struct TaskRowView: View {
             store.setInProgress(item, !item.isInProgress)
         }
         .overlay(alignment: .bottom) {
-            if theme.showsRowSeparators {
-                Divider().opacity(0.4).padding(.leading, 40)
+            if theme == .notebook {
+                // A ruled line under every row so tasks visibly sit on the paper.
+                Rectangle()
+                    .fill(Palette.paperLine.color)
+                    .frame(height: 0.75)
+            } else if theme.showsRowSeparators {
+                // A hairline in the theme ink, so Medieval rules read walnut on
+                // parchment instead of a system gray divider.
+                Rectangle()
+                    .fill(theme.primaryInk.opacity(0.14))
+                    .frame(height: 0.75)
+                    .padding(.leading, 40)
             }
         }
         .onHover { hovering in
@@ -188,7 +233,7 @@ struct TaskRowView: View {
     private var progressReveal: some View {
         Image(systemName: "circle.lefthalf.filled")
             .font(.system(size: 14, weight: .semibold))
-            .foregroundStyle(.white)
+            .foregroundStyle(Palette.onAccent)
             .frame(width: swipe.progressWidth)
             .frame(maxHeight: .infinity)
             .background(theme.accent)
@@ -221,7 +266,9 @@ struct TaskRowView: View {
                 .contentTransition(.symbolEffect(.replace))
                 .frame(width: 24, height: 24)
                 .background(
-                    isCheckboxHovering ? Color.secondary.opacity(0.10) : Color.clear,
+                    // Theme ink, not a system gray, so the hover ring matches
+                    // the row hover wash on the art-directed surfaces.
+                    isCheckboxHovering ? theme.primaryInk.opacity(0.08) : Color.clear,
                     in: Circle()
                 )
                 .padding(6) // enlarge the click target without shifting layout
@@ -252,39 +299,32 @@ struct TaskRowView: View {
     @ViewBuilder
     private var noteArea: some View {
         if isEditingNote {
-            VStack(alignment: .leading, spacing: 6) {
-                TextField("Add details", text: $draftNote, axis: .vertical)
-                    .textFieldStyle(.plain)
-                    .font(.caption)
-                    .lineLimit(1...8)
-                    .focused($noteFieldFocused)
-                    .padding(8)
-                    .background(.quaternary.opacity(0.4), in: RoundedRectangle(cornerRadius: 8))
-                HStack(spacing: 8) {
-                    Button("Save", action: saveNote)
-                        .buttonStyle(.borderedProminent)
-                        .controlSize(.small)
-                    Button("Cancel", action: cancelNote)
-                        .buttonStyle(.bordered)
-                        .controlSize(.small)
-                    Spacer(minLength: 0)
+            // No Save/Cancel: type, then click away to save, same as the title.
+            TextField("Add details", text: $draftNote, axis: .vertical)
+                .textFieldStyle(.plain)
+                .font(.system(size: max(10, taskFontSize - 2)))
+                .foregroundStyle(.secondary)
+                .lineLimit(1...8)
+                .focused($noteFieldFocused)
+                .padding(8)
+                .background(.quaternary.opacity(0.4), in: RoundedRectangle(cornerRadius: 8))
+                .onChange(of: noteFieldFocused) { _, focused in
+                    if !focused { saveNote() }   // save on blur
                 }
-            }
-        } else if let note = item.note {
-            VStack(alignment: .leading, spacing: 4) {
-                Text(linkified(note))
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .tint(.blue)
-                    .textSelection(.enabled)
-                    .fixedSize(horizontal: false, vertical: true)
-                Button(action: beginEditNote) {
-                    Label("Edit", systemImage: "pencil")
-                        .font(.caption2)
-                }
-                .buttonStyle(.plain)
-                .foregroundStyle(.tertiary)
-            }
+        } else if let note = item.note, !note.isEmpty {
+            Text(linkified(note))
+                .font(.system(size: max(10, taskFontSize - 2)))
+                .foregroundStyle(.secondary)
+                // Links take the theme accent, not a hardcoded blue, so they
+                // sit right on parchment, paper, and the dark surfaces alike.
+                .tint(theme.accent)
+                .fixedSize(horizontal: false, vertical: true)
+                .contentShape(Rectangle())
+                // Double-click the note to edit it, same as the title. Text
+                // selection is off so word-select cannot eat the double-click;
+                // single clicks still open links.
+                .highPriorityGesture(TapGesture(count: 2).onEnded { beginEditNote() })
+                .help("Double-click to edit")
         } else {
             Button(action: beginEditNote) {
                 Label("Add note", systemImage: "plus")
@@ -299,10 +339,10 @@ struct TaskRowView: View {
         Button(action: deleteItem) {
             Image(systemName: "trash.fill")
                 .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(.white)
+                .foregroundStyle(Palette.onAccent)
                 .frame(width: swipe.deleteWidth)
                 .frame(maxHeight: .infinity)
-                .background(Color.red)
+                .background(theme.danger)
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -336,12 +376,36 @@ struct TaskRowView: View {
 
     private func toggleExpand() {
         if swipe.isOpen(item.id) { closeSwipe(); return }
-        guard taskNotesEnabled else { return } // notes off: tap does nothing
         if reduceMotion {
             isExpanded.toggle()
         } else {
             withAnimation(.snappy(duration: 0.2)) { isExpanded.toggle() }
         }
+    }
+
+    /// The title exactly as written in the file, including any "(15m)" duration
+    /// hint, so editing it does not silently drop the hint. Falls back to the
+    /// parsed title if the checkbox prefix can't be found.
+    private var writtenTitle: String {
+        if let m = item.rawLine.firstMatch(of: #/^\s*- \[[ xX/]\]\s+/#) {
+            return String(item.rawLine[m.range.upperBound...])
+        }
+        return item.title
+    }
+
+    private func beginEditTitle() {
+        if swipe.isOpen(item.id) { closeSwipe(); return }
+        draftTitle = writtenTitle
+        isEditingTitle = true
+        requestKeyboard() // panel must be key or the field gets no typing
+        titleFieldFocused = true
+    }
+
+    private func saveTitle() {
+        guard isEditingTitle else { return }
+        isEditingTitle = false
+        titleFieldFocused = false
+        store.rename(item, to: draftTitle)
     }
 
     private func beginEditNote() {
@@ -355,12 +419,6 @@ struct TaskRowView: View {
         isEditingNote = false
         noteFieldFocused = false
         store.setNote(item, draftNote)
-    }
-
-    private func cancelNote() {
-        isEditingNote = false
-        noteFieldFocused = false
-        draftNote = ""
     }
 
     private func closeSwipe() {

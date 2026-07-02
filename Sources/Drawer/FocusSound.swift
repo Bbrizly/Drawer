@@ -43,8 +43,14 @@ final class NoiseGenerator: @unchecked Sendable {
     private var left: Channel
     private var right: Channel
 
+    /// Green-noise band-pass coefficients. They depend only on the sample rate,
+    /// so they are computed once here, not recomputed (with a `sin`) per sample.
+    private let svfF: Double
+    private let svfQ = 0.55
+
     init(sampleRate: Double = 44_100, seedL: UInt32 = 0x1234_5678, seedR: UInt32 = 0x9E37_79B9) {
         self.sampleRate = sampleRate
+        self.svfF = 2 * sin(Double.pi * 500 / sampleRate)
         left = Channel(rng: seedL)
         right = Channel(rng: seedR)
     }
@@ -83,12 +89,10 @@ final class NoiseGenerator: @unchecked Sendable {
             v = c.brown * 3.5
         case .green:
             // White through a resonant band-pass near 500 Hz: the mid-focused
-            // "natural ambience" color.
-            let f = 2 * sin(Double.pi * 500 / sampleRate)
-            let q = 0.55
-            c.svfLow += f * c.svfBand
-            let high = w - c.svfLow - q * c.svfBand
-            c.svfBand += f * high
+            // "natural ambience" color. Coefficients precomputed in init.
+            c.svfLow += svfF * c.svfBand
+            let high = w - c.svfLow - svfQ * c.svfBand
+            c.svfBand += svfF * high
             v = c.svfBand * 1.1
         case .ocean:
             // Brown noise swelled by a slow LFO: surf rolling in and back out.

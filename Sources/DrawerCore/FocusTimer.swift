@@ -1,15 +1,19 @@
-import Combine
 import Foundation
+import Observation
 
 @MainActor
-public final class FocusTimer: ObservableObject {
+@Observable
+public final class FocusTimer {
+    /// `finished` is the alarm state: the countdown hit zero and the timer
+    /// waits, ringing, until `reset()` dismisses it. It never returns to idle
+    /// on its own so the completion cannot be missed.
     public enum Phase: Equatable {
-        case idle, running, paused
+        case idle, running, paused, finished
     }
 
-    @Published public private(set) var phase: Phase = .idle
-    @Published public private(set) var taskTitle: String = ""
-    @Published public private(set) var remaining: TimeInterval = 0
+    public private(set) var phase: Phase = .idle
+    public private(set) var taskTitle: String = ""
+    public private(set) var remaining: TimeInterval = 0
 
     /// Fired once when the countdown hits zero, with the task title.
     public var onComplete: ((String) -> Void)?
@@ -78,9 +82,12 @@ public final class FocusTimer: ObservableObject {
         guard phase == .running, let end = endDate else { return }
         remaining = max(0, end.timeIntervalSinceNow)
         if remaining == 0 {
-            let finished = taskTitle
-            reset()
-            onComplete?(finished)
+            // Hold in `finished` (keeping the title for the alarm card) instead
+            // of resetting, so the UI can demand a dismissal.
+            stopTicker()
+            endDate = nil
+            phase = .finished
+            onComplete?(taskTitle)
         }
     }
 }

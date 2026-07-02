@@ -51,4 +51,12 @@ final class SwipeCoordinatorTests: XCTestCase {
         XCTAssertEqual(swipe.offset(for: "a"), 0) // the open row snaps shut
         XCTAssertFalse(swipe.isOpen("a"))
     }
+
+    func testBoardCoverageBySwipe() {
+        // 150 points of swipe from 0 raises coverage by 150/300 = 0.5.
+        XCTAssertEqual(SwipeCoordinator.coverage(from: 0, dx: 150), 0.5, accuracy: 0.0001)
+        // Clamps to fully covered and to zero.
+        XCTAssertEqual(SwipeCoordinator.coverage(from: 0.9, dx: 300), 1.0, accuracy: 0.0001)
+        XCTAssertEqual(SwipeCoordinator.coverage(from: 0.2, dx: -200), 0.0, accuracy: 0.0001)
+    }
 }

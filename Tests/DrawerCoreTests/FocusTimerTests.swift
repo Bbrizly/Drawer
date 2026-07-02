@@ -56,6 +56,26 @@ final class FocusTimerTests: XCTestCase {
         }
         timer.start(taskTitle: "quick", seconds: 1) // test-only seconds variant
         wait(for: [exp], timeout: 3.0)
+        // Completion holds in the alarm state (title kept for the card) until
+        // an explicit reset dismisses it.
+        XCTAssertEqual(timer.phase, .finished)
+        XCTAssertEqual(timer.taskTitle, "quick")
+        XCTAssertEqual(timer.remaining, 0)
+        timer.reset()
         XCTAssertEqual(timer.phase, .idle)
+        XCTAssertEqual(timer.taskTitle, "")
+    }
+
+    func testCanStartAgainFromFinished() {
+        let timer = FocusTimer()
+        let exp = expectation(description: "completed")
+        timer.onComplete = { _ in exp.fulfill() }
+        timer.start(taskTitle: "first", seconds: 1)
+        wait(for: [exp], timeout: 3.0)
+        XCTAssertEqual(timer.phase, .finished)
+        timer.start(taskTitle: "second", minutes: 10)
+        XCTAssertEqual(timer.phase, .running)
+        XCTAssertEqual(timer.taskTitle, "second")
+        XCTAssertEqual(timer.remaining, 10 * 60, accuracy: 1.0)
     }
 }

@@ -1,3 +1,4 @@
+import Observation
 import SwiftUI
 
 /// Coordinates task-completion confetti at the panel level.
@@ -8,7 +9,8 @@ import SwiftUI
 /// in the "panel" coordinate space and this center emits a burst on the
 /// unclipped overlay above the scroll view.
 @MainActor
-final class CelebrationCenter: ObservableObject {
+@Observable
+final class CelebrationCenter {
     struct Burst: Identifiable {
         let id = UUID()
         let point: CGPoint
@@ -16,7 +18,7 @@ final class CelebrationCenter: ObservableObject {
         let pieces: [Piece]
     }
 
-    @Published private(set) var bursts: [Burst] = []
+    private(set) var bursts: [Burst] = []
 
     func fire(at point: CGPoint) {
         let burst = Burst(
@@ -35,7 +37,7 @@ final class CelebrationCenter: ObservableObject {
 /// The unclipped confetti overlay. Lives at the panel root in the "panel"
 /// coordinate space and draws each active burst at the checkbox it came from.
 struct ConfettiLayer: View {
-    @ObservedObject var center: CelebrationCenter
+    var center: CelebrationCenter
 
     static let palette: [Color] = [
         .pink, .orange, .yellow, .green, .blue, .purple, .mint, .red,
