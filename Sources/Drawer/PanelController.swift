@@ -7,6 +7,7 @@ final class PanelController {
     private var transitionState = PanelTransitionState()
     var isShown: Bool { transitionState.isShown }
     private(set) var isExpanded = false
+    private var boardCoverage: CGFloat = 0   // 0 = normal panel, 1 = full screen
 
     // Defaults are registered at launch, so plain reads are safe.
     private var width: CGFloat {
@@ -20,7 +21,13 @@ final class PanelController {
     }
 
     init<V: View>(rootView: V) {
-        panel.contentView = NSHostingView(rootView: rootView)
+        let hosting = NSHostingView(rootView: rootView)
+        // This controller owns the panel's frame. Empty sizing options stop
+        // SwiftUI content minimums from resizing the window (a wide header
+        // pill, say the Work Mode card, must truncate, never push the panel
+        // wider than the width set in Settings).
+        hosting.sizingOptions = []
+        panel.contentView = hosting
     }
 
     func toggle() {
@@ -56,16 +63,37 @@ final class PanelController {
         }
     }
 
+    /// How much of the screen the board covers: 0 = normal panel, 1 = full
+    /// screen. Driven by the swipe amount, so the user dials in the coverage.
+    func setBoardCoverage(_ coverage: CGFloat) {
+        let clamped = max(0, min(1, coverage))
+        guard boardCoverage != clamped else { return }
+        boardCoverage = clamped
+        guard isShown else { return }
+        // Instant (no animation) so the panel tracks the live swipe, not lags it.
+        panel.setFrame(targetFrame(), display: true)
+    }
+
     private func targetFrame() -> NSRect {
         guard let screen = NSScreen.screens.first else { return .zero }
+        // visibleFrame, not frame -- menu bar and dock eat into the latter
         let vf = screen.visibleFrame
         let inset: CGFloat = 12
-        let height = isExpanded ? vf.height - inset * 2 : min(compactHeight, vf.height - inset * 2)
-        return NSRect(
+        let normalH = isExpanded ? vf.height - inset * 2 : min(compactHeight, vf.height - inset * 2)
+        let normal = NSRect(
             x: vf.minX + inset,
-            y: vf.maxY - inset - height, // anchored top-left
+            y: vf.maxY - inset - normalH, // anchored top-left
             width: width,
-            height: height
+            height: normalH
+        )
+        guard boardCoverage > 0 else { return normal }
+        let full = vf.insetBy(dx: inset, dy: inset)
+        let t = boardCoverage
+        return NSRect(
+            x: normal.minX + (full.minX - normal.minX) * t,
+            y: normal.minY + (full.minY - normal.minY) * t,
+            width: normal.width + (full.width - normal.width) * t,
+            height: normal.height + (full.height - normal.height) * t
         )
     }
 

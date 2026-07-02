@@ -20,10 +20,77 @@ struct SettingsView: View {
             FeatureSettingsView()
                 .tabItem { Label("Features", systemImage: "switch.2") }
 
+            BoardSettingsView()
+                .tabItem { Label("Board", systemImage: "square.grid.2x2") }
+
             HelpView()
                 .tabItem { Label("Help", systemImage: "questionmark.circle") }
         }
         .frame(width: 420, height: 520)
+    }
+}
+
+private struct BoardSettingsView: View {
+    @AppStorage("boardBackground") private var boardBackground = "dark"
+    @AppStorage("boardDefaultColor") private var defaultColor = "yellow"
+    @AppStorage("boardSwipeScale") private var swipeScale = 300.0
+    @AppStorage("boardZoomStep") private var zoomStep = 1.25
+
+    private let colors = Palette.cardKeys
+
+    var body: some View {
+        Form {
+            Section("Background") {
+                Picker("Default", selection: $boardBackground) {
+                    Text("Dark").tag("dark")
+                    Text("Transparent").tag("transparent")
+                    Text("Paper").tag("paper")
+                }
+                .pickerStyle(.segmented)
+                Text("The board backdrop. Transparent shows the desktop through it; "
+                     + "the Notebook theme always uses paper.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            Section("New cards") {
+                HStack(spacing: 10) {
+                    ForEach(colors, id: \.self) { key in
+                        Circle()
+                            .fill(Palette.card(key).color)
+                            .frame(width: 22, height: 22)
+                            .overlay(
+                                Circle().strokeBorder(
+                                    .primary.opacity(defaultColor == key ? 0.9 : 0.15),
+                                    lineWidth: defaultColor == key ? 2.5 : 1)
+                            )
+                            .onTapGesture { defaultColor = key }
+                    }
+                    Spacer()
+                }
+                Text("The color a new card starts as.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            Section("Swipe & zoom") {
+                HStack {
+                    Text("Swipe to extend")
+                    Slider(value: $swipeScale, in: 150...600, step: 25)
+                    Text("\(Int(swipeScale))")
+                        .font(.caption).foregroundStyle(.secondary).frame(width: 36, alignment: .trailing)
+                }
+                Text("Lower = a smaller swipe covers more of the screen.")
+                    .font(.caption).foregroundStyle(.secondary)
+                HStack {
+                    Text("Zoom step")
+                    Slider(value: $zoomStep, in: 1.05...1.6, step: 0.05)
+                    Text(String(format: "%.2f", zoomStep))
+                        .font(.caption).foregroundStyle(.secondary).frame(width: 36, alignment: .trailing)
+                }
+                Text("How much each + / − press zooms.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+        }
+        .formStyle(.grouped)
     }
 }
 
@@ -38,6 +105,8 @@ private struct GeneralSettingsView: View {
     @AppStorage("panelWidth") private var panelWidth = 300.0
     @AppStorage("panelCompactHeight") private var panelHeight = 440.0
     @AppStorage("drawerTheme") private var themeRaw = DrawerTheme.default.rawValue
+    @AppStorage("appFontDesign") private var appFontDesign = "theme"
+    @AppStorage("taskFontSize") private var taskFontSize = 13.0
     @AppStorage("focusSoundKind") private var focusSoundKind = "pink"
     @AppStorage("focusSoundVolume") private var focusSoundVolume = 0.5
     @AppStorage("checkOffSound") private var checkOffSound = CheckOffSound.chimeID
@@ -64,6 +133,34 @@ private struct GeneralSettingsView: View {
                     }
                 }
                 .padding(.vertical, 4)
+            }
+            Section("Text") {
+                Picker("Font", selection: $appFontDesign) {
+                    Text("Theme default").tag("theme")
+                    Text("System").tag("system")
+                    Text("Rounded").tag("rounded")
+                    Text("Serif").tag("serif")
+                    Text("Monospaced").tag("mono")
+                }
+                HStack {
+                    Text("Task text size")
+                    Slider(value: $taskFontSize, in: 11...17, step: 0.5)
+                    Text(String(format: "%.1f pt", taskFontSize))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .monospacedDigit()
+                        .frame(width: 48, alignment: .trailing)
+                }
+                Button("Reset to defaults") {
+                    appFontDesign = "theme"
+                    taskFontSize = 13.0
+                }
+                .disabled(appFontDesign == "theme" && taskFontSize == 13.0)
+                Text("Font restyles the whole drawer; \"Theme default\" lets each "
+                     + "theme keep its own face (Medieval serif, Pixel bitmap). "
+                     + "Size drives task titles, with notes two points under.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
             Section("Focus sound") {
                 Picker("Sound", selection: $focusSoundKind) {
@@ -168,7 +265,7 @@ private struct GeneralSettingsView: View {
             Section("Panel") {
                 HStack {
                     Text("Width")
-                    Slider(value: $panelWidth, in: 260...420, step: 10)
+                    Slider(value: $panelWidth, in: 260...820, step: 10)
                     Text("\(Int(panelWidth))")
                         .font(.caption)
                         .foregroundStyle(.secondary)
@@ -458,5 +555,16 @@ enum AppPaths {
         return base
             .appendingPathComponent("Drawer", isDirectory: true)
             .appendingPathComponent("work-sessions.jsonl")
+    }
+
+    /// The idea board folder. Holds board.json and a media/ folder of images,
+    /// in Application Support next to the other app data.
+    static var ideasDirectory: URL {
+        let base = FileManager.default
+            .urls(for: .applicationSupportDirectory, in: .userDomainMask).first
+            ?? FileManager.default.homeDirectoryForCurrentUser
+        return base
+            .appendingPathComponent("Drawer", isDirectory: true)
+            .appendingPathComponent("Ideas", isDirectory: true)
     }
 }

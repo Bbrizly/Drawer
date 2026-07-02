@@ -21,6 +21,7 @@ enum FeatureFlag: String, CaseIterable, Identifiable {
     case backlogSection
     case archiveSection
     case workMode
+    case ideas
 
     var id: String { rawValue }
 
@@ -52,6 +53,7 @@ enum FeatureFlag: String, CaseIterable, Identifiable {
         case .backlogSection: return "Backlog section"
         case .archiveSection: return "Archive section"
         case .workMode: return "Work mode"
+        case .ideas: return "Idea board"
         }
     }
 
@@ -73,6 +75,7 @@ enum FeatureFlag: String, CaseIterable, Identifiable {
         case .backlogSection: return "Collapsible Backlog at the bottom."
         case .archiveSection: return "Collapsible Archive at the bottom."
         case .workMode: return "A stopwatch that logs real hours against tasks."
+        case .ideas: return "A light bulb to jot ideas, and a board you swipe to."
         }
     }
 
@@ -83,7 +86,7 @@ enum FeatureFlag: String, CaseIterable, Identifiable {
         case .swipeDelete, .swipeProgress: return "Swipe gestures"
         case .taskNotes, .minuteBadges: return "Task rows"
         case .carriedSection, .tomorrowSection, .backlogSection, .archiveSection: return "Sections"
-        case .filterMenu, .notes: return "Controls"
+        case .filterMenu, .notes, .ideas: return "Controls"
         case .workMode: return "Work"
         }
     }

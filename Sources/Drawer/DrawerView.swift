@@ -1,20 +1,29 @@
+import AppKit
 import DrawerCore
 import SwiftUI
 
 struct DrawerView: View {
     @ObservedObject var store: TodoStore
-    @ObservedObject var timer: FocusTimer
-    @ObservedObject var workClock: WorkClock
+    var timer: FocusTimer
+    var workClock: WorkClock
     var onToggleSize: () -> Void = {}
     var onNeedsKeyboard: () -> Void = {}
+    /// Hide the whole drawer (a left swipe on the task page, like Esc).
+    var onHide: () -> Void = {}
     var notes: NotesStore? = nil
     var onToggleTeleprompter: () -> Void = {}
+    var ideas: BoardStore? = nil
+    /// Resize the panel to the board coverage the swipe dialed in (0...1).
+    var onBoardCoverage: (CGFloat) -> Void = { _ in }
 
     @State private var showingAdd = false
     @State private var showingNotes = false
+    @State private var showingCapture = false
     @State private var endSummary: WorkSummary?
     @AppStorage("notesPaneHeight") private var notesPaneHeight = 160.0
     @State private var newTaskTitle = ""
+    @State private var addDestination = AddDestination.today
+    @State private var addIsHeader = false
     @FocusState private var addFieldFocused: Bool
     @AppStorage("hideCompleted") private var hideCompleted = false
     @AppStorage("uncheckedFirst") private var uncheckedFirst = false
@@ -32,45 +41,114 @@ struct DrawerView: View {
     @AppStorage("feature.backlogSection") private var backlogSectionEnabled = true
     @AppStorage("feature.archiveSection") private var archiveSectionEnabled = true
     @AppStorage("feature.workMode") private var workModeEnabled = true
+    @AppStorage("feature.ideas") private var ideasEnabled = true
+    @AppStorage("boardBackground") private var boardBackground = "dark"
+    private var boardTransparent: Bool { boardBackground == "transparent" }
     @AppStorage("feature.swipeDelete") private var swipeDeleteEnabled = true
     @AppStorage("feature.swipeProgress") private var swipeProgressEnabled = true
     @AppStorage("focusSoundKind") private var focusSoundKind = "pink"
     @AppStorage("focusSoundVolume") private var focusSoundVolume = 0.5
+    // Settings > Text. "theme" follows the theme's own design; anything else
+    // overrides it drawer-wide.
+    @AppStorage("appFontDesign") private var appFontDesign = "theme"
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @StateObject private var celebration = CelebrationCenter()
-    @StateObject private var swipe = SwipeCoordinator()
+    @Environment(\.colorScheme) private var systemScheme
+    @State private var celebration = CelebrationCenter()
+    @State private var swipe = SwipeCoordinator()
     @StateObject private var scrollMonitor = ScrollSwipeMonitor()
     @StateObject private var sound = FocusSoundPlayer()
 
     private var theme: DrawerTheme { DrawerTheme(rawValue: themeRaw) ?? .default }
+    private var notebookWritingInset: CGFloat {
+        theme == .notebook ? Palette.notebookMargin - 2 : 0
+    }
+
+    /// The focus and work pills, laid out by ViewThatFits in the header.
+    @ViewBuilder private var timerPills: some View {
+        if focusTimerEnabled {
+            TimerHeaderView(timer: timer)
+        }
+        if workModeEnabled && workClock.isOn {
+            WorkModeHeaderView(clock: workClock)
+        }
+    }
+
+    /// The drawer-wide font design: the theme's own, unless overridden in
+    /// Settings > Text. (Pixel's bitmap task face is a font, not a design, so
+    /// it is untouched by this; see DrawerTheme.titleFont.)
+    private var resolvedFontDesign: Font.Design {
+        switch appFontDesign {
+        case "system": return .default
+        case "rounded": return .rounded
+        case "serif": return .serif
+        case "mono": return .monospaced
+        default: return theme.fontDesign
+        }
+    }
+
+    /// Where the add field drops the new line. Today routes through the existing
+    /// add path; Backlog/Archive create the section if it is missing.
+    enum AddDestination: Hashable {
+        case today, backlog, archive
+        var label: String {
+            switch self {
+            case .today: return "Today"
+            case .backlog: return "Backlog"
+            case .archive: return "Archive"
+            }
+        }
+    }
+
+    private func commitAdd() {
+        let t = newTaskTitle.trimmingCharacters(in: .whitespaces)
+        defer { newTaskTitle = ""; showingAdd = false; addIsHeader = false }
+        guard !t.isEmpty else { return }
+        switch addDestination {
+        case .today:
+            let today = TodoStore.localToday()
+            addIsHeader
+                ? store.addHeader(t, toSectionKey: today, displayHeading: today)
+                : store.add(t)
+        case .backlog:
+            addIsHeader
+                ? store.addHeader(t, toSectionKey: "backlog", displayHeading: "Backlog")
+                : store.addTask(t, toSectionKey: "backlog", displayHeading: "Backlog")
+        case .archive:
+            addIsHeader
+                ? store.addHeader(t, toSectionKey: "archive", displayHeading: "Archive")
+                : store.addTask(t, toSectionKey: "archive", displayHeading: "Archive")
+        }
+    }
 
     var body: some View {
         ZStack {
-            PanelBackground(theme: theme)
-                // Pin the background to its active appearance so the glass /
-                // material does not brighten when the panel becomes key on click
-                // and dim when it resigns. controlActiveState drives that styling.
-                .environment(\.controlActiveState, .active)
+            // Hidden when the board is open and set transparent, so the panel is
+            // fully see-through to the desktop, not showing the glass plate.
+            if !(swipe.showingBoard && boardTransparent) {
+                PanelBackground(theme: theme)
+                    // Pin the background to its active appearance so the glass /
+                    // material does not brighten when the panel becomes key on
+                    // click and dim when it resigns.
+                    .environment(\.controlActiveState, .active)
+            }
 
             VStack(alignment: .leading, spacing: 13) {
-                HStack(alignment: .center, spacing: 10) {
-                    if workModeEnabled && workClock.isOn {
-                        WorkModeHeaderView(clock: workClock)
-                    } else if focusTimerEnabled {
-                        TimerHeaderView(timer: timer)
-                    }
-                    if focusSoundEnabled {
-                        DrawerIconButton(
-                            systemName: sound.isPlaying ? "speaker.wave.2.fill" : "speaker.slash.fill",
-                            accessibilityLabel: sound.isPlaying ? "Stop focus sound" : "Play focus sound",
-                            helpText: "Play pink or brown noise to focus. Pick the sound in Settings.",
-                            isProminent: sound.isPlaying
-                        ) {
-                            sound.toggle()
-                        }
-                    }
-                    Spacer(minLength: 8)
+                // Controls ride their own row; the timer pills sit on a second
+                // row below. Side by side they overflow the fixed-width panel
+                // (which clips, never grows), stacked they fit in every state.
+                HStack(spacing: 10) {
+                    Spacer(minLength: 0)
                     HStack(spacing: 2) {
+                        if focusSoundEnabled {
+                            DrawerIconButton(
+                                systemName: sound.isPlaying ? "speaker.wave.2.fill" : "speaker.slash.fill",
+                                accessibilityLabel: sound.isPlaying ? "Stop focus sound" : "Play focus sound",
+                                helpText: "Play pink or brown noise to focus. Pick the sound in Settings.",
+                                isProminent: sound.isPlaying
+                            ) {
+                                sound.toggle()
+                            }
+                        }
                         DrawerIconButton(
                             systemName: "plus",
                             accessibilityLabel: "Add task",
@@ -94,6 +172,27 @@ struct DrawerView: View {
                                 if showingNotes {
                                     onNeedsKeyboard()
                                 }
+                            }
+                        }
+                        if ideasEnabled && ideas != nil {
+                            DrawerIconButton(
+                                systemName: "lightbulb",
+                                accessibilityLabel: "Jot an idea",
+                                helpText: "Jot an idea and park it on the board.",
+                                isSelected: showingCapture
+                            ) {
+                                showingCapture.toggle()
+                                if showingCapture {
+                                    onNeedsKeyboard()
+                                }
+                            }
+                            DrawerIconButton(
+                                systemName: "square.grid.2x2",
+                                accessibilityLabel: "Open idea board",
+                                helpText: "Open the board of parked ideas.",
+                                isSelected: swipe.showingBoard
+                            ) {
+                                swipe.showingBoard = true
                             }
                         }
                         if filterMenuEnabled {
@@ -138,8 +237,7 @@ struct DrawerView: View {
                                 if workClock.isOn {
                                     endSummary = workClock.end(today: TodoStore.localToday())
                                 } else {
-                                    timer.reset() // no hidden focus countdown behind work mode
-                                    workClock.enter()
+                                    workClock.enter() // independent of the focus timer
                                 }
                             }
                         }
@@ -155,27 +253,63 @@ struct DrawerView: View {
                     .background(theme.controlFill, in: RoundedRectangle(cornerRadius: 12))
                 }
 
+                // Focus timer and work mode are independent: show both, so
+                // neither hides or resets the other. Side by side when the
+                // panel is wide enough for both pills, stacked when not.
+                if focusTimerEnabled || (workModeEnabled && workClock.isOn) {
+                    ViewThatFits(in: .horizontal) {
+                        HStack(alignment: .top, spacing: 6) { timerPills }
+                        VStack(alignment: .leading, spacing: 6) { timerPills }
+                    }
+                    .padding(.leading, notebookWritingInset)
+                }
+
                 if focusSoundEnabled && sound.isPlaying {
                     soundControls
+                        .padding(.leading, notebookWritingInset)
                         .transition(.move(edge: .top).combined(with: .opacity))
                 }
 
                 if showingAdd {
                     HStack(spacing: 8) {
-                        Image(systemName: "plus.circle.fill")
+                        Image(systemName: addIsHeader ? "number" : "plus.circle.fill")
                             .foregroundStyle(.tint)
-                        TextField("Add a task for today", text: $newTaskTitle)
+                        TextField(addIsHeader ? "Add a header" : "Add a task", text: $newTaskTitle)
                             .textFieldStyle(.plain)
                             .focused($addFieldFocused)
-                            .onSubmit {
-                                store.add(newTaskTitle)
-                                newTaskTitle = ""
-                                showingAdd = false
+                            .onSubmit(commitAdd)
+                        Menu {
+                            Picker("Where", selection: $addDestination) {
+                                Text("Today").tag(AddDestination.today)
+                                Text("Backlog").tag(AddDestination.backlog)
+                                Text("Archive").tag(AddDestination.archive)
                             }
+                            Toggle("As header", isOn: $addIsHeader)
+                        } label: {
+                            HStack(spacing: 3) {
+                                Text(addDestination.label)
+                                Image(systemName: "chevron.down").font(.system(size: 8, weight: .bold))
+                            }
+                            .font(.system(size: 11, weight: .semibold))
+                            .foregroundStyle(.secondary)
+                        }
+                        .menuStyle(.button)
+                        .buttonStyle(.plain)
+                        .menuIndicator(.hidden)
+                        .fixedSize()
                     }
                     .padding(.horizontal, 11)
                     .padding(.vertical, 9)
                     .background(.quaternary.opacity(0.65), in: RoundedRectangle(cornerRadius: 11))
+                    .padding(.leading, notebookWritingInset)
+                    .transition(.move(edge: .top).combined(with: .opacity))
+                }
+
+                if showingCapture, let ideas {
+                    IdeaCaptureBar(store: ideas, reduceMotion: reduceMotion) {
+                        showingCapture = false
+                    }
+                    .padding(.leading, notebookWritingInset)
                     .transition(.move(edge: .top).combined(with: .opacity))
                 }
 
@@ -186,10 +320,14 @@ struct DrawerView: View {
                         onToggleTeleprompter: onToggleTeleprompter,
                         onNeedsKeyboard: onNeedsKeyboard
                     )
+                    .padding(.leading, notebookWritingInset)
                 }
 
                 ScrollView {
-                    VStack(alignment: .leading, spacing: 5) {
+                    // Lazy so only the rows near the viewport are built. Bounds
+                    // every per-row cost (rebuilds, gestures, geometry) to what
+                    // is actually on screen rather than the whole list.
+                    LazyVStack(alignment: .leading, spacing: 5) {
                         if let endSummary {
                             WorkSummaryCard(
                                 summary: endSummary,
@@ -254,26 +392,46 @@ struct DrawerView: View {
                     }
                 }
                 .scrollIndicators(.hidden)
+                // Notebook: task content starts right of the red margin without
+                // shifting the whole drawer shell or clipping the right edge.
+                .padding(.leading, notebookWritingInset)
             }
             .padding(14)
+            // While the board is open and transparent, hide the task list behind
+            // it so the see-through board shows the desktop, not the tasks.
+            .opacity(swipe.showingBoard && boardTransparent ? 0 : 1)
 
             // Confetti renders here, above the scroll view, so pieces are never
             // clipped by the list. Rows report checkbox points in "panel" space.
             ConfettiLayer(center: celebration)
+
+            // The idea board slides in over the tasks from the left. Kept
+            // mounted (just offset off-screen) so the canvas holds its state.
+            if ideasEnabled, let ideas {
+                IdeaBoardPage(store: ideas, theme: theme) {
+                    swipe.showingBoard = false
+                }
+                .offset(x: swipe.showingBoard ? 0 : -3000)
+            }
         }
         .coordinateSpace(.named("panel"))
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .fontDesign(theme.fontDesign)
+        .fontDesign(resolvedFontDesign)
         .tint(theme.accent)
         // Set the base ink once so .secondary / .tertiary derive from it. The
         // art-directed themes carry their own ink; the rest keep .primary.
         .foregroundStyle(theme.primaryInk)
         .environment(\.drawerTheme, theme)
-        .environmentObject(celebration)
-        .environmentObject(swipe)
-        .environmentObject(workClock)
+        // Art themes force their fixed lightness so semantic colors and materials
+        // resolve correctly on the painted surface (no white icons on cream paper).
+        .environment(\.colorScheme, theme.forcedColorScheme ?? systemScheme)
+        .environment(celebration)
+        .environment(swipe)
+        .environment(workClock)
         .animation(reduceMotion ? nil : .easeOut(duration: 0.18), value: showingAdd)
         .animation(reduceMotion ? nil : .easeOut(duration: 0.18), value: showingNotes)
+        .animation(reduceMotion ? nil : .easeOut(duration: 0.18), value: showingCapture)
+        .animation(reduceMotion ? nil : .easeOut(duration: 0.5), value: swipe.showingBoard)
         .animation(reduceMotion ? nil : .easeOut(duration: 0.18), value: sound.isPlaying)
         .onAppear {
             scrollMonitor.start(swipe)
@@ -284,9 +442,31 @@ struct DrawerView: View {
                 guard let store, let item = store.item(withID: id) else { return }
                 store.setInProgress(item, !item.isInProgress)
             }
+            swipe.onCloseDrawer = onHide
         }
         .onChange(of: swipeDeleteEnabled) { _, on in swipe.deleteEnabled = on }
         .onChange(of: swipeProgressEnabled) { _, on in swipe.progressEnabled = on }
+        .onChange(of: swipe.boardCoverage) { _, c in onBoardCoverage(c) }
+        .onChange(of: swipe.showingBoard) { _, shown in
+            if shown {
+                // Pinch / gesture events are only delivered to the *active* app's
+                // key window. This is an accessory, non-activating panel, so it is
+                // never active and never receives magnify. Activate + key it while
+                // the board is open so pinch zoom actually arrives.
+                NSApp.activate()
+                onNeedsKeyboard()
+                // Come back at the size the board was left at, not collapsed.
+                if swipe.boardCoverage == 0 {
+                    swipe.boardCoverage = swipe.lastBoardCoverage
+                }
+            } else {
+                // Remember the size for next time before collapsing the panel.
+                if swipe.boardCoverage > 0.05 {
+                    swipe.lastBoardCoverage = swipe.boardCoverage
+                }
+                swipe.boardCoverage = 0
+            }
+        }
         .onDisappear { scrollMonitor.stop() }
     }
 
@@ -324,8 +504,12 @@ struct DrawerView: View {
         isExpanded: Binding<Bool>,
         helpText: String
     ) -> some View {
-        let groups = grouped(items)
-        let count = groups.reduce(0) { $0 + $1.items.count }
+        // The collapsed header only needs a count; skip the group/sort work
+        // until the section is actually open. The count matches what grouping
+        // would show (only the hide-completed filter changes it).
+        let count = hideCompleted
+            ? items.lazy.filter { !$0.isDone }.count
+            : items.count
         if count > 0 {
             Button {
                 if reduceMotion {
@@ -355,7 +539,7 @@ struct DrawerView: View {
             .padding(.top, 8)
             .help(helpText)
             if isExpanded.wrappedValue {
-                ForEach(groups) { group in
+                ForEach(grouped(items)) { group in
                     if let subtitle = group.title {
                         Text(subtitle.uppercased())
                             .font(.system(size: 9, weight: .semibold))
@@ -377,7 +561,10 @@ struct DrawerView: View {
     /// keyboard (the panel is non-activating, so a focused field is not
     /// enough on its own).
     private func taskRow(_ item: TodoItem) -> some View {
+        // .equatable() lets SwiftUI skip rows whose item is unchanged when the
+        // parent rebuilds, so toggling one task does not re-evaluate the rest.
         TaskRowView(item: item, store: store, requestKeyboard: onNeedsKeyboard)
+            .equatable()
     }
 
     private func sectionHeader(
@@ -505,14 +692,18 @@ struct DrawerView: View {
         }
         // In-progress tasks always float to the very top of their section, so
         // what you are actively working on stays in view. Stable otherwise.
-        out = out.enumerated()
-            .sorted { a, b in
-                if a.element.isInProgress != b.element.isInProgress {
-                    return a.element.isInProgress
+        // Skip the sort entirely when nothing is in progress, the common case,
+        // so a plain list does not pay for a sort on every body evaluation.
+        if out.contains(where: \.isInProgress) {
+            out = out.enumerated()
+                .sorted { a, b in
+                    if a.element.isInProgress != b.element.isInProgress {
+                        return a.element.isInProgress
+                    }
+                    return a.offset < b.offset
                 }
-                return a.offset < b.offset
-            }
-            .map(\.element)
+                .map(\.element)
+        }
         return out
     }
 }

@@ -9,6 +9,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var panelController: PanelController!
     private var store: TodoStore!
     private var notesStore: NotesStore!
+    private var boardStore: BoardStore!
     private var teleprompter: TeleprompterController!
     private var focusTimer: FocusTimer!
     private var workClock: WorkClock!
@@ -17,6 +18,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var escMonitor: Any?
     private var settingsWindow: NSWindow?
     private var toggleMenuItem: NSMenuItem?
+    /// Repeats the time's-up chime while the finished timer waits for dismissal.
+    private var alarmTimer: Timer?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         FontLoader.registerBundledFonts() // the Pixel theme's typeface
@@ -30,6 +33,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             "drawerTheme": DrawerTheme.default.rawValue,
             "focusSoundKind": "pink",
             "focusSoundVolume": 0.5,
+            "boardBackground": "dark",
+            "boardDefaultColor": "yellow",
+            "boardSwipeScale": 300.0,
+            "boardZoomStep": 1.25,
+            "taskFontSize": 13.0,
+            "appFontDesign": "theme",
         ])
         // Every feature defaults to on.
         FeatureFlag.registerDefaults()
@@ -45,10 +54,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         store = TodoStore(fileURL: URL(fileURLWithPath: path))
         notesStore = NotesStore(fileURL: AppPaths.notesFile)
         notesStore.load()
+        boardStore = BoardStore(directory: AppPaths.ideasDirectory)
+        boardStore.load()
         teleprompter = TeleprompterController(store: notesStore)
         focusTimer = FocusTimer()
         focusTimer.onComplete = { [weak self] title in
-            self?.notifyComplete(title)
+            self?.timerFinished(title)
         }
 
         workClock = WorkClock(log: WorkSessionLog(fileURL: AppPaths.workLogFile))
@@ -61,8 +72,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             workClock: workClock,
             onToggleSize: { controller?.toggleSize() },
             onNeedsKeyboard: { controller?.makeKeyIfShown() },
+            onHide: { controller?.hide() },
             notes: notesStore,
-            onToggleTeleprompter: { [weak self] in self?.teleprompter.toggle() }
+            onToggleTeleprompter: { [weak self] in self?.teleprompter.toggle() },
+            ideas: boardStore,
+            onBoardCoverage: { controller?.setBoardCoverage($0) }
         )
         controller = PanelController(rootView: rootView)
         panelController = controller
@@ -114,6 +128,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationWillTerminate(_ notification: Notification) {
         notesStore?.saveNow() // flush anything typed in the last moment
+        boardStore?.saveNow() // flush the board layout
         workClock?.pause()    // flush an open work segment to the log
     }
 
@@ -195,10 +210,39 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             .requestAuthorization(options: [.alert, .sound]) { _, _ in }
     }
 
-    private func notifyComplete(_ title: String) {
-        // "Sound when timer ends" feature: off means no chime and no banner.
+    /// The timer hit zero. Surface the drawer so the Time's Up card is seen,
+    /// ring until it is dismissed, and post a banner for other Spaces.
+    private func timerFinished(_ title: String) {
+        if !panelController.isShown { panelController.show() }
+        startAlarm()
+        notifyComplete(title)
+    }
+
+    /// Repeats a chime every few seconds while the timer sits in `finished`.
+    /// Stops itself the moment the card is dismissed (or a new timer starts).
+    private func startAlarm() {
         guard UserDefaults.standard.bool(forKey: "completionSound") else { return }
+        alarmTimer?.invalidate()
         NSSound(named: "Glass")?.play()
+        let timer = Timer(timeInterval: 2.5, repeats: true) { [weak self] _ in
+            Task { @MainActor in
+                guard let self else { return }
+                if self.focusTimer.phase == .finished {
+                    NSSound(named: "Glass")?.play()
+                } else {
+                    self.alarmTimer?.invalidate()
+                    self.alarmTimer = nil
+                }
+            }
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        alarmTimer = timer
+    }
+
+    private func notifyComplete(_ title: String) {
+        // Banner rides the same "Sound when timer ends" flag; the in-drawer
+        // alarm card shows regardless.
+        guard UserDefaults.standard.bool(forKey: "completionSound") else { return }
         guard Bundle.main.bundleIdentifier != nil else { return }
         let content = UNMutableNotificationContent()
         content.title = "Focus session done"

@@ -1,17 +1,19 @@
 import AppKit
+import Observation
 import SwiftUI
 
 /// Shared swipe state for the rows, keyed by task id. Both inputs (mouse
 /// click-drag and two-finger trackpad swipe) write here, so they can never
 /// fight over a private per-row offset. Only one row is open at a time.
 @MainActor
-final class SwipeCoordinator: ObservableObject {
+@Observable
+final class SwipeCoordinator {
     let deleteWidth: CGFloat = 72
     /// How far a row slides right to reveal the in-progress affordance. Past
     /// half of this on release, the row is marked in progress and snaps back.
     let progressWidth: CGFloat = 72
 
-    @Published private var offsets: [String: CGFloat] = [:]
+    private var offsets: [String: CGFloat] = [:]
     private(set) var openID: String?
     /// The row under the pointer. The scroll monitor swipes this one, so no
     /// hit-testing or coordinate conversion is needed.
@@ -19,10 +21,39 @@ final class SwipeCoordinator: ObservableObject {
     /// Set once by the view. Called when a right swipe crosses the trigger
     /// threshold, with the row id, so the store can flip its in-progress flag.
     var onProgress: ((String) -> Void)?
+    /// Set once by the view. Called when a left swipe on the task page (not over
+    /// a row) crosses the threshold, to hide the whole drawer.
+    var onCloseDrawer: (() -> Void)?
     /// Feature flags. When a direction is off, the row can't slide that way and
     /// its action never fires, so both inputs (mouse and trackpad) honor it.
     var deleteEnabled = true
     var progressEnabled = true
+    /// True while the pointer is over swipe-navigable chrome (a header bar). The
+    /// scroll monitor then reads a horizontal two-finger swipe there as a page
+    /// switch between the task list and the idea board, not a row swipe.
+    var pointerOverChrome = false
+    // Page flag lives here (not @State) so the scroll monitor can flip it
+    // without a captured binding going stale mid-gesture.
+    var showingBoard = false
+    /// How much of the screen the board covers: 0 = normal panel, 1 = full
+    /// screen. A right swipe on the board raises it, a left swipe lowers it.
+    var boardCoverage: CGFloat = 0
+    /// The last coverage the user settled on (> 0), remembered across board
+    /// close/open so the board comes back at the size it was left at.
+    var lastBoardCoverage: CGFloat = 0
+
+    /// Points of swipe to move coverage by 1 (normal -> full in one firm swipe).
+    /// Settings-tunable; lower = a small swipe covers more.
+    static var coverageSwipeScale: CGFloat {
+        let v = UserDefaults.standard.double(forKey: "boardSwipeScale")
+        return v > 0 ? CGFloat(v) : 300
+    }
+
+    /// Coverage for a live swipe: `start` (coverage when the swipe began) plus
+    /// the swipe distance so far, clamped 0...1. Pure, testable without events.
+    static func coverage(from start: CGFloat, dx: CGFloat) -> CGFloat {
+        max(0, min(1, start + dx / coverageSwipeScale))
+    }
 
     func offset(for id: String) -> CGFloat { offsets[id] ?? 0 }
     func isOpen(_ id: String) -> Bool { openID == id }
@@ -83,6 +114,15 @@ final class ScrollSwipeMonitor: ObservableObject {
     /// The physical swipe already settled. Trailing inertial momentum must not
     /// re-drive the offset or fire the action a second time.
     private var settled = false
+    /// This gesture began over header chrome, so a decisive horizontal swipe
+    /// pages between the task list and the board instead of swiping a row.
+    private var pageMode = false
+    /// Board coverage when the page swipe began, so the live update tracks the
+    /// finger from where it started.
+    private var coverageStart: CGFloat = 0
+
+    /// Minimum physical horizontal travel (points) to commit a page switch.
+    private static let pageSwipeThreshold: CGFloat = 50
 
     private enum Axis { case horizontal, vertical }
 
@@ -106,9 +146,9 @@ final class ScrollSwipeMonitor: ObservableObject {
         // never a swipe, so let them scroll the list and leave swipe state be.
         if event.phase == [] && event.momentumPhase == [] { return event }
 
-        // Start of a physical gesture. Reset, and lock onto the row under the
-        // pointer right now so the rest of the gesture (including the action on
-        // release) targets that one row even if the list reorders underneath.
+        // Start of a physical gesture. Decide once what this swipe targets and
+        // hold it for the whole gesture. Over header chrome it pages between the
+        // task list and the board; otherwise it swipes the row under the pointer.
         if event.phase == .began {
             // An interrupted prior gesture could leave its row shifted. Snap it
             // back before starting fresh.
@@ -117,10 +157,22 @@ final class ScrollSwipeMonitor: ObservableObject {
             accumY = 0
             axis = nil
             settled = false
-            lockedID = coordinator.hoveredID
+            coverageStart = coordinator.boardCoverage
+            // Tasks page: any swipe that is not on a row pages forward to the
+            // board, using the same hoveredID signal the row swipes rely on.
+            // Board page: only the header (pointerOverChrome) pages back, so the
+            // canvas keeps its own horizontal pan.
+            if coordinator.showingBoard {
+                pageMode = coordinator.pointerOverChrome
+                lockedID = nil
+            } else if coordinator.hoveredID == nil {
+                pageMode = true
+                lockedID = nil
+            } else {
+                pageMode = false
+                lockedID = coordinator.hoveredID
+            }
         }
-
-        guard let id = lockedID else { return event } // not over a row: list scrolls
 
         // Accumulate physical travel only. Inertial momentum never votes on the
         // axis, or it could revive a settled horizontal swipe.
@@ -135,12 +187,47 @@ final class ScrollSwipeMonitor: ObservableObject {
         if axis == nil, abs(accumX) + abs(accumY) >= 4 {
             axis = abs(accumX) > abs(accumY) ? .horizontal : .vertical
         }
-        guard axis == .horizontal else { return event } // vertical/undecided -> list scrolls
+        guard axis == .horizontal else { return event } // vertical/undecided -> scrolls
 
-        // Already settled this gesture: swallow trailing momentum so the list
-        // does not scroll, but never re-drive the offset or fire again.
+        // Already settled this gesture: swallow trailing momentum so nothing
+        // else scrolls, but never re-drive the offset or fire again.
         if settled { return nil }
 
+        // Page swipe over the header chrome. On the board the coverage tracks the
+        // finger live; on the task list a decisive right swipe opens the board.
+        if pageMode {
+            if coordinator.showingBoard {
+                coordinator.boardCoverage = SwipeCoordinator.coverage(from: coverageStart, dx: accumX)
+                if event.phase == .ended {
+                    // At minimum coverage and still pushing left -> back to tasks.
+                    if coverageStart <= 0 && accumX <= -Self.pageSwipeThreshold {
+                        coordinator.showingBoard = false
+                        coordinator.boardCoverage = 0
+                    } else if coordinator.boardCoverage > 0.05 {
+                        // Remember where the swipe settled so a reopened board
+                        // comes back at this size.
+                        coordinator.lastBoardCoverage = coordinator.boardCoverage
+                    }
+                    settled = true
+                } else if event.phase == .cancelled {
+                    settled = true
+                }
+            } else if event.phase == .ended {
+                // Right opens the board; left (right-to-left) closes the drawer.
+                if accumX >= Self.pageSwipeThreshold {
+                    coordinator.showingBoard = true
+                } else if accumX <= -Self.pageSwipeThreshold {
+                    coordinator.onCloseDrawer?()
+                }
+                settled = true
+            } else if event.phase == .cancelled {
+                settled = true
+            }
+            return nil // consume horizontal so the page/canvas underneath stays put
+        }
+
+        // Row swipe: drive the row under the pointer.
+        guard let id = lockedID else { return event } // not over a row: list scrolls
         coordinator.drag(id: id, translationX: accumX)
 
         // Settle once, on the physical release. A cancel just snaps back. Either
