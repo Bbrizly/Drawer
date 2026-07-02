@@ -2,7 +2,7 @@ import DrawerCore
 import SwiftUI
 
 struct TimerHeaderView: View {
-    @ObservedObject var timer: FocusTimer
+    var timer: FocusTimer
     @AppStorage("defaultMinutesText") private var minutesText = "25"
     @Environment(\.drawerTheme) private var theme
 
@@ -101,6 +101,48 @@ struct TimerHeaderView: View {
             .padding(.vertical, 7)
             .background(.quaternary.opacity(0.55), in: RoundedRectangle(cornerRadius: 12))
             .fixedSize(horizontal: true, vertical: false)
+        case .finished:
+            // The alarm card. Loud on purpose: an accent-filled pill with a
+            // pulsing bell that stays (and the chime repeats, see AppDelegate)
+            // until the X dismisses it. A banner alone is too easy to miss.
+            HStack(spacing: 10) {
+                Image(systemName: "bell.and.waves.left.and.right.fill")
+                    .font(.system(size: 17, weight: .semibold))
+                    .foregroundStyle(Palette.onAccent)
+                    .symbolEffect(.pulse, options: .repeating)
+                VStack(alignment: .leading, spacing: 0) {
+                    Text("TIME'S UP")
+                        .font(.system(size: 9, weight: .bold))
+                        .tracking(0.8)
+                        .foregroundStyle(Palette.onAccent.opacity(0.85))
+                    Text(timer.taskTitle.isEmpty ? "Focus done" : timer.taskTitle)
+                        .font(.system(size: 15, weight: .semibold, design: .rounded))
+                        .foregroundStyle(Palette.onAccent)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                        .frame(maxWidth: 150, alignment: .leading)
+                }
+                Button {
+                    timer.reset()
+                } label: {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 12, weight: .bold))
+                        .foregroundStyle(theme.accent)
+                        .frame(width: 28, height: 28)
+                        .background(Palette.onAccent, in: Circle())
+                        .contentShape(Circle())
+                }
+                .buttonStyle(.plain)
+                .help("Dismiss the finished timer.")
+                .accessibilityLabel("Dismiss finished timer")
+            }
+            .padding(.leading, 11)
+            .padding(.trailing, 7)
+            .padding(.vertical, 9)
+            .background(
+                theme.accent.gradient,
+                in: RoundedRectangle(cornerRadius: 12, style: .continuous)
+            )
         }
     }
 
