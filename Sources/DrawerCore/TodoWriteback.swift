@@ -307,6 +307,115 @@ public enum TodoWriteback {
         return out
     }
 
+    /// Inserts a raw line (a "- [ ] task" or a "### header") at the end of the
+    /// section whose key matches `sectionKey` (a date, "backlog", or "archive").
+    /// Creates the section with `## displayHeading` at the end of the file if it
+    /// is missing. Same insertion logic as `append(title:today:)` -- that path
+    /// is battle-tested and I didn't want to touch it.
+    public static func insert(
+        line newLine: String,
+        intoSectionKey sectionKey: String,
+        displayHeading: String,
+        in data: Data
+    ) throws -> Data {
+        let lines = try markdownLines(in: data)
+        let newline = preferredNewline(in: lines, data: data)
+
+        var headingIndex: Int?
+        var nextHeadingIndex: Int?
+        var inFence = false
+        for index in lines.indices {
+            let text = lines[index].text
+            if text.trimmingCharacters(in: .whitespaces).hasPrefix("```") {
+                inFence.toggle()
+                continue
+            }
+            if inFence || !text.hasPrefix("## ") { continue }
+            if headingIndex != nil { nextHeadingIndex = index; break }
+            if TodoParser.sectionKey(fromHeading: text) == sectionKey { headingIndex = index }
+        }
+
+        guard let headingIndex else {
+            var out = data
+            if hasContentBeyondBOM(data) {
+                let trailing = trailingNewlineCount(in: data)
+                if trailing == 0 { out.append(newline) }
+                if trailing < 2 { out.append(newline) }
+            }
+            out.append(Data(("## " + displayHeading).utf8))
+            out.append(newline)
+            out.append(Data(newLine.utf8))
+            out.append(newline)
+            return out
+        }
+
+        var insertIndex = nextHeadingIndex ?? lines.endIndex
+        while insertIndex > headingIndex + 1 && lines[insertIndex - 1].text.isEmpty {
+            insertIndex -= 1
+        }
+        let offset = insertIndex < lines.endIndex
+            ? lines[insertIndex].contentRange.lowerBound
+            : data.endIndex
+        var insertion = Data()
+        if offset > data.startIndex && !isLineEnding(data[data.index(before: offset)]) {
+            insertion.append(newline)
+        }
+        insertion.append(Data(newLine.utf8))
+        insertion.append(newline)
+
+        var out = data
+        out.insert(contentsOf: insertion, at: offset)
+        return out
+    }
+
+    /// Replaces the title text of the matched checkbox line with `newTitle`,
+    /// preserving indentation and the checkbox state. Any "(15m)" duration hint
+    /// that was part of the old title is dropped. Scoped by section + occurrence
+    /// like the others. Throws if the line is not found as a checkbox line.
+    public static func rename(
+        line rawLine: String,
+        sectionDate: String,
+        occurrence: Int = 0,
+        to newTitle: String,
+        in data: Data
+    ) throws -> Data {
+        guard !rawLine.isEmpty else { throw WritebackError.lineNotFound }
+
+        var currentDate: String?
+        var inFence = false
+        var seen = 0
+        for line in try markdownLines(in: data) {
+            let text = line.text
+            if text.trimmingCharacters(in: .whitespaces).hasPrefix("```") {
+                inFence.toggle()
+                continue
+            }
+            if inFence { continue }
+            if text.hasPrefix("## ") {
+                currentDate = TodoParser.sectionKey(fromHeading: text)
+                continue
+            }
+            guard currentDate == sectionDate,
+                  text == rawLine,
+                  let boxIndex = checkboxIndex(in: data, lineRange: line.contentRange)
+            else { continue }
+            if seen < occurrence { seen += 1; continue }
+
+            // boxIndex points at the state char; "]" then " " then the title.
+            let bracket = data.index(after: boxIndex)
+            guard bracket < line.contentRange.upperBound,
+                  data[bracket] == UInt8(ascii: "]") else { continue }
+            var titleStart = data.index(after: bracket)
+            if titleStart < line.contentRange.upperBound, data[titleStart] == UInt8(ascii: " ") {
+                titleStart = data.index(after: titleStart)
+            }
+            var out = data
+            out.replaceSubrange(titleStart..<line.contentRange.upperBound, with: Data(newTitle.utf8))
+            return out
+        }
+        throw WritebackError.lineNotFound
+    }
+
     private static func checkboxIndex(
         in data: Data, lineRange: Range<Data.Index>
     ) -> Data.Index? {

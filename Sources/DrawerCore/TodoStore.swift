@@ -57,11 +57,20 @@ public final class TodoStore: ObservableObject {
         reload()
     }
 
-    public static func localToday() -> String {
+    /// One cached day formatter. Building a DateFormatter is the expensive
+    /// part; re-assigning the time zone per call is cheap and keeps a system
+    /// time zone change from going stale (the calendar observers reload, and
+    /// this picks up the new zone on the next call).
+    private static let dayFormatter: DateFormatter = {
         let f = DateFormatter()
         f.dateFormat = "yyyy-MM-dd"
         f.timeZone = .current
-        return f.string(from: Date())
+        return f
+    }()
+
+    public static func localToday() -> String {
+        dayFormatter.timeZone = .current
+        return dayFormatter.string(from: Date())
     }
 
     public func start() {
@@ -119,40 +128,24 @@ public final class TodoStore: ObservableObject {
     }
 
     public func toggle(_ item: TodoItem) {
-        do {
-            let data = try readData(fileURL)
-            let newData = try TodoWriteback.toggle(
+        mutate { data in
+            try TodoWriteback.toggle(
                 line: item.rawLine,
                 sectionDate: item.sectionDate,
                 occurrence: item.occurrence,
                 in: data
             )
-            lastWrittenData = newData
-            try writeData(newData, fileURL)
-            apply(newData)
-        } catch {
-            // Stale line, vanished file, write failure: never guess. Reload truth.
-            lastWrittenData = nil
-            reload()
         }
     }
 
     public func delete(_ item: TodoItem) {
-        do {
-            let data = try readData(fileURL)
-            let newData = try TodoWriteback.delete(
+        mutate { data in
+            try TodoWriteback.delete(
                 line: item.rawLine,
                 sectionDate: item.sectionDate,
                 occurrence: item.occurrence,
                 in: data
             )
-            lastWrittenData = newData
-            try writeData(newData, fileURL)
-            apply(newData)
-        } catch {
-            // Stale line, vanished file, write failure: never guess. Reload truth.
-            lastWrittenData = nil
-            reload()
         }
     }
 
@@ -164,40 +157,41 @@ public final class TodoStore: ObservableObject {
     }
 
     public func setInProgress(_ item: TodoItem, _ inProgress: Bool) {
-        do {
-            let data = try readData(fileURL)
-            let newData = try TodoWriteback.setInProgress(
+        mutate { data in
+            try TodoWriteback.setInProgress(
                 line: item.rawLine,
                 sectionDate: item.sectionDate,
                 occurrence: item.occurrence,
                 inProgress: inProgress,
                 in: data
             )
-            lastWrittenData = newData
-            try writeData(newData, fileURL)
-            apply(newData)
-        } catch {
-            // Stale line, vanished file, write failure: never guess. Reload truth.
-            lastWrittenData = nil
-            reload()
         }
     }
 
     public func setNote(_ item: TodoItem, _ note: String) {
-        do {
-            let data = try readData(fileURL)
-            let newData = try TodoWriteback.setNote(
+        mutate { data in
+            try TodoWriteback.setNote(
                 line: item.rawLine,
                 sectionDate: item.sectionDate,
                 occurrence: item.occurrence,
                 note: note,
                 in: data
             )
+        }
+    }
+
+    /// Reads the file, runs a writeback transform, saves the result, and
+    /// refreshes the view from the bytes just written. On any failure (a stale
+    /// line, a vanished file, a write error) it never guesses: it drops the
+    /// self-write guard and reloads the truth on disk.
+    private func mutate(_ transform: (Data) throws -> Data) {
+        do {
+            let data = try readData(fileURL)
+            let newData = try transform(data)
             lastWrittenData = newData
             try writeData(newData, fileURL)
             apply(newData)
         } catch {
-            // Stale line, vanished file, write failure: never guess. Reload truth.
             lastWrittenData = nil
             reload()
         }
@@ -229,6 +223,59 @@ public final class TodoStore: ObservableObject {
         }
     }
 
+    /// Adds a task to any section (e.g. Backlog, Archive), creating the section
+    /// with `displayHeading` if it does not exist yet.
+    public func addTask(_ title: String, toSectionKey key: String, displayHeading: String) {
+        let trimmed = title.trimmingCharacters(in: .whitespaces)
+        guard !trimmed.isEmpty else { return }
+        insertLine("- [ ] " + trimmed, intoSectionKey: key, displayHeading: displayHeading)
+    }
+
+    /// Adds a "### " subheading to a section, to group the tasks below it.
+    public func addHeader(_ title: String, toSectionKey key: String, displayHeading: String) {
+        let trimmed = title.trimmingCharacters(in: .whitespaces)
+        guard !trimmed.isEmpty else { return }
+        insertLine("### " + trimmed, intoSectionKey: key, displayHeading: displayHeading)
+    }
+
+    private func insertLine(_ line: String, intoSectionKey key: String, displayHeading: String) {
+        let data: Data
+        do {
+            data = try readData(fileURL)
+        } catch where Self.isMissingFileError(error) {
+            data = Data()
+        } catch {
+            statusMessage = "Could not read drawer file"
+            return
+        }
+        do {
+            let newData = try TodoWriteback.insert(
+                line: line, intoSectionKey: key, displayHeading: displayHeading, in: data
+            )
+            lastWrittenData = newData
+            try writeData(newData, fileURL)
+            apply(newData)
+        } catch {
+            lastWrittenData = nil
+            statusMessage = "Could not save drawer file"
+        }
+    }
+
+    /// Renames a task in place, writing the new title back to its line.
+    public func rename(_ item: TodoItem, to newTitle: String) {
+        let trimmed = newTitle.trimmingCharacters(in: .whitespaces)
+        guard !trimmed.isEmpty, trimmed != item.title else { return }
+        mutate { data in
+            try TodoWriteback.rename(
+                line: item.rawLine,
+                sectionDate: item.sectionDate,
+                occurrence: item.occurrence,
+                to: trimmed,
+                in: data
+            )
+        }
+    }
+
     private func apply(_ data: Data) {
         guard let text = String(data: data, encoding: .utf8) else {
             statusMessage = "File is not UTF-8"
@@ -253,13 +300,11 @@ public final class TodoStore: ObservableObject {
     }
 
     static func dayAfter(_ date: String) -> String? {
-        let f = DateFormatter()
-        f.dateFormat = "yyyy-MM-dd"
-        f.timeZone = .current
-        guard let d = f.date(from: date),
+        dayFormatter.timeZone = .current
+        guard let d = dayFormatter.date(from: date),
               let next = Calendar.current.date(byAdding: .day, value: 1, to: d)
         else { return nil }
-        return f.string(from: next)
+        return dayFormatter.string(from: next)
     }
 
     private func startCalendarObservers() {
