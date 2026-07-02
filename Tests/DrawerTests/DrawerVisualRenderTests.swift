@@ -6,6 +6,44 @@ import XCTest
 
 @MainActor
 final class DrawerVisualRenderTests: XCTestCase {
+    func testNotebookHeaderChromeStaysRightOfMarginRule() throws {
+        FontLoader.registerBundledFonts()
+
+        let sampleFile = FileManager.default.temporaryDirectory
+            .appendingPathComponent("drawer-notebook-margin-\(UUID().uuidString).md")
+        try """
+        ## 2026-06-07
+        - [ ] Finish the product walkthrough (15m)
+        """.write(to: sampleFile, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: sampleFile) }
+
+        let store = TodoStore(fileURL: sampleFile, todayProvider: { "2026-06-07" })
+        store.reload()
+        let timer = FocusTimer()
+        let workLog = WorkSessionLog(
+            fileURL: FileManager.default.temporaryDirectory
+                .appendingPathComponent("drawer-notebook-margin-\(UUID().uuidString).jsonl"))
+        let workClock = WorkClock(log: workLog)
+
+        UserDefaults.standard.set(DrawerTheme.notebook.rawValue, forKey: "drawerTheme")
+        defer { UserDefaults.standard.removeObject(forKey: "drawerTheme") }
+
+        let bitmap = try renderBitmap(
+            DrawerView(store: store, timer: timer, workClock: workClock),
+            appearance: .aqua,
+            size: NSSize(width: 320, height: 220)
+        )
+
+        XCTAssertFalse(
+            containsDarkChromePixels(
+                in: bitmap,
+                xRange: 32..<38,
+                yRange: 45..<min(170, bitmap.pixelsHigh)
+            ),
+            "Notebook header chrome should not draw in the paper gutter before the red rule."
+        )
+    }
+
     func testRenderDrawerWhenRequested() throws {
         guard let outputDirectory = ProcessInfo.processInfo.environment["DRAWER_RENDER_DIR"] else {
             throw XCTSkip("Set DRAWER_RENDER_DIR to generate visual review images.")
@@ -78,6 +116,31 @@ final class DrawerVisualRenderTests: XCTestCase {
         UserDefaults.standard.removeObject(forKey: "drawerTheme")
     }
 
+    private func containsDarkChromePixels(
+        in bitmap: NSBitmapImageRep,
+        xRange: Range<Int>,
+        yRange: Range<Int>
+    ) -> Bool {
+        for y in yRange {
+            for x in xRange {
+                guard let color = bitmap.colorAt(x: x, y: y)?.usingColorSpace(.deviceRGB),
+                      color.alphaComponent > 0.05 else {
+                    continue
+                }
+                if isDarkChromeInk(color) {
+                    return true
+                }
+            }
+        }
+        return false
+    }
+
+    private func isDarkChromeInk(_ color: NSColor) -> Bool {
+        color.redComponent < 0.72
+            && color.greenComponent < 0.72
+            && color.blueComponent < 0.72
+    }
+
     /// Renders the drawer over a colorful gradient. Glass and material plates
     /// sample what is behind the panel, so a clear window would show nothing;
     /// the gradient stands in for a desktop wallpaper.
@@ -121,5 +184,34 @@ final class DrawerVisualRenderTests: XCTestCase {
             return
         }
         try png.write(to: outputURL)
+    }
+
+    private func renderBitmap<V: View>(
+        _ view: V,
+        appearance: NSAppearance.Name,
+        size: NSSize
+    ) throws -> NSBitmapImageRep {
+        let host = NSHostingView(rootView: view)
+        host.frame = NSRect(origin: .zero, size: size)
+        host.appearance = NSAppearance(named: appearance)
+
+        let window = NSWindow(
+            contentRect: NSRect(origin: .zero, size: size),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.backgroundColor = .clear
+        window.isOpaque = false
+        window.contentView = host
+        window.layoutIfNeeded()
+        host.layoutSubtreeIfNeeded()
+
+        guard let bitmap = host.bitmapImageRepForCachingDisplay(in: host.bounds) else {
+            XCTFail("Could not create a bitmap for the drawer.")
+            throw CocoaError(.fileReadUnknown)
+        }
+        host.cacheDisplay(in: host.bounds, to: bitmap)
+        return bitmap
     }
 }
