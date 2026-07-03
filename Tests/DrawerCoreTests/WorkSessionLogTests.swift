@@ -110,6 +110,17 @@ final class WorkSessionLogTests: XCTestCase {
         XCTAssertEqual(log.summary(for: day).rows.map(\.taskTitle), ["A"])
     }
 
+    func testAllSummariesGroupsByDayMostRecentFirst() throws {
+        let box = LogBox()
+        let log = makeMemoryLog(box)
+        try log.append(session("A", start: 0, length: 100))                  // day 1
+        try log.append(session("B", start: 2 * 86_400, length: 200))         // day 3
+        let summaries = log.allSummaries()
+        XCTAssertEqual(summaries.count, 2)
+        XCTAssertEqual(summaries.first?.rows.first?.taskTitle, "B")          // most recent first
+        XCTAssertEqual(summaries.last?.rows.first?.taskTitle, "A")
+    }
+
     func testCorruptLineIsSkipped() throws {
         let box = LogBox()
         let log = makeMemoryLog(box)

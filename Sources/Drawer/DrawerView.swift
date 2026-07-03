@@ -236,6 +236,7 @@ struct DrawerView: View {
                             ) {
                                 if workClock.isOn {
                                     endSummary = workClock.end(today: TodoStore.localToday())
+                                    AppPaths.exportWorkLog(workClock)
                                 } else {
                                     workClock.enter() // independent of the focus timer
                                 }
@@ -335,6 +336,7 @@ struct DrawerView: View {
                                 onEdit: { title, seconds, day in
                                     self.endSummary = workClock.editSummary(
                                         title: title, seconds: seconds, on: day)
+                                    AppPaths.exportWorkLog(workClock)
                                 },
                                 onDone: { self.endSummary = nil }
                             )

@@ -116,6 +116,13 @@ public struct WorkSessionLog: Sendable {
         try replaceAll(result)
     }
 
+    /// One summary per day that has logged time, most recent day first.
+    public func allSummaries(calendar: Calendar = .current) -> [WorkSummary] {
+        let f = Self.dayFormatter(calendar)
+        let days = Set(all().map { f.string(from: $0.start) })
+        return days.sorted(by: >).map { summary(for: $0, calendar: calendar) }
+    }
+
     /// Per-task roll-up for one day, longest first.
     public func summary(for day: String, calendar: Calendar = .current) -> WorkSummary {
         let f = Self.dayFormatter(calendar)

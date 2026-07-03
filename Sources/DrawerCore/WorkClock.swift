@@ -187,6 +187,16 @@ public final class WorkClock {
         if id == activeTaskID { pause() }
     }
 
+    /// Regenerates the markdown work log at `url` from the full session
+    /// history. Call after anything that changes logged time so the file on
+    /// disk stays in sync.
+    public func exportMarkdown(to url: URL) {
+        let markdown = renderWorkLogMarkdown(log.allSummaries(calendar: calendar))
+        try? FileManager.default.createDirectory(
+            at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try? markdown.write(to: url, atomically: true, encoding: .utf8)
+    }
+
     // MARK: internals
 
     /// Logs the open segment and stops counting. Idempotent. Updates the cached
@@ -269,7 +279,7 @@ public final class WorkClock {
         elapsed = max(0, now().timeIntervalSince(start))
     }
 
-    public static func formatHM(_ t: TimeInterval) -> String {
+    public nonisolated static func formatHM(_ t: TimeInterval) -> String {
         let s = Int(t.rounded())
         return String(format: "%dh %02dm", s / 3600, (s % 3600) / 60)
     }
