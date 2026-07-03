@@ -140,6 +140,104 @@ final class BoardStoreTests: XCTestCase {
         XCTAssertEqual(reloaded.document.items.first?.title, "Idea")
     }
 
+    func testAddBoardSelectsEmptyBoardAndKeepsPreviousBoard() {
+        let store = makeStore()
+        let firstID = store.document.activeBoardID
+        store.addText(title: "First", body: "")
+
+        let second = store.addBoard()
+        XCTAssertEqual(store.document.activeBoardID, second.id)
+        XCTAssertEqual(store.activeBoardName, "Board 2")
+        XCTAssertTrue(store.document.items.isEmpty)
+
+        store.selectBoard(firstID)
+        XCTAssertEqual(store.document.items.map(\.title), ["First"])
+    }
+
+    func testRemoveActiveBoardFallsBackAndKeepsOneBoard() {
+        let store = makeStore()
+        let firstID = store.document.activeBoardID
+        let second = store.addBoard()
+
+        store.removeBoard(second.id)
+        XCTAssertEqual(store.document.activeBoardID, firstID)
+        XCTAssertEqual(store.document.boards.count, 1)
+
+        store.removeBoard(firstID)
+        XCTAssertEqual(store.document.boards.count, 1, "The last board should not be deleted.")
+    }
+
+    func testRenameBoardTrimsAndIgnoresEmptyNames() {
+        let store = makeStore()
+        let id = store.document.activeBoardID
+
+        store.renameBoard(id, to: "  Work  ")
+        XCTAssertEqual(store.activeBoardName, "Work")
+
+        store.renameBoard(id, to: "   ")
+        XCTAssertEqual(store.activeBoardName, "Work")
+    }
+
+    func testBoardMetricsCountsStorageAndCanvasCost() throws {
+        let media = dir.appendingPathComponent("media", isDirectory: true)
+        try FileManager.default.createDirectory(at: media, withIntermediateDirectories: true)
+        try Data([1, 2, 3, 4]).write(to: media.appendingPathComponent("image.png"))
+
+        let store = makeStore()
+        _ = store.addText(title: "Text", body: "")
+        _ = store.addImage(
+            file: "media/image.png",
+            naturalSize: CGSize(width: 100, height: 100),
+            displaySize: CGSize(width: 50, height: 50),
+            at: .zero
+        )
+
+        let metrics = store.metrics(for: store.document.activeBoard)
+        XCTAssertEqual(metrics.itemCount, 2)
+        XCTAssertEqual(metrics.textCount, 1)
+        XCTAssertEqual(metrics.imageCount, 1)
+        XCTAssertGreaterThan(metrics.jsonBytes, 0)
+        XCTAssertEqual(metrics.mediaBytes, 4)
+        XCTAssertEqual(metrics.canvasLayerCount, 9)
+        XCTAssertEqual(metrics.canvasPointArea, 220 * 140 + 50 * 50)
+        XCTAssertEqual(BoardMetrics.smoothLayerBudget, 320)
+        XCTAssertEqual(BoardMetrics.smoothAreaBudget, 2_000_000)
+        XCTAssertEqual(metrics.canvasLoadPercent, 3)
+    }
+
+    func testLoadMigratesLegacySingleBoardJSON() throws {
+        let legacyID = UUID(uuidString: "11111111-1111-1111-1111-111111111111")!
+        let legacy = """
+        {
+          "version": 1,
+          "viewport": { "x": 12, "y": 34, "zoom": 1.5 },
+          "items": [
+            {
+              "id": "\(legacyID.uuidString)",
+              "kind": "text",
+              "x": 1,
+              "y": 2,
+              "width": 220,
+              "height": 140,
+              "z": 1,
+              "created": "1970-01-01T00:00:00Z",
+              "title": "Legacy"
+            }
+          ]
+        }
+        """
+        try Data(legacy.utf8).write(to: dir.appendingPathComponent("board.json"))
+
+        let store = makeStore()
+        store.load()
+
+        XCTAssertEqual(store.document.boards.count, 1)
+        XCTAssertEqual(store.activeBoardName, "Ideas")
+        XCTAssertEqual(store.document.viewport.zoom, 1.5, accuracy: 0.001)
+        XCTAssertEqual(store.document.items.first?.id, legacyID)
+        XCTAssertEqual(store.document.items.first?.title, "Legacy")
+    }
+
     func testLoadMalformedGivesEmptyBoard() throws {
         let file = dir.appendingPathComponent("board.json")
         try Data("not json".utf8).write(to: file)

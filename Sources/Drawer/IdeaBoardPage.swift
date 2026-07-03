@@ -1,4 +1,5 @@
 import DrawerCore
+import Foundation
 import SwiftUI
 
 /// The board page that slides in over the task list. A slim header with a back
@@ -12,6 +13,7 @@ struct IdeaBoardPage: View {
 
     @Environment(SwipeCoordinator.self) private var swipe
     @State private var recenterRequests = 0
+    @State private var showingBoardSelector = false
     // Board settings (see the Board tab in Settings).
     @AppStorage("boardBackground") private var boardBackground = "dark"
     @AppStorage("boardDefaultColor") private var defaultColor = "yellow"
@@ -55,8 +57,7 @@ struct IdeaBoardPage: View {
             ) {
                 onBack()
             }
-            Text("Ideas")
-                .font(.system(size: 14, weight: .semibold))
+            boardSelector
             Spacer()
             DrawerIconButton(
                 systemName: "arrow.uturn.backward",
@@ -112,6 +113,31 @@ struct IdeaBoardPage: View {
         .onHover { swipe.pointerOverChrome = $0 }
     }
 
+    private var boardSelector: some View {
+        Button {
+            showingBoardSelector.toggle()
+        } label: {
+            HStack(spacing: 5) {
+                Text(store.activeBoardName)
+                    .font(.system(size: 14, weight: .semibold))
+                    .lineLimit(1)
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 9, weight: .bold))
+                    .foregroundStyle(.tertiary)
+            }
+            .foregroundStyle(theme.primaryInk)
+            .frame(maxWidth: 150, alignment: .leading)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Select board")
+        .help("Select board")
+        .popover(isPresented: $showingBoardSelector, arrowEdge: .bottom) {
+            BoardSelectorPopover(store: store, isPresented: $showingBoardSelector)
+                .environment(\.drawerTheme, theme)
+        }
+    }
+
     private var backgroundIcon: String {
         switch boardBackground {
         case "transparent": return "square.dashed"
@@ -126,5 +152,213 @@ struct IdeaBoardPage: View {
         case "transparent": boardBackground = "paper"
         default: boardBackground = "dark"
         }
+    }
+}
+
+private struct BoardSelectorPopover: View {
+    @ObservedObject var store: BoardStore
+    @Binding var isPresented: Bool
+    @Environment(\.drawerTheme) private var theme
+    @State private var editingBoardID: UUID?
+    @State private var renameDraft = ""
+
+    var body: some View {
+        VStack(spacing: 0) {
+            List {
+                ForEach(store.document.boards) { board in
+                    BoardSelectorRow(
+                        board: board,
+                        selected: board.id == store.document.activeBoardID
+                    )
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        store.selectBoard(board.id)
+                        isPresented = false
+                    }
+                    .popover(
+                        isPresented: editBinding(for: board.id),
+                        attachmentAnchor: .rect(.bounds),
+                        arrowEdge: .trailing
+                    ) {
+                        BoardEditPopover(
+                            store: store,
+                            board: board,
+                            renameDraft: $renameDraft,
+                            isPresented: editBinding(for: board.id)
+                        )
+                        .environment(\.drawerTheme, theme)
+                    }
+                    .swipeActions(
+                        edge: .trailing,
+                        allowsFullSwipe: store.document.boards.count > 1
+                    ) {
+                        if store.document.boards.count > 1 {
+                            Button(role: .destructive) {
+                                if editingBoardID == board.id { editingBoardID = nil }
+                                store.removeBoard(board.id)
+                            } label: {
+                                Label("Delete", systemImage: "trash")
+                            }
+                        }
+                        Button {
+                            renameDraft = board.name
+                            editingBoardID = board.id
+                        } label: {
+                            Label("Edit", systemImage: "pencil")
+                        }
+                        .tint(theme.accent)
+                    }
+                    .listRowInsets(EdgeInsets(top: 4, leading: 8, bottom: 4, trailing: 8))
+                    .listRowBackground(Color.clear)
+                }
+            }
+            .listStyle(.plain)
+            .scrollContentBackground(.hidden)
+            .background(Color.clear)
+            .frame(height: listHeight)
+
+            Divider()
+
+            Button {
+                store.addBoard()
+                isPresented = false
+            } label: {
+                Image(systemName: "plus")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(theme.accent)
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 34)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Add board")
+            .help("Add board")
+        }
+        .frame(width: 280)
+        .padding(6)
+        .background(PanelBackground(theme: theme))
+        .foregroundStyle(theme.primaryInk)
+        .environment(\.colorScheme, theme.popoverColorScheme)
+    }
+
+    private var listHeight: CGFloat {
+        min(max(CGFloat(store.document.boards.count) * 38, 38), 228)
+    }
+
+    private func editBinding(for id: UUID) -> Binding<Bool> {
+        Binding(
+            get: { editingBoardID == id },
+            set: { showing in
+                if showing {
+                    editingBoardID = id
+                } else if editingBoardID == id {
+                    editingBoardID = nil
+                }
+            }
+        )
+    }
+}
+
+private struct BoardSelectorRow: View {
+    let board: BoardRecord
+    let selected: Bool
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "checkmark")
+                .font(.system(size: 11, weight: .bold))
+                .opacity(selected ? 1 : 0)
+                .frame(width: 14)
+            Text(board.name)
+                .font(.system(size: 13, weight: selected ? .semibold : .regular))
+                .lineLimit(1)
+            Spacer()
+            Text("\(board.items.count)")
+                .font(.system(size: 11, weight: .semibold, design: .rounded))
+                .foregroundStyle(.tertiary)
+        }
+        .padding(.vertical, 7)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(board.name), \(board.items.count) items")
+        .accessibilityAddTraits(selected ? [.isButton, .isSelected] : .isButton)
+    }
+}
+
+private struct BoardEditPopover: View {
+    @ObservedObject var store: BoardStore
+    let board: BoardRecord
+    @Binding var renameDraft: String
+    @Binding var isPresented: Bool
+    @Environment(\.drawerTheme) private var theme
+    @FocusState private var nameFocused: Bool
+
+    private var metrics: BoardMetrics { store.metrics(for: board) }
+    private var trimmedName: String {
+        renameDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 8) {
+                TextField("Board name", text: $renameDraft)
+                    .textFieldStyle(.roundedBorder)
+                    .focused($nameFocused)
+                    .onSubmit(rename)
+                Button(action: rename) {
+                    Label("Rename", systemImage: "checkmark")
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(trimmedName.isEmpty || trimmedName == board.name)
+            }
+
+            Divider()
+
+            VStack(alignment: .leading, spacing: 7) {
+                metricRow("Items", "\(metrics.itemCount)")
+                metricRow("Text", "\(metrics.textCount)")
+                metricRow("Images", "\(metrics.imageCount)")
+                metricRow("Storage", bytes(metrics.totalBytes))
+                metricRow("JSON", bytes(metrics.jsonBytes))
+                metricRow("Media", bytes(metrics.mediaBytes))
+                metricRow("Render load", "\(metrics.canvasLoadPercent)% of smooth budget")
+                metricRow("Layer budget", "\(metrics.canvasLayerCount)/\(BoardMetrics.smoothLayerBudget)")
+                metricRow("Draw area", "\(number(metrics.canvasPointArea))/\(number(BoardMetrics.smoothAreaBudget)) pt^2")
+                metricRow("Zoom", "\(Int(board.viewport.zoom * 100))%")
+            }
+        }
+        .padding(12)
+        .frame(width: 270)
+        .background(PanelBackground(theme: theme))
+        .foregroundStyle(theme.primaryInk)
+        .environment(\.colorScheme, theme.popoverColorScheme)
+        .onAppear {
+            renameDraft = board.name
+            nameFocused = true
+        }
+    }
+
+    private func metricRow(_ label: String, _ value: String) -> some View {
+        HStack {
+            Text(label)
+                .foregroundStyle(theme.secondaryInk)
+            Spacer()
+            Text(value)
+                .fontWeight(.semibold)
+                .foregroundStyle(theme.primaryInk)
+        }
+        .font(.system(size: 12))
+    }
+
+    private func rename() {
+        store.renameBoard(board.id, to: renameDraft)
+        isPresented = false
+    }
+
+    private func bytes(_ count: Int) -> String {
+        ByteCountFormatter.string(fromByteCount: Int64(count), countStyle: .file)
+    }
+
+    private func number(_ count: Int) -> String {
+        count.formatted(.number)
     }
 }

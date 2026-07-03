@@ -2,6 +2,28 @@ import Combine
 import CoreGraphics
 import Foundation
 
+public struct BoardMetrics: Equatable, Sendable {
+    public static let smoothLayerBudget = 320
+    public static let smoothAreaBudget = 2_000_000
+
+    public var itemCount: Int
+    public var textCount: Int
+    public var imageCount: Int
+    public var jsonBytes: Int
+    public var mediaBytes: Int
+    public var canvasLayerCount: Int
+    public var canvasPointArea: Int
+
+    public var totalBytes: Int { jsonBytes + mediaBytes }
+
+    public var canvasLoadPercent: Int {
+        guard itemCount > 0 else { return 0 }
+        let layerLoad = Double(canvasLayerCount) / Double(Self.smoothLayerBudget)
+        let areaLoad = Double(canvasPointArea) / Double(Self.smoothAreaBudget)
+        return min(999, max(1, Int((max(layerLoad, areaLoad) * 100).rounded())))
+    }
+}
+
 /// Holds the idea board and saves it to `board.json`. Modeled on NotesStore:
 /// loads on demand, autosaves with a debounce so a burst of drags is one write,
 /// and flushes on teardown via `saveNow`. IO is injected so tests never touch
@@ -13,6 +35,7 @@ public final class BoardStore: ObservableObject {
     public let directory: URL
     public var boardFile: URL { directory.appendingPathComponent("board.json") }
     public var mediaDirectory: URL { directory.appendingPathComponent("media", isDirectory: true) }
+    public var activeBoardName: String { document.activeBoard.name }
 
     private let readData: (URL) throws -> Data
     private let writeData: (Data, URL) throws -> Void
@@ -70,6 +93,69 @@ public final class BoardStore: ObservableObject {
     }
 
     // MARK: mutations
+
+    @discardableResult
+    public func addBoard() -> BoardRecord {
+        snapshot()
+        let board = BoardRecord(name: nextBoardName())
+        document.boards.append(board)
+        document.activeBoardID = board.id
+        scheduleSave()
+        return board
+    }
+
+    public func selectBoard(_ id: UUID) {
+        guard document.activeBoardID != id,
+              document.boards.contains(where: { $0.id == id })
+        else { return }
+        document.activeBoardID = id
+        scheduleSave()
+    }
+
+    public func removeBoard(_ id: UUID) {
+        guard document.boards.count > 1,
+              let index = document.boards.firstIndex(where: { $0.id == id })
+        else { return }
+        snapshot()
+        let wasActive = document.activeBoardID == id
+        document.boards.remove(at: index)
+        if wasActive {
+            document.activeBoardID = document.boards[min(index, document.boards.count - 1)].id
+        }
+        scheduleSave()
+    }
+
+    public func renameBoard(_ id: UUID, to name: String) {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty,
+              let index = document.boards.firstIndex(where: { $0.id == id }),
+              document.boards[index].name != trimmed
+        else { return }
+        snapshot()
+        document.boards[index].name = trimmed
+        scheduleSave()
+    }
+
+    public func metrics(for board: BoardRecord) -> BoardMetrics {
+        let jsonBytes = (try? Self.encoder.encode(board).count) ?? 0
+        let mediaBytes = Set(board.items.compactMap(\.file)).reduce(0) { total, file in
+            total + fileSize(directory.appendingPathComponent(file))
+        }
+        let textCount = board.items.filter { $0.kind == .text }.count
+        let imageCount = board.items.filter { $0.kind == .image }.count
+        let canvasPointArea = board.items.reduce(0) { total, item in
+            total + Int((item.width * item.height).rounded())
+        }
+        return BoardMetrics(
+            itemCount: board.items.count,
+            textCount: textCount,
+            imageCount: imageCount,
+            jsonBytes: jsonBytes,
+            mediaBytes: mediaBytes,
+            canvasLayerCount: 5 + board.items.count * 2,
+            canvasPointArea: canvasPointArea
+        )
+    }
 
     @discardableResult
     public func addText(
@@ -238,6 +324,9 @@ public final class BoardStore: ObservableObject {
         scheduleSave()
     }
 
+    public var canUndo: Bool { !undoStack.isEmpty }
+    public var canRedo: Bool { !redoStack.isEmpty }
+
     // MARK: helpers
 
     private func index(of id: UUID) -> Int? {
@@ -247,6 +336,18 @@ public final class BoardStore: ObservableObject {
     /// New cards always land above whatever is already on the board.
     private func nextZ() -> Int {
         (document.items.map(\.z).max() ?? 0) + 1
+    }
+
+    private func nextBoardName() -> String {
+        let names = Set(document.boards.map(\.name))
+        var n = 2
+        while names.contains("Board \(n)") { n += 1 }
+        return "Board \(n)"
+    }
+
+    private func fileSize(_ url: URL) -> Int {
+        let value = try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? NSNumber
+        return value?.intValue ?? 0
     }
 
     /// A spot near the current top-left of the view, cascaded a little so

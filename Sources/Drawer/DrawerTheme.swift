@@ -53,6 +53,15 @@ enum DrawerTheme: String, CaseIterable, Identifiable {
         }
     }
 
+    /// Popovers are separate AppKit surfaces, so they do not reliably inherit
+    /// the drawer's color scheme. Pin them to the theme's intended chrome.
+    var popoverColorScheme: ColorScheme {
+        switch self {
+        case .reminders, .medieval, .notebook: return .light
+        default: return .dark
+        }
+    }
+
     // MARK: - The one source of color
 
     /// Every color the theme shows. Plain themes take a base and change only the
