@@ -39,6 +39,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             "boardZoomStep": 1.25,
             "taskFontSize": 13.0,
             "appFontDesign": "theme",
+            "teleprompterSpeed": 45.0,
+            "teleprompterFontSize": 34.0,
+            "notesPaneHeight": 160.0,
+            "exportWorkLogMarkdown": true,
         ])
         // Every feature defaults to on.
         FeatureFlag.registerDefaults()
@@ -49,8 +53,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             UserDefaults.standard.set(true, forKey: "didRegisterLoginItem")
         }
 
-        let path = UserDefaults.standard.string(forKey: "drawerFilePath")
-            ?? AppPaths.defaultDrawerFile
+        let path = AppPaths.drawerFile
         store = TodoStore(fileURL: URL(fileURLWithPath: path))
         notesStore = NotesStore(fileURL: AppPaths.notesFile)
         notesStore.load()
@@ -82,8 +85,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         panelController = controller
         store.start()
 
-        let preset = HotkeyPreset.saved
-        hotkey.register(keyCode: preset.keyCode, modifiers: preset.modifiers) { [weak self] in
+        let binding = HotkeyBinding.saved
+        hotkey.register(keyCode: binding.keyCode, modifiers: binding.modifiers) { [weak self] in
             self?.panelController.toggle()
         }
 
@@ -139,7 +142,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         )
         let menu = NSMenu()
         let toggleItem = NSMenuItem(
-            title: "Toggle Drawer (\(HotkeyPreset.saved.label))",
+            title: "Toggle Drawer (\(HotkeyBinding.saved.label))",
             action: #selector(toggleDrawer), keyEquivalent: ""
         )
         toggleItem.target = self
@@ -169,14 +172,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 onChooseFile: { [weak self] url in
                     self?.store.updateFileURL(url)
                 },
-                onHotkeyChange: { [weak self] preset in
+                onHotkeyChange: { [weak self] binding in
                     guard let self else { return false }
                     let updated = self.hotkey.update(
-                        keyCode: preset.keyCode,
-                        modifiers: preset.modifiers
+                        keyCode: binding.keyCode,
+                        modifiers: binding.modifiers
                     )
                     if updated {
-                        self.toggleMenuItem?.title = "Toggle Drawer (\(preset.label))"
+                        self.toggleMenuItem?.title = "Toggle Drawer (\(binding.label))"
                     }
                     return updated
                 },
