@@ -1,7 +1,9 @@
 APP = Drawer.app
 BINARY = .build/release/Drawer
 
-.PHONY: build test app run clean
+.PHONY: build test app run clean release
+
+RELEASE_TAG ?=
 
 build:
 	swift build
@@ -28,3 +30,7 @@ clean:
 install: app
 	rm -rf /Applications/Drawer.app
 	cp -R Drawer.app /Applications/Drawer.app
+
+release:
+	@test -n "$(RELEASE_TAG)" || (echo "Usage: make release RELEASE_TAG=v1.0.0" && exit 1)
+	./scripts/release.sh $(RELEASE_TAG)

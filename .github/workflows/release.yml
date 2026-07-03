@@ -1,0 +1,55 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag (for example v1.0.0)"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve tag
+        id: tag
+        run: |
+          if [ -n "${{ github.event.inputs.tag }}" ]; then
+            echo "name=${{ github.event.inputs.tag }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "name=${GITHUB_REF#refs/tags/}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Build and test
+        run: |
+          swift test
+          make app
+
+      - name: Zip app
+        run: ditto -c -k --sequesterRsrc --keepParent Drawer.app Drawer-macOS.zip
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.tag.outputs.name }}
+          name: Drawer ${{ steps.tag.outputs.name }}
+          files: Drawer-macOS.zip
+          generate_release_notes: true
+          body: |
+            ## Install
+
+            1. Download **Drawer-macOS.zip** below.
+            2. Double-click the zip to unpack **Drawer.app**.
+            3. Drag **Drawer.app** into **Applications**.
+            4. The first time you open it, right-click the app and choose **Open** (macOS blocks unsigned apps on the first launch).
+
+            Requires macOS 26 or later.

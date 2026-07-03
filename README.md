@@ -1,8 +1,22 @@
 # Drawer
 
+[![Download latest release](https://img.shields.io/github/v/release/Bbrizly/Drawer?label=Download)](https://github.com/Bbrizly/Drawer/releases/latest)
+
 A slide-out todo panel for macOS with a built-in focus timer. It lives at the
 top-left edge of the screen and toggles with a global hotkey. The task list is
 a plain markdown file, so you can edit it anywhere and the panel stays in sync.
+
+## Download
+
+Get the latest build from [Releases](https://github.com/Bbrizly/Drawer/releases/latest).
+
+1. Download **Drawer-macOS.zip**.
+2. Unzip it to get **Drawer.app**.
+3. Drag **Drawer.app** into **Applications**.
+4. The first time you open it, right-click the app and choose **Open**. macOS
+   blocks unsigned apps until you do that once.
+
+Requires macOS 26 or later.
 
 ## Why
 
@@ -26,7 +40,7 @@ today's tasks, and writes checkboxes back to it.
 - Edits sync live from Obsidian, an editor, or iCloud
 - Respects Reduce Motion
 
-## Build
+## Build from source
 
     make app && open Drawer.app
 
