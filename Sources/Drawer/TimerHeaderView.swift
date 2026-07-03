@@ -55,7 +55,7 @@ struct TimerHeaderView: View {
             )
             .fixedSize(horizontal: true, vertical: false)
         case .running, .paused:
-            HStack(spacing: 8) {
+            HStack(spacing: 4) {
                 VStack(alignment: .leading, spacing: 0) {
                     Text(timer.phase == .running ? "FOCUSING" : "PAUSED")
                         .font(.system(size: 9, weight: .bold))
@@ -65,16 +65,17 @@ struct TimerHeaderView: View {
                                 ? AnyShapeStyle(theme.accent) : AnyShapeStyle(.secondary)
                         )
                     Text(FocusTimer.format(timer.remaining))
-                        .font(.system(size: 30, weight: .semibold, design: .rounded)
+                        .font(.system(size: 25, weight: .semibold, design: .rounded)
                             .monospacedDigit())
                 }
-                Spacer()
                 if timer.phase == .running {
                     DrawerIconButton(
                         systemName: "pause.fill",
                         accessibilityLabel: "Pause focus timer",
                         helpText: "Pause the current focus session.",
-                        isProminent: true
+                        isProminent: true,
+                        size: 28,
+                        iconSize: 12
                     ) {
                         timer.pause()
                     }
@@ -83,7 +84,9 @@ struct TimerHeaderView: View {
                         systemName: "play.fill",
                         accessibilityLabel: "Resume focus timer",
                         helpText: "Resume the focus timer.",
-                        isProminent: true
+                        isProminent: true,
+                        size: 28,
+                        iconSize: 12
                     ) {
                         timer.resume()
                     }
@@ -91,13 +94,15 @@ struct TimerHeaderView: View {
                 DrawerIconButton(
                     systemName: "xmark",
                     accessibilityLabel: "Reset focus timer",
-                    helpText: "Stop and reset the focus timer."
+                    helpText: "Stop and reset the focus timer.",
+                    size: 28,
+                    iconSize: 12
                 ) {
                     timer.reset()
                 }
             }
-            .padding(.leading, 11)
-            .padding(.trailing, 7)
+            .padding(.leading, 9)
+            .padding(.trailing, 5)
             .padding(.vertical, 7)
             .background(.quaternary.opacity(0.55), in: RoundedRectangle(cornerRadius: 12))
             .fixedSize(horizontal: true, vertical: false)

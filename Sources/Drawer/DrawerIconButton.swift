@@ -6,6 +6,8 @@ struct DrawerIconButton: View {
     let helpText: String
     var isProminent = false
     var isSelected = false
+    var size: CGFloat = 30
+    var iconSize: CGFloat = 13
     var action: () -> Void
 
     @Environment(\.drawerTheme) private var theme
@@ -14,20 +16,20 @@ struct DrawerIconButton: View {
     var body: some View {
         Button(action: action) {
             Image(systemName: systemName)
-                .font(.system(size: 13, weight: .semibold))
+                .font(.system(size: iconSize, weight: .semibold))
                 .foregroundStyle(foregroundStyle)
-                .frame(width: 30, height: 30)
+                .frame(width: size, height: size)
                 .background(
                     backgroundStyle,
-                    in: RoundedRectangle(cornerRadius: 9, style: .continuous)
+                    in: RoundedRectangle(cornerRadius: size * 0.3, style: .continuous)
                 )
                 .overlay {
                     if isProminent {
-                        RoundedRectangle(cornerRadius: 9, style: .continuous)
+                        RoundedRectangle(cornerRadius: size * 0.3, style: .continuous)
                             .stroke(Palette.onAccent.opacity(0.18), lineWidth: 0.5)
                     }
                 }
-                .contentShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
+                .contentShape(RoundedRectangle(cornerRadius: size * 0.3, style: .continuous))
         }
         .buttonStyle(.plain)
         .accessibilityLabel(accessibilityLabel)

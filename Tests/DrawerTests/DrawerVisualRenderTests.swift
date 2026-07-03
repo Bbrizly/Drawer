@@ -6,6 +6,19 @@ import XCTest
 
 @MainActor
 final class DrawerVisualRenderTests: XCTestCase {
+    func testRunningFocusTimerPillStaysCompactForWorkTimerRow() throws {
+        let timer = FocusTimer()
+        timer.start(taskTitle: "Focus", seconds: 25 * 60)
+
+        let width = fittingWidth(TimerHeaderView(timer: timer))
+
+        XCTAssertLessThanOrEqual(
+            width,
+            155,
+            "Running focus timer should stay compact enough to sit beside the work timer in the standard drawer content width."
+        )
+    }
+
     func testNotebookHeaderChromeStaysRightOfMarginRule() throws {
         FontLoader.registerBundledFonts()
 
@@ -213,5 +226,11 @@ final class DrawerVisualRenderTests: XCTestCase {
         }
         host.cacheDisplay(in: host.bounds, to: bitmap)
         return bitmap
+    }
+
+    private func fittingWidth<V: View>(_ view: V) -> CGFloat {
+        let host = NSHostingView(rootView: view)
+        host.layoutSubtreeIfNeeded()
+        return host.fittingSize.width
     }
 }
