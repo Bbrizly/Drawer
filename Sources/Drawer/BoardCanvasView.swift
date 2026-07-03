@@ -23,6 +23,10 @@ final class BoardCanvasView: NSView, NSTextViewDelegate {
     var onSetColor: (UUID, String) -> Void = { _, _ in }
     /// Double-click on empty canvas: make a new text card here and edit it.
     var onAddText: (CGPoint) -> Void = { _ in }
+    var onUndo: () -> Void = {}
+    var onRedo: () -> Void = {}
+    var canUndo: () -> Bool = { false }
+    var canRedo: () -> Bool = { false }
     /// Color new cards start as (Settings default). nil = yellow.
     var defaultCardColor: String?
     /// Async thumbnail fetch for an image item.
@@ -56,8 +60,10 @@ final class BoardCanvasView: NSView, NSTextViewDelegate {
     private var globalPanActive = false       // armed while the board is open
     private var globalPanMonitor: Any?
     private var magnifyMonitor: Any?
+    private var keyboardMonitor: Any?
     private var transparentBg = false
     private var paperBg = false
+    private var showingPaper: Bool { paperBg && !transparentBg }
 
     override var isFlipped: Bool { false }            // bottom-left, matches board space
     override var acceptsFirstResponder: Bool { true }
@@ -107,6 +113,7 @@ final class BoardCanvasView: NSView, NSTextViewDelegate {
     deinit {
         if let globalPanMonitor { NSEvent.removeMonitor(globalPanMonitor) }
         if let magnifyMonitor { NSEvent.removeMonitor(magnifyMonitor) }
+        if let keyboardMonitor { NSEvent.removeMonitor(keyboardMonitor) }
     }
 
     private var scale: CGFloat { window?.backingScaleFactor ?? 2 }
@@ -193,7 +200,7 @@ final class BoardCanvasView: NSView, NSTextViewDelegate {
             color = Palette.boardDark.ns
         }
         layer?.backgroundColor = color.cgColor
-        paperLayer.isHidden = !paperBg   // ruled lines only in paper mode
+        paperLayer.isHidden = !showingPaper   // ruled lines only in visible paper mode
         reinkText() // plain text adapts to the surface; keep it legible on a switch
     }
 
@@ -291,7 +298,7 @@ final class BoardCanvasView: NSView, NSTextViewDelegate {
     /// the surface so it stays legible (dark on paper, light on the dark board).
     private func textInk(for item: BoardItem) -> NSColor {
         if let key = item.color { return Palette.card(key).ns }
-        return paperBg ? Palette.cardInk.ns : .white
+        return showingPaper ? Palette.cardInk.ns : .white
     }
 
     static let defaultFontSize: CGFloat = 15
@@ -597,7 +604,12 @@ final class BoardCanvasView: NSView, NSTextViewDelegate {
     }
 
     /// Armed while the board is open, so Option + drag pans from anywhere.
-    func setGlobalPanEnabled(_ on: Bool) { globalPanActive = on }
+    func setGlobalPanEnabled(_ on: Bool) {
+        globalPanActive = on
+        if on {
+            window?.makeFirstResponder(self)
+        }
+    }
 
     /// Drags onto our panel are panned in `mouseDown`/`mouseDragged`. This global
     /// monitor adds the off-window case: Option + drag out on the desktop or
@@ -620,6 +632,38 @@ final class BoardCanvasView: NSView, NSTextViewDelegate {
                            at: CGPoint(x: self.bounds.midX, y: self.bounds.midY))
             return event // observe, don't consume
         }
+        keyboardMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            guard let self, self.shouldHandleBoardUndoRedo(for: event) else { return event }
+            if event.modifierFlags.contains(.shift) {
+                self.onRedo()
+            } else {
+                self.onUndo()
+            }
+            return nil
+        }
+    }
+
+    private func shouldHandleBoardUndoRedo(for event: NSEvent) -> Bool {
+        guard globalPanActive, editingID == nil, window?.isKeyWindow == true else { return false }
+        guard event.modifierFlags.contains(.command),
+              event.charactersIgnoringModifiers?.lowercased() == "z" else { return false }
+        return true
+    }
+
+    @objc func undo(_ sender: Any?) {
+        guard editingID == nil else { return }
+        onUndo()
+    }
+
+    @objc func redo(_ sender: Any?) {
+        guard editingID == nil else { return }
+        onRedo()
+    }
+
+    @objc func validateUserInterfaceItem(_ item: NSValidatedUserInterfaceItem) -> Bool {
+        if item.action == #selector(undo) { return editingID == nil && canUndo() }
+        if item.action == #selector(redo) { return editingID == nil && canRedo() }
+        return true
     }
 
     /// Zoom about a view point, clamped 0.25...4, keeping that point fixed.
@@ -634,6 +678,10 @@ final class BoardCanvasView: NSView, NSTextViewDelegate {
     }
 
     override func keyDown(with event: NSEvent) {
+        if shouldHandleBoardUndoRedo(for: event) {
+            if event.modifierFlags.contains(.shift) { onRedo() } else { onUndo() }
+            return
+        }
         // Delete / Forward-delete removes the whole selection.
         if (event.keyCode == 51 || event.keyCode == 117), !selectedIDs.isEmpty {
             onDeleteMany(selectedIDs)

@@ -42,6 +42,10 @@ struct BoardCanvas: NSViewRepresentable {
         view.onDropText = { text, p in coord.dropText(text, at: p) }
         view.onDropImage = { data, p in coord.importImage(data, at: p) }
         view.thumbnailProvider = { item, done in coord.thumbnail(for: item, completion: done) }
+        view.onUndo = { [weak store] in store?.undo() }
+        view.onRedo = { [weak store] in store?.redo() }
+        view.canUndo = { [weak store] in store?.canUndo ?? false }
+        view.canRedo = { [weak store] in store?.canRedo ?? false }
         view.setItems(store.document.items)
         view.setViewport(store.document.viewport)
         view.setTransparent(transparentBackground)
