@@ -1,7 +1,7 @@
 <p align="center">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="Docs/media/readmeLogo-dark.png">
-    <img src="Docs/media/readmeLogo.png" width="200" alt="Drawer icon">
+    <source media="(prefers-color-scheme: dark)" srcset="Docs/media/readmeLogo.png">
+    <img src="Docs/media/readmeLogo-dark.png" width="200" alt="Drawer icon">
   </picture>
 </p>
 
