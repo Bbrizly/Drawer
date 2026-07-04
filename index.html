@@ -210,6 +210,23 @@
   .theme b{font-weight:600;font-size:14px}
   .theme span{font-size:12px;color:var(--ink-3)}
 
+  /* ---------- ai ---------- */
+  .ai{display:grid;grid-template-columns:.9fr 1.1fr;gap:48px;align-items:center}
+  .ai .fmt-note em{color:var(--sage);font-style:italic}
+  .chat{background:#14110C;border-radius:24px;padding:10px;box-shadow:0 44px 90px -35px rgba(28,24,19,.65),inset 0 1px 1px rgba(255,255,255,.08)}
+  .chat .head{display:flex;align-items:center;gap:8px;padding:8px 12px 12px}
+  .chat .head i{width:10px;height:10px;border-radius:50%;background:rgba(255,255,255,.14)}
+  .chat .head span{margin-left:8px;font-family:'JetBrains Mono',monospace;font-size:11px;color:#7E7461}
+  .prompt{display:flex;gap:13px;align-items:flex-start;padding:16px 18px;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.06);border-radius:14px;margin:0 2px}
+  .prompt .who{width:28px;height:28px;border-radius:9px;background:rgba(169,134,63,.2);color:#D8B25E;display:grid;place-items:center;flex-shrink:0}
+  .prompt p{color:#EDE7D8;font-size:14.5px;line-height:1.5}
+  .gen{padding:20px 20px 10px}
+  .gen .lab{font-size:10px;letter-spacing:.18em;text-transform:uppercase;color:#7E7461;font-weight:600;display:flex;align-items:center;gap:8px;margin-bottom:14px}
+  .gen .lab .ln{flex:1;height:1px;background:rgba(255,255,255,.08)}
+  .gen pre{font-family:'JetBrains Mono',monospace;font-size:12.5px;line-height:1.95;color:#CFC7B4;white-space:pre-wrap}
+  .gen .h{color:#fff}.gen .c{color:#D8B25E}.gen .x{color:#8FA982}.gen .m{color:#7E7461}
+  .gen .wrote{margin:16px 2px 6px;font-size:11.5px;color:#8FA982;display:flex;align-items:center;gap:8px}
+
   /* ---------- format ---------- */
   .fmt{display:grid;grid-template-columns:.85fr 1.15fr;gap:44px;align-items:center}
   .code{background:#14110C;border-radius:20px;padding:24px 26px;box-shadow:0 40px 70px -35px rgba(28,24,19,.6);overflow-x:auto}
@@ -244,7 +261,7 @@
   @media (max-width:900px){
     .hero{grid-template-columns:1fr;gap:70px}
     .stage{margin-top:10px}
-    .fmt{grid-template-columns:1fr;gap:28px}
+    .fmt,.ai{grid-template-columns:1fr;gap:28px}
     .flow{grid-template-columns:1fr 1fr}
     .bento{grid-template-columns:repeat(2,1fr)}
     .card.big,.card.med,.card.sm,.card.wide,.card.feature{grid-column:span 1}
@@ -282,8 +299,8 @@
     <div class="navlinks">
       <a href="#flow">How it works</a>
       <a href="#features">Features</a>
+      <a href="#ai">With AI</a>
       <a href="#themes">Themes</a>
-      <a href="#format">Format</a>
     </div>
     <a href="https://github.com/Bbrizly/Drawer/releases/latest" class="nav-cta">Download<span class="circ"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M12 5v14M5 12l7 7 7-7"/></svg></span></a>
     <div class="burger" id="burger"><span></span><span></span></div>
@@ -293,8 +310,8 @@
 <div class="overlay" id="overlay">
   <a href="#flow">How it works</a>
   <a href="#features">Features</a>
+  <a href="#ai">With AI</a>
   <a href="#themes">Themes</a>
-  <a href="#format">Format</a>
 </div>
 
 <div class="wrap" id="top">
@@ -433,6 +450,42 @@
     <div class="theme"><span class="sw" style="background:linear-gradient(135deg,#c7d2df,#e6ecf3)"></span><b>Dots</b></div>
     <div class="theme"><span class="sw" style="background:linear-gradient(135deg,#fdfcf7,#e9e4d6)"></span><b>Notebook</b></div>
     <div class="theme"><span class="sw" style="background:linear-gradient(135deg,#245edb,#ece9d8)"></span><b>Windows XP</b></div>
+  </div>
+</section>
+</div>
+
+<!-- AI -->
+<div class="wrap">
+<section id="ai">
+  <div class="ai">
+    <div class="sec-head reveal" style="margin-bottom:0">
+      <span class="eyebrow"><span class="dot"></span>Made for AI</span>
+      <h2>Ask an AI. It reads your whole vault.</h2>
+      <p>Because your day is just a plain markdown file, an AI can write it for you. Keep the file in your Obsidian vault, point an AI at the vault, and it reads everything, your projects, your notes, your meetings, then writes tomorrow's tasks straight into the day file in the format Drawer expects. Open the panel and they are already there.</p>
+      <div class="fmt-note reveal">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M12 3l2.2 5.8L20 11l-5.8 2.2L12 19l-2.2-5.8L4 11l5.8-2.2z"/></svg>
+        <span>Drop the included <span class="mono" style="font-size:12.5px">drawer-tasks</span> skill into your vault so any AI writes the format perfectly. Then just say <em>"plan my tomorrow."</em></span>
+      </div>
+    </div>
+    <div class="chat reveal" data-d="1">
+      <div class="head"><i></i><i></i><i></i><span>your vault · assistant</span></div>
+      <div class="prompt">
+        <span class="who"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M12 3v3M12 18v3M4.2 7.2l2.1 2.1M17.7 14.7l2.1 2.1M3 12h3M18 12h3M4.2 16.8l2.1-2.1M17.7 9.3l2.1-2.1"/></svg></span>
+        <p>Plan my tomorrow from my project notes. Three tasks, put a time estimate on each.</p>
+      </div>
+      <div class="gen">
+        <div class="lab">Wrote to <span class="mono" style="text-transform:none;letter-spacing:0">today.md</span> <span class="ln"></span></div>
+<pre><span class="h">## 2026-07-05</span>
+<span class="c">- [ ]</span> Send the client the Q3 mockups <span class="c">(30m)</span>
+    <span class="m">Notes flag the sign-off is due Monday.</span>
+<span class="c">- [ ]</span> Fix the login redirect bug <span class="c">(45m)</span>
+<span class="c">- [ ]</span> Write the release notes <span class="c">(15m)</span></pre>
+        <div class="wrote">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 12l6 6L20 6"/></svg>
+          Drawer shows them the moment you open the panel.
+        </div>
+      </div>
+    </div>
   </div>
 </section>
 </div>
