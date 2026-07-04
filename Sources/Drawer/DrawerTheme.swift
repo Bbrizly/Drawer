@@ -15,6 +15,7 @@ enum DrawerTheme: String, CaseIterable, Identifiable {
     case pixel
     case artistic
     case notebook
+    case windowsXP
 
     static let `default` = DrawerTheme.liquidGlass
 
@@ -29,13 +30,14 @@ enum DrawerTheme: String, CaseIterable, Identifiable {
         case .pixel: return "Pixel"
         case .artistic: return "Artistic"
         case .notebook: return "Notebook"
+        case .windowsXP: return "Windows XP"
         }
     }
 
     /// Art-directed themes paint their own opaque world (see PanelBackground).
     var isArtDirected: Bool {
         switch self {
-        case .medieval, .pixel, .artistic, .notebook: return true
+        case .medieval, .pixel, .artistic, .notebook, .windowsXP: return true
         default: return false
         }
     }
@@ -47,7 +49,7 @@ enum DrawerTheme: String, CaseIterable, Identifiable {
     /// on light paper. System themes return nil and follow the OS.
     var forcedColorScheme: ColorScheme? {
         switch self {
-        case .notebook, .medieval: return .light
+        case .notebook, .medieval, .windowsXP: return .light
         case .pixel, .artistic: return .dark
         default: return nil
         }
@@ -57,7 +59,7 @@ enum DrawerTheme: String, CaseIterable, Identifiable {
     /// the drawer's color scheme. Pin them to the theme's intended chrome.
     var popoverColorScheme: ColorScheme {
         switch self {
-        case .reminders, .medieval, .notebook: return .light
+        case .reminders, .medieval, .notebook, .windowsXP: return .light
         default: return .dark
         }
     }
@@ -119,6 +121,18 @@ enum DrawerTheme: String, CaseIterable, Identifiable {
             p.controlFill = AnyShapeStyle(Palette.marginRed.opacity(0.10))
             p.sectionHeader = AnyShapeStyle(Palette.marginRed)
             return p
+        case .windowsXP:
+            var p = Palette.light
+            p.accent = Palette.xpBlue
+            p.primary = Palette.xpInk
+            p.secondary = Palette.xpInk.opacity(0.72)
+            p.tertiary = Palette.xpInk.opacity(0.46)
+            p.controlFill = AnyShapeStyle(LinearGradient(
+                colors: [Palette.xpControlTop, Palette.xpControlBottom],
+                startPoint: .top, endPoint: .bottom
+            ))
+            p.sectionHeader = AnyShapeStyle(Palette.xpBlue)
+            return p
         }
     }
 
@@ -147,6 +161,7 @@ enum DrawerTheme: String, CaseIterable, Identifiable {
         case .pixel: return 6      // near-square, hard-edged game window
         case .artistic: return 22
         case .notebook: return 8
+        case .windowsXP: return 0
         }
     }
 
@@ -162,12 +177,13 @@ enum DrawerTheme: String, CaseIterable, Identifiable {
         case .pixel: return 15
         case .artistic: return 16
         case .notebook: return 16
+        case .windowsXP: return 13
         }
     }
 
     var rowVerticalPadding: CGFloat {
         switch self {
-        case .reminders, .medieval: return 8
+        case .reminders, .medieval, .windowsXP: return 8
         case .notebook: return 9   // give each ruled line room to breathe
         default: return 7
         }
@@ -178,6 +194,7 @@ enum DrawerTheme: String, CaseIterable, Identifiable {
     var rowCornerRadius: CGFloat {
         switch self {
         case .pixel: return 2
+        case .windowsXP: return 0
         case .notebook: return 0
         default: return 10
         }
@@ -185,11 +202,11 @@ enum DrawerTheme: String, CaseIterable, Identifiable {
 
     /// Reminders and Medieval separate rows with hairlines; Notebook rules every
     /// row (see TaskRowView); the others rely on hover alone.
-    var showsRowSeparators: Bool { self == .reminders || self == .medieval }
+    var showsRowSeparators: Bool { self == .reminders || self == .medieval || self == .windowsXP }
 
     /// Checkbox glyphs. Pixel swaps the round set for squares so it reads 8-bit.
     func checkboxSymbol(done: Bool, inProgress: Bool) -> String {
-        if self == .pixel {
+        if self == .pixel || self == .windowsXP {
             if done { return "checkmark.square.fill" }
             if inProgress { return "square.lefthalf.filled" }
             return "square"
@@ -215,14 +232,19 @@ enum DrawerTheme: String, CaseIterable, Identifiable {
     /// default matches its original 12pt look. The rest take the ambient
     /// design from the root `fontDesign`.
     func titleFont(size: Double) -> Font {
-        self == .pixel
-            ? .custom(FontLoader.pixelFamily, size: CGFloat(size) - 1)
-            : .system(size: CGFloat(size))
+        switch self {
+        case .pixel:
+            return .custom(FontLoader.pixelFamily, size: CGFloat(size) - 1)
+        case .windowsXP:
+            return FontLoader.xpFont(size: CGFloat(size))
+        default:
+            return .system(size: CGFloat(size))
+        }
     }
 
     // MARK: Section headers
 
-    var sectionHeaderUppercased: Bool { self != .reminders }
+    var sectionHeaderUppercased: Bool { self != .reminders && self != .windowsXP }
 
     /// Reminders colors its section titles with the accent, Apple-style.
     var sectionHeaderTinted: Bool { self == .reminders }
@@ -232,6 +254,7 @@ enum DrawerTheme: String, CaseIterable, Identifiable {
         case .reminders: return .system(size: 13, weight: .bold)
         case .medieval: return .system(size: 11, weight: .bold) // serif via root design
         case .pixel: return .custom(FontLoader.pixelFamily, size: 11)
+        case .windowsXP: return FontLoader.xpFont(size: 12, weight: .bold)
         case .artistic: return .system(size: 11, weight: .heavy)
         default: return .system(size: 10, weight: .bold)
         }
@@ -269,6 +292,35 @@ struct Palette {
     static let marginRed = Color(red: 0.75, green: 0.25, blue: 0.22)
     static let danger = Color(red: 0.90, green: 0.26, blue: 0.21)
     static let onAccent = Color.white   // text/hairline sitting on the accent fill
+    static let xpBlue = Color(red: 0.02, green: 0.22, blue: 0.74)
+    static let xpTitleTop = Color(red: 0.22, green: 0.50, blue: 0.96)
+    static let xpTitleBottom = Color(red: 0.01, green: 0.16, blue: 0.61)
+    static let xpSurface = Color.white                                    // white client area
+    static let xpBeige = Color(red: 0.925, green: 0.914, blue: 0.847)     // #ECE9D8 Luna menu/toolbar
+    static let xpBeigeShadow = Color(red: 0.74, green: 0.72, blue: 0.64)  // etched band separator
+    static let xpDesktop = Color(red: 0.227, green: 0.431, blue: 0.647)   // #3A6EA5 classic desktop
+    static let xpDesktopRGBA = RGBA(0.227, 0.431, 0.647)
+    static let xpControlTop = Color(red: 1.0, green: 1.0, blue: 0.96)
+    static let xpControlBottom = Color(red: 0.77, green: 0.86, blue: 1.0)
+    static let xpInk = Color(red: 0.04, green: 0.09, blue: 0.24)
+    static let xpActiveTop = Color(red: 1.0, green: 0.95, blue: 0.62)
+    static let xpActiveBottom = Color(red: 0.94, green: 0.58, blue: 0.17)
+    static let xpNoteTop = Color(red: 1.0, green: 0.96, blue: 0.54)
+    static let xpNoteBottom = Color(red: 0.92, green: 0.70, blue: 0.18)
+    static let xpBulbTop = Color(red: 1.0, green: 0.93, blue: 0.28)
+    static let xpBulbBottom = Color(red: 0.95, green: 0.58, blue: 0.08)
+    static let xpBriefcaseTop = Color(red: 0.78, green: 0.52, blue: 0.22)
+    static let xpBriefcaseBottom = Color(red: 0.48, green: 0.28, blue: 0.10)
+    static let xpRedTop = Color(red: 1.0, green: 0.48, blue: 0.28)
+    static let xpRedBottom = Color(red: 0.72, green: 0.08, blue: 0.08)
+    static let xpTealTop = Color(red: 0.22, green: 0.72, blue: 0.88)
+    static let xpTealBottom = Color(red: 0.02, green: 0.39, blue: 0.60)
+    static let xpBevelShadow = Color(red: 0.40, green: 0.40, blue: 0.40)
+    static let xpSelection = Color(red: 0.10, green: 0.37, blue: 0.77) // #316AC5
+    static let xpStickyNote = RGBA(1.0, 1.0, 0.60)
+    static let xpSelectionRGBA = RGBA(0.10, 0.37, 0.77)
+    static let xpInkRGBA = RGBA(0.04, 0.09, 0.24)
+    static let xpBevelShadowRGBA = RGBA(0.40, 0.40, 0.40)
     /// X of the notebook red margin; the task list insets past it (DrawerView).
     static let notebookMargin: CGFloat = 40
 
@@ -312,6 +364,33 @@ struct Palette {
     )
 }
 
+/// Tokens for the Settings window. These intentionally follow the Settings
+/// surface instead of any drawer art theme surface, so controls stay readable
+/// while a bright Pixel/Artistic drawer theme is selected.
+struct SettingsPalette {
+    static let standard = SettingsPalette(
+        primary: .primary,
+        secondary: .secondary,
+        tertiary: Color.secondary.opacity(0.55),
+        accent: .accentColor,
+        accentFill: Color.accentColor.opacity(0.14),
+        controlFill: Color.primary.opacity(0.055),
+        controlFillStrong: Color.primary.opacity(0.075),
+        stroke: Color.primary.opacity(0.10),
+        selectedStroke: Color.accentColor.opacity(0.42)
+    )
+
+    let primary: Color
+    let secondary: Color
+    let tertiary: Color
+    let accent: Color
+    let accentFill: Color
+    let controlFill: Color
+    let controlFillStrong: Color
+    let stroke: Color
+    let selectedStroke: Color
+}
+
 // MARK: - Panel background
 
 /// The drawer's backing plate. Isolated so each surface (glass, material,
@@ -322,7 +401,10 @@ struct PanelBackground: View {
     let theme: DrawerTheme
 
     private var shape: RoundedRectangle {
-        RoundedRectangle(cornerRadius: theme.panelCornerRadius, style: .continuous)
+        RoundedRectangle(
+            cornerRadius: theme.panelCornerRadius,
+            style: theme.usesXPChrome ? .circular : .continuous
+        )
     }
 
     @ViewBuilder
@@ -349,7 +431,38 @@ struct PanelBackground: View {
             ArtisticMesh(shape: shape)
         case .notebook:
             NotebookPaper(shape: shape)
+        case .windowsXP:
+            WindowsXPPanel(shape: shape)
         }
+    }
+}
+
+/// Luna chrome: a plain white client area, like a classic XP window. The blue
+/// title band is a real laid-out bar (see XPTitleBar), not painted here.
+private struct WindowsXPPanel: View {
+    let shape: RoundedRectangle
+
+    var body: some View {
+        shape
+            .fill(Palette.xpSurface)
+            .overlay {
+                if shape.cornerSize.width == 0 {
+                    Rectangle()
+                        .strokeBorder(Color.white, lineWidth: 1)
+                        .padding(1)
+                        .overlay(
+                            Rectangle()
+                                .strokeBorder(Palette.xpBlue, lineWidth: 2)
+                                .padding(2)
+                        )
+                } else {
+                    shape.strokeBorder(Color.white.opacity(0.82), lineWidth: 1)
+                        .overlay(
+                            shape.strokeBorder(Palette.xpBlue.opacity(0.85), lineWidth: 2)
+                                .padding(1)
+                        )
+                }
+            }
     }
 }
 

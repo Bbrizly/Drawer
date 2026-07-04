@@ -5,6 +5,7 @@ import SwiftUI
 struct DrawerView: View {
     @ObservedObject var store: TodoStore
     var timer: FocusTimer
+    var pomodoroTimer: PomodoroTimer
     var workClock: WorkClock
     var onToggleSize: () -> Void = {}
     var onNeedsKeyboard: () -> Void = {}
@@ -34,6 +35,7 @@ struct DrawerView: View {
     // Feature flags (see FeatureFlag). Each gates a slice of the UI so the app
     // can be stripped to the bare task list.
     @AppStorage("feature.focusTimer") private var focusTimerEnabled = true
+    @AppStorage("feature.pomodoro") private var pomodoroEnabled = true
     @AppStorage("feature.focusSound") private var focusSoundEnabled = true
     @AppStorage("feature.filterMenu") private var filterMenuEnabled = true
     @AppStorage("feature.notes") private var notesEnabled = true
@@ -62,11 +64,38 @@ struct DrawerView: View {
     private var notebookWritingInset: CGFloat {
         theme == .notebook ? Palette.notebookMargin - 2 : 0
     }
+    private var floatingControlFill: AnyShapeStyle {
+        theme.usesXPChrome ? theme.controlFill : AnyShapeStyle(.quaternary.opacity(0.65))
+    }
+    private var floatingControlRadius: CGFloat { theme.usesXPChrome ? 0 : 11 }
+
+    @ViewBuilder
+    private func floatingPanelBackground() -> some View {
+        if theme.usesXPChrome {
+            XPSunkenPanel()
+        } else {
+            RoundedRectangle(cornerRadius: floatingControlRadius)
+                .fill(.quaternary.opacity(0.55))
+        }
+    }
+
+    @ViewBuilder
+    private func addFieldBackground() -> some View {
+        if theme.usesXPChrome {
+            XPSunkenPanel()
+        } else {
+            RoundedRectangle(cornerRadius: floatingControlRadius)
+                .fill(floatingControlFill)
+        }
+    }
 
     /// The focus and work pills, laid out by ViewThatFits in the header.
     @ViewBuilder private var timerPills: some View {
         if focusTimerEnabled {
             TimerHeaderView(timer: timer)
+        }
+        if pomodoroEnabled {
+            PomodoroHeaderView(timer: pomodoroTimer)
         }
         if workModeEnabled && workClock.isOn {
             WorkModeHeaderView(clock: workClock)
@@ -122,153 +151,222 @@ struct DrawerView: View {
 
     var body: some View {
         ZStack {
-            // Hidden when the board is open and set transparent, so the panel is
-            // fully see-through to the desktop, not showing the glass plate.
             if !(swipe.showingBoard && boardTransparent) {
                 PanelBackground(theme: theme)
-                    // Pin the background to its active appearance so the glass /
-                    // material does not brighten when the panel becomes key on
-                    // click and dim when it resigns.
                     .environment(\.controlActiveState, .active)
             }
 
-            VStack(alignment: .leading, spacing: 13) {
-                // Controls ride their own row; the timer pills sit on a second
-                // row below. Side by side they overflow the fixed-width panel
-                // (which clips, never grows), stacked they fit in every state.
-                HStack(spacing: 10) {
-                    Spacer(minLength: 0)
-                    HStack(spacing: 2) {
-                        if focusSoundEnabled {
-                            DrawerIconButton(
-                                systemName: sound.isPlaying ? "speaker.wave.2.fill" : "speaker.slash.fill",
-                                accessibilityLabel: sound.isPlaying ? "Stop focus sound" : "Play focus sound",
-                                helpText: "Play pink or brown noise to focus. Pick the sound in Settings.",
-                                isProminent: sound.isPlaying
-                            ) {
-                                sound.toggle()
-                            }
-                        }
-                        DrawerIconButton(
-                            systemName: "plus",
-                            accessibilityLabel: "Add task",
-                            helpText: "Show a field for adding a task.",
-                            isSelected: showingAdd
-                        ) {
-                            showingAdd.toggle()
-                            if showingAdd {
-                                onNeedsKeyboard() // panel must be key or typing leaks elsewhere
-                                addFieldFocused = true
-                            }
-                        }
-                        if notesEnabled && notes != nil {
-                            DrawerIconButton(
-                                systemName: "note.text",
-                                accessibilityLabel: "Notes",
-                                helpText: "Open a scratchpad with a teleprompter.",
-                                isSelected: showingNotes
-                            ) {
-                                showingNotes.toggle()
-                                if showingNotes {
-                                    onNeedsKeyboard()
-                                }
-                            }
-                        }
-                        if ideasEnabled && ideas != nil {
-                            DrawerIconButton(
-                                systemName: "lightbulb",
-                                accessibilityLabel: "Jot an idea",
-                                helpText: "Jot an idea and park it on the board.",
-                                isSelected: showingCapture
-                            ) {
-                                showingCapture.toggle()
-                                if showingCapture {
-                                    onNeedsKeyboard()
-                                }
-                            }
-                            DrawerIconButton(
-                                systemName: "square.grid.2x2",
-                                accessibilityLabel: "Open idea board",
-                                helpText: "Open the board of parked ideas.",
-                                isSelected: swipe.showingBoard
-                            ) {
-                                swipe.showingBoard = true
-                            }
-                        }
-                        if filterMenuEnabled {
-                            Menu {
-                                Toggle("Hide completed", isOn: $hideCompleted)
-                                Toggle("Unchecked first", isOn: $uncheckedFirst)
-                            } label: {
-                                Image(systemName: "line.3.horizontal.decrease")
-                                    .font(.system(size: 13, weight: .semibold))
-                                    .foregroundStyle(
-                                        hideCompleted || uncheckedFirst
-                                            ? AnyShapeStyle(theme.accent)
-                                            : AnyShapeStyle(.secondary)
-                                    )
-                                    .frame(width: 30, height: 30)
-                                    .background(
-                                        hideCompleted || uncheckedFirst
-                                            ? theme.accent.opacity(0.14)
-                                            : Color.clear,
-                                        in: RoundedRectangle(cornerRadius: 9, style: .continuous)
-                                    )
-                                    .contentShape(
-                                        RoundedRectangle(cornerRadius: 9, style: .continuous)
-                                    )
-                            }
-                            .menuStyle(.button)
-                            .buttonStyle(.plain)
-                            .menuIndicator(.hidden)
-                            .fixedSize()
-                            .frame(width: 30, height: 30)
-                            .accessibilityLabel("Filter tasks")
-                            .accessibilityHint("Show task filtering and sorting options.")
-                            .help("Filter and sort")
-                        }
-                        if workModeEnabled {
-                            DrawerIconButton(
-                                systemName: workClock.isOn ? "briefcase.fill" : "briefcase",
-                                accessibilityLabel: workClock.isOn ? "End work mode" : "Start work mode",
-                                helpText: "Track real hours on your tasks. Tap a task to start the clock.",
-                                isSelected: workClock.isOn
-                            ) {
-                                if workClock.isOn {
-                                    endSummary = workClock.end(today: TodoStore.localToday())
-                                    AppPaths.exportWorkLog(workClock)
-                                } else {
-                                    workClock.enter() // independent of the focus timer
-                                }
-                            }
-                        }
-                        DrawerIconButton(
-                            systemName: "arrow.up.left.and.arrow.down.right",
-                            accessibilityLabel: "Expand or collapse drawer",
-                            helpText: "Expand the drawer to full height or collapse it."
-                        ) {
-                            onToggleSize()
+            Group {
+                if theme.usesXPChrome {
+                    // Classic XP window: blue title bar, a beige menu/toolbar
+                    // band, then the white client area.
+                    VStack(spacing: 0) {
+                        XPTitleBar(
+                            onMinimize: onHide,
+                            onMaximize: onToggleSize,
+                            onClose: onHide
+                        )
+                        .padding(.horizontal, 3)
+                        .padding(.top, 3)
+                        headerToolbarRow
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 5)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .background(XPMenuBand())
+                            .padding(.horizontal, 3)
+                        drawerMainContent
+                            .padding(14)
+                    }
+                } else {
+                    VStack(alignment: .leading, spacing: 13) {
+                        headerToolbarRow
+                        drawerMainContent
+                    }
+                    .padding(14)
+                }
+            }
+            .opacity(swipe.showingBoard && boardTransparent ? 0 : 1)
+
+            ConfettiLayer(center: celebration)
+
+            if ideasEnabled, let ideas {
+                IdeaBoardPage(store: ideas, theme: theme) {
+                    swipe.showingBoard = false
+                }
+                .offset(x: swipe.showingBoard ? 0 : -3000)
+            }
+        }
+        .coordinateSpace(.named("panel"))
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .font(theme.usesXPChrome ? FontLoader.xpFont(size: 13) : .body)
+        .fontDesign(resolvedFontDesign)
+        .tint(theme.accent)
+        .foregroundStyle(theme.primaryInk)
+        .environment(\.drawerTheme, theme)
+        .environment(\.colorScheme, theme.forcedColorScheme ?? systemScheme)
+        .environment(celebration)
+        .environment(swipe)
+        .environment(workClock)
+        .animation(reduceMotion ? nil : .easeOut(duration: 0.18), value: showingAdd)
+        .animation(reduceMotion ? nil : .easeOut(duration: 0.18), value: showingNotes)
+        .animation(reduceMotion ? nil : .easeOut(duration: 0.18), value: showingCapture)
+        .animation(reduceMotion ? nil : .easeOut(duration: 0.5), value: swipe.showingBoard)
+        .animation(reduceMotion ? nil : .easeOut(duration: 0.18), value: sound.isPlaying)
+        .onAppear { configureSwipeCoordinator() }
+        .onChange(of: swipeDeleteEnabled) { _, on in swipe.deleteEnabled = on }
+        .onChange(of: swipeProgressEnabled) { _, on in swipe.progressEnabled = on }
+        .onChange(of: swipe.boardCoverage) { _, c in onBoardCoverage(c) }
+        .onChange(of: swipe.showingBoard) { _, shown in handleBoardVisibility(shown) }
+        .onDisappear { scrollMonitor.stop() }
+    }
+
+    private var headerToolbarRow: some View {
+        HStack(spacing: 10) {
+            if !theme.usesXPChrome { Spacer(minLength: 0) }
+            HStack(spacing: 2) {
+                if focusSoundEnabled {
+                    if sound.isPlaying {
+                        headerSoundControls
+                            .transition(soundControlsTransition)
+                    }
+                    DrawerIconButton(
+                        systemName: sound.isPlaying ? "speaker.wave.2.fill" : "speaker.slash.fill",
+                        accessibilityLabel: sound.isPlaying ? "Stop focus sound" : "Play focus sound",
+                        helpText: "Play focus noise. Pick the sound and volume here.",
+                        isProminent: sound.isPlaying
+                    ) {
+                        sound.toggle()
+                    }
+                }
+                DrawerIconButton(
+                    systemName: "plus",
+                    accessibilityLabel: "Add task",
+                    helpText: "Show a field for adding a task.",
+                    isSelected: showingAdd
+                ) {
+                    showingAdd.toggle()
+                    if showingAdd {
+                        onNeedsKeyboard()
+                        addFieldFocused = true
+                    }
+                }
+                if notesEnabled && notes != nil {
+                    DrawerIconButton(
+                        systemName: "note.text",
+                        accessibilityLabel: "Notes",
+                        helpText: "Open a scratchpad with a teleprompter.",
+                        isSelected: showingNotes
+                    ) {
+                        showingNotes.toggle()
+                        if showingNotes { onNeedsKeyboard() }
+                    }
+                }
+                if ideasEnabled && ideas != nil {
+                    DrawerIconButton(
+                        systemName: "lightbulb",
+                        accessibilityLabel: "Jot an idea",
+                        helpText: "Jot an idea and park it on the board.",
+                        isSelected: showingCapture
+                    ) {
+                        showingCapture.toggle()
+                        if showingCapture { onNeedsKeyboard() }
+                    }
+                    DrawerIconButton(
+                        systemName: "square.grid.2x2",
+                        accessibilityLabel: "Open idea board",
+                        helpText: "Open the board of parked ideas.",
+                        isSelected: swipe.showingBoard
+                    ) {
+                        swipe.showingBoard = true
+                    }
+                }
+                if filterMenuEnabled { filterMenuButton }
+                if workModeEnabled {
+                    DrawerIconButton(
+                        systemName: workClock.isOn ? "briefcase.fill" : "briefcase",
+                        accessibilityLabel: workClock.isOn ? "End work mode" : "Start work mode",
+                        helpText: "Track real hours on your tasks. Tap a task to start the clock.",
+                        isSelected: workClock.isOn
+                    ) {
+                        if workClock.isOn {
+                            endSummary = workClock.end(today: TodoStore.localToday())
+                            AppPaths.exportWorkLog(workClock)
+                        } else {
+                            workClock.enter()
                         }
                     }
-                    .padding(3)
-                    .background(theme.controlFill, in: RoundedRectangle(cornerRadius: 12))
                 }
+                DrawerIconButton(
+                    systemName: "arrow.up.left.and.arrow.down.right",
+                    accessibilityLabel: "Expand or collapse drawer",
+                    helpText: "Expand the drawer to full height or collapse it."
+                ) {
+                    onToggleSize()
+                }
+            }
+            .padding(3)
+            .background {
+                if !theme.usesXPChrome {
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .fill(theme.controlFill)
+                }
+            }
+            if theme.usesXPChrome { Spacer(minLength: 0) }
+        }
+    }
 
-                // Focus timer and work mode are independent: show both, so
-                // neither hides or resets the other. Side by side when the
-                // panel is wide enough for both pills, stacked when not.
-                if focusTimerEnabled || (workModeEnabled && workClock.isOn) {
-                    ViewThatFits(in: .horizontal) {
-                        HStack(alignment: .top, spacing: 6) { timerPills }
+    private var filterMenuButton: some View {
+        Menu {
+            Toggle("Hide completed", isOn: $hideCompleted)
+            Toggle("Unchecked first", isOn: $uncheckedFirst)
+        } label: {
+            if theme.usesXPChrome {
+                XPToolbarIcon(
+                    systemName: "line.3.horizontal.decrease",
+                    active: hideCompleted || uncheckedFirst
+                )
+            } else {
+                Image(systemName: "line.3.horizontal.decrease")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(
+                        hideCompleted || uncheckedFirst
+                            ? AnyShapeStyle(theme.accent)
+                            : AnyShapeStyle(.secondary)
+                    )
+                    .frame(width: 30, height: 30)
+                    .background(
+                        hideCompleted || uncheckedFirst
+                            ? theme.accent.opacity(0.14)
+                            : Color.clear,
+                        in: RoundedRectangle(cornerRadius: 9, style: .continuous)
+                    )
+                    .contentShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
+            }
+        }
+        .menuStyle(.button)
+        .buttonStyle(.plain)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .frame(width: 30, height: 30)
+        .accessibilityLabel("Filter tasks")
+        .accessibilityHint("Show task filtering and sorting options.")
+        .help("Filter and sort")
+    }
+
+    @ViewBuilder
+    private var drawerMainContent: some View {
+                if focusTimerEnabled || pomodoroEnabled || (workModeEnabled && workClock.isOn) {
+                    if theme.usesXPChrome {
+                        // Full-width stacked bars so the timers line up and match,
+                        // like a stack of XP toolbars rather than floating pills.
                         VStack(alignment: .leading, spacing: 6) { timerPills }
-                    }
-                    .padding(.leading, notebookWritingInset)
-                }
-
-                if focusSoundEnabled && sound.isPlaying {
-                    soundControls
+                    } else {
+                        ViewThatFits(in: .horizontal) {
+                            HStack(alignment: .top, spacing: 6) { timerPills }
+                            VStack(alignment: .leading, spacing: 6) { timerPills }
+                        }
                         .padding(.leading, notebookWritingInset)
-                        .transition(.move(edge: .top).combined(with: .opacity))
+                    }
                 }
 
                 if showingAdd {
@@ -291,7 +389,7 @@ struct DrawerView: View {
                                 Text(addDestination.label)
                                 Image(systemName: "chevron.down").font(.system(size: 8, weight: .bold))
                             }
-                            .font(.system(size: 11, weight: .semibold))
+                            .font(theme.uiFont(size: 11, weight: .semibold))
                             .foregroundStyle(.secondary)
                         }
                         .menuStyle(.button)
@@ -301,7 +399,7 @@ struct DrawerView: View {
                     }
                     .padding(.horizontal, 11)
                     .padding(.vertical, 9)
-                    .background(.quaternary.opacity(0.65), in: RoundedRectangle(cornerRadius: 11))
+                    .background { addFieldBackground() }
                     .padding(.leading, notebookWritingInset)
                     .transition(.move(edge: .top).combined(with: .opacity))
                 }
@@ -394,82 +492,33 @@ struct DrawerView: View {
                     }
                 }
                 .scrollIndicators(.hidden)
-                // Notebook: task content starts right of the red margin without
-                // shifting the whole drawer shell or clipping the right edge.
                 .padding(.leading, notebookWritingInset)
-            }
-            .padding(14)
-            // While the board is open and transparent, hide the task list behind
-            // it so the see-through board shows the desktop, not the tasks.
-            .opacity(swipe.showingBoard && boardTransparent ? 0 : 1)
+    }
 
-            // Confetti renders here, above the scroll view, so pieces are never
-            // clipped by the list. Rows report checkbox points in "panel" space.
-            ConfettiLayer(center: celebration)
+    private func configureSwipeCoordinator() {
+        scrollMonitor.start(swipe)
+        swipe.deleteEnabled = swipeDeleteEnabled
+        swipe.progressEnabled = swipeProgressEnabled
+        swipe.onProgress = { [weak store] id in
+            guard let store, let item = store.item(withID: id) else { return }
+            store.setInProgress(item, !item.isInProgress)
+        }
+        swipe.onCloseDrawer = onHide
+    }
 
-            // The idea board slides in over the tasks from the left. Kept
-            // mounted (just offset off-screen) so the canvas holds its state.
-            if ideasEnabled, let ideas {
-                IdeaBoardPage(store: ideas, theme: theme) {
-                    swipe.showingBoard = false
-                }
-                .offset(x: swipe.showingBoard ? 0 : -3000)
+    private func handleBoardVisibility(_ shown: Bool) {
+        if shown {
+            NSApp.activate()
+            onNeedsKeyboard()
+            if swipe.boardCoverage == 0 {
+                swipe.boardCoverage = swipe.lastBoardCoverage
             }
-        }
-        .coordinateSpace(.named("panel"))
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .fontDesign(resolvedFontDesign)
-        .tint(theme.accent)
-        // Set the base ink once so .secondary / .tertiary derive from it. The
-        // art-directed themes carry their own ink; the rest keep .primary.
-        .foregroundStyle(theme.primaryInk)
-        .environment(\.drawerTheme, theme)
-        // Art themes force their fixed lightness so semantic colors and materials
-        // resolve correctly on the painted surface (no white icons on cream paper).
-        .environment(\.colorScheme, theme.forcedColorScheme ?? systemScheme)
-        .environment(celebration)
-        .environment(swipe)
-        .environment(workClock)
-        .animation(reduceMotion ? nil : .easeOut(duration: 0.18), value: showingAdd)
-        .animation(reduceMotion ? nil : .easeOut(duration: 0.18), value: showingNotes)
-        .animation(reduceMotion ? nil : .easeOut(duration: 0.18), value: showingCapture)
-        .animation(reduceMotion ? nil : .easeOut(duration: 0.5), value: swipe.showingBoard)
-        .animation(reduceMotion ? nil : .easeOut(duration: 0.18), value: sound.isPlaying)
-        .onAppear {
-            scrollMonitor.start(swipe)
-            swipe.deleteEnabled = swipeDeleteEnabled
-            swipe.progressEnabled = swipeProgressEnabled
-            // A right swipe on a row reports its id here. Flip its file marker.
-            swipe.onProgress = { [weak store] id in
-                guard let store, let item = store.item(withID: id) else { return }
-                store.setInProgress(item, !item.isInProgress)
+        } else {
+            if swipe.boardCoverage > 0.05 {
+                swipe.lastBoardCoverage = swipe.boardCoverage
             }
-            swipe.onCloseDrawer = onHide
+            swipe.boardCoverage = 0
         }
-        .onChange(of: swipeDeleteEnabled) { _, on in swipe.deleteEnabled = on }
-        .onChange(of: swipeProgressEnabled) { _, on in swipe.progressEnabled = on }
-        .onChange(of: swipe.boardCoverage) { _, c in onBoardCoverage(c) }
-        .onChange(of: swipe.showingBoard) { _, shown in
-            if shown {
-                // Pinch / gesture events are only delivered to the *active* app's
-                // key window. This is an accessory, non-activating panel, so it is
-                // never active and never receives magnify. Activate + key it while
-                // the board is open so pinch zoom actually arrives.
-                NSApp.activate()
-                onNeedsKeyboard()
-                // Come back at the size the board was left at, not collapsed.
-                if swipe.boardCoverage == 0 {
-                    swipe.boardCoverage = swipe.lastBoardCoverage
-                }
-            } else {
-                // Remember the size for next time before collapsing the panel.
-                if swipe.boardCoverage > 0.05 {
-                    swipe.lastBoardCoverage = swipe.boardCoverage
-                }
-                swipe.boardCoverage = 0
-            }
-        }
-        .onDisappear { scrollMonitor.stop() }
     }
 
     /// One run of consecutive tasks sharing a "### " subheading (or none).
@@ -525,12 +574,18 @@ struct DrawerView: View {
                 HStack(spacing: 6) {
                     Image(systemName: isExpanded.wrappedValue
                           ? "chevron.down" : "chevron.right")
-                        .font(.system(size: 9, weight: .bold))
-                    Text(title)
-                        .font(.system(size: 10, weight: .bold))
-                        .tracking(0.7)
+                        .font(theme.usesXPChrome
+                              ? FontLoader.xpFont(size: 9, weight: .bold)
+                              : .system(size: 9, weight: .bold))
+                    Text(theme.usesXPChrome ? title.capitalized : title)
+                        .font(theme.usesXPChrome
+                              ? FontLoader.xpFont(size: 10, weight: .bold)
+                              : .system(size: 10, weight: .bold))
+                        .tracking(theme.usesXPChrome ? 0 : 0.7)
                     Text("\(count)")
-                        .font(.system(size: 10, weight: .semibold, design: .rounded))
+                        .font(theme.usesXPChrome
+                              ? FontLoader.xpFont(size: 10, weight: .semibold)
+                              : .system(size: 10, weight: .semibold, design: .rounded))
                         .foregroundStyle(.tertiary)
                 }
                 .foregroundStyle(.secondary)
@@ -543,9 +598,11 @@ struct DrawerView: View {
             if isExpanded.wrappedValue {
                 ForEach(grouped(items)) { group in
                     if let subtitle = group.title {
-                        Text(subtitle.uppercased())
-                            .font(.system(size: 9, weight: .semibold))
-                            .tracking(0.6)
+                        Text(theme.usesXPChrome ? subtitle : subtitle.uppercased())
+                            .font(theme.usesXPChrome
+                                  ? FontLoader.xpFont(size: 9, weight: .semibold)
+                                  : .system(size: 9, weight: .semibold))
+                            .tracking(theme.usesXPChrome ? 0 : 0.6)
                             .foregroundStyle(.tertiary)
                             .padding(.horizontal, 8)
                             .padding(.top, 6)
@@ -580,7 +637,7 @@ struct DrawerView: View {
                 ? AnyShapeStyle(.tint)
                 : AnyShapeStyle(isPrimary ? AnyShapeStyle(.primary) : AnyShapeStyle(.secondary)))
         return HStack(spacing: 7) {
-            if isPrimary && !theme.sectionHeaderTinted && headerStyle == nil {
+            if isPrimary && !theme.sectionHeaderTinted && headerStyle == nil && !theme.usesXPChrome {
                 Circle()
                     .fill(theme.accent)
                     .frame(width: 5, height: 5)
@@ -591,17 +648,24 @@ struct DrawerView: View {
                 .foregroundStyle(titleColor)
             Spacer()
             Text("\(count)")
-                .font(.system(size: 10, weight: .semibold, design: .rounded))
+                .font(theme.usesXPChrome
+                      ? FontLoader.xpFont(size: 10, weight: .semibold)
+                      : .system(size: 10, weight: .semibold, design: .rounded))
                 .foregroundStyle(.tertiary)
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 4)
     }
 
-    /// The slide-in row under the header: pick the sound, set the volume.
-    /// Sits in the full panel width so it stays readable on a narrow panel.
-    private var soundControls: some View {
-        HStack(spacing: 9) {
+    private var soundControlsTransition: AnyTransition {
+        if reduceMotion { return .opacity }
+        return .move(edge: .trailing).combined(with: .opacity)
+    }
+
+    /// Compact sound picker and volume, inline in the header toolbar left of the
+    /// speaker button. Fixed slider width keeps the cluster short on narrow panels.
+    private var headerSoundControls: some View {
+        HStack(spacing: 5) {
             Menu {
                 ForEach(FocusSoundPlayer.options, id: \.id) { opt in
                     Button { focusSoundKind = opt.id } label: {
@@ -609,38 +673,41 @@ struct DrawerView: View {
                     }
                 }
             } label: {
-                HStack(spacing: 5) {
+                HStack(spacing: 4) {
                     Image(systemName: currentSound.symbol)
-                        .font(.system(size: 11, weight: .semibold))
+                        .font(.system(size: 10, weight: .semibold))
                     Text(currentSound.label)
-                        .font(.system(size: 12, weight: .semibold))
+                        .font(theme.uiFont(size: 11, weight: .semibold))
                     Image(systemName: "chevron.up.chevron.down")
-                        .font(.system(size: 7, weight: .bold))
-                        .foregroundStyle(.tertiary)
+                        .font(.system(size: 6, weight: .bold))
+                        .foregroundStyle(theme.tertiaryInk)
                 }
-                .foregroundStyle(.primary)
-                .padding(.horizontal, 9)
-                .padding(.vertical, 6)
-                .background(.quaternary.opacity(0.7), in: RoundedRectangle(cornerRadius: 8))
-                .contentShape(RoundedRectangle(cornerRadius: 8))
+                .foregroundStyle(theme.primaryInk)
+                .padding(.horizontal, 7)
+                .padding(.vertical, 5)
+                .background {
+                    if theme.usesXPChrome {
+                        XPSunkenPanel()
+                    } else {
+                        RoundedRectangle(cornerRadius: 8, style: .continuous)
+                            .fill(floatingControlFill)
+                    }
+                }
+                .contentShape(RoundedRectangle(cornerRadius: theme.usesXPChrome ? 0 : 8))
             }
             .menuStyle(.button)
             .buttonStyle(.plain)
             .menuIndicator(.hidden)
             .fixedSize()
+            .accessibilityLabel("Focus sound type")
+            .accessibilityValue(currentSound.label)
 
-            Image(systemName: "speaker.fill")
-                .font(.system(size: 9))
-                .foregroundStyle(.tertiary)
             Slider(value: $focusSoundVolume, in: 0...1)
-                .controlSize(.small)
-            Image(systemName: "speaker.wave.3.fill")
-                .font(.system(size: 9))
-                .foregroundStyle(.tertiary)
+                .controlSize(.mini)
+                .frame(width: 72)
+                .accessibilityLabel("Focus sound volume")
         }
-        .padding(.horizontal, 11)
-        .padding(.vertical, 8)
-        .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 11))
+        .padding(.trailing, 4)
     }
 
     private var currentSound: (id: String, label: String, symbol: String) {
@@ -653,11 +720,11 @@ struct DrawerView: View {
             Image(systemName: "doc.badge.ellipsis")
             Text(message)
         }
-        .font(.callout)
+        .font(theme.uiFont(size: 15))
         .foregroundStyle(.secondary)
         .padding(12)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(.quaternary.opacity(0.55), in: RoundedRectangle(cornerRadius: 11))
+        .background { floatingPanelBackground() }
     }
 
     private var emptyState: some View {
@@ -668,9 +735,9 @@ struct DrawerView: View {
             Text(hideCompleted && !(store.todayItems.isEmpty && store.carriedItems.isEmpty)
                  ? "All done for today"
                  : "Nothing planned for today")
-                .font(.headline)
+                .font(theme.uiFont(size: 17, weight: .semibold))
             Text("Add a task or enjoy the clear list.")
-                .font(.caption)
+                .font(theme.uiFont(size: 12))
                 .foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity)

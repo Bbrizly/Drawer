@@ -73,7 +73,11 @@ struct TaskRowView: View, Equatable {
                     including: swipeDeleteEnabled || swipeProgressEnabled ? .all : .subviews
                 )
         }
-        .clipShape(RoundedRectangle(cornerRadius: theme.rowCornerRadius, style: .continuous))
+        .clipShape(theme.usesXPChrome ? AnyShape(Rectangle()) : AnyShape(RoundedRectangle(cornerRadius: theme.rowCornerRadius, style: .continuous)))
+    }
+
+    private var xpRowHighlighted: Bool {
+        theme.usesXPChrome && (isRowHovering || item.isInProgress || isTrackedActive)
     }
 
     private var rowContent: some View {
@@ -97,7 +101,11 @@ struct TaskRowView: View, Equatable {
                         .fontWeight(item.isInProgress ? .semibold : .regular)
                         .lineSpacing(2)
                         .strikethrough(item.isDone)
-                        .foregroundStyle(item.isDone ? .secondary : .primary)
+                        .foregroundStyle(
+                            xpRowHighlighted
+                                ? AnyShapeStyle(Color.white)
+                                : AnyShapeStyle(item.isDone ? Color.secondary : Color.primary)
+                        )
                         .fixedSize(horizontal: false, vertical: true) // wrap, never truncate
                         .frame(maxWidth: .infinity, alignment: .leading)
                         // Double-click to rename; single tap still expands the row.
@@ -113,11 +121,19 @@ struct TaskRowView: View, Equatable {
 
                 if minuteBadgesEnabled && item.minutes != 25 && !item.isDone {
                     Text("\(item.minutes)m")
-                        .font(.system(size: 10, weight: .semibold, design: .rounded))
+                        .font(theme.usesXPChrome
+                              ? FontLoader.xpFont(size: 10, weight: .semibold)
+                              : .system(size: 10, weight: .semibold, design: .rounded))
                         .foregroundStyle(.secondary)
                         .padding(.horizontal, 6)
                         .padding(.vertical, 3)
-                        .background(.quaternary.opacity(0.8), in: Capsule())
+                        .background {
+                            if theme.usesXPChrome {
+                                XPSunkenPanel().frame(height: 18)
+                            } else {
+                                Capsule().fill(.quaternary.opacity(0.8))
+                            }
+                        }
                 }
 
                 if workModeEnabled && workClock.isOn && !item.isDone {
@@ -139,15 +155,16 @@ struct TaskRowView: View, Equatable {
         .padding(.vertical, theme.rowVerticalPadding)
         .background(rowBackground)
         .overlay(alignment: .leading) {
-            // A thin accent bar marks an in-progress or actively-tracked row.
             if item.isInProgress || isTrackedActive {
-                Capsule()
-                    .fill(theme.accent)
+                Rectangle()
+                    .fill(theme.usesXPChrome ? Palette.xpSelection : theme.accent)
                     .frame(width: 3)
                     .padding(.vertical, 4)
             }
         }
-        .contentShape(RoundedRectangle(cornerRadius: theme.rowCornerRadius, style: .continuous))
+        .contentShape(theme.usesXPChrome
+                      ? AnyShape(Rectangle())
+                      : AnyShape(RoundedRectangle(cornerRadius: theme.rowCornerRadius, style: .continuous)))
         .accessibilityAction(named: item.isInProgress ? "Clear in progress" : "Mark in progress") {
             store.setInProgress(item, !item.isInProgress)
         }
@@ -218,25 +235,36 @@ struct TaskRowView: View, Equatable {
     /// shouting. Otherwise the usual hover tint.
     @ViewBuilder
     private var rowBackground: some View {
-        let shape = RoundedRectangle(cornerRadius: theme.rowCornerRadius, style: .continuous)
-        if item.isInProgress || isTrackedActive {
-            shape.fill(theme.accent.opacity(isRowHovering ? 0.22 : 0.16))
-        } else if isRowHovering {
-            shape.fill(theme.primaryInk.opacity(0.06))
+        if theme.usesXPChrome {
+            if item.isInProgress || isTrackedActive || isRowHovering {
+                Rectangle()
+                    .fill(Palette.xpSelection.opacity(
+                        item.isInProgress || isTrackedActive ? 1 : 0.72
+                    ))
+            } else {
+                Rectangle().fill(Color.clear)
+            }
         } else {
-            shape.fill(Color.clear)
+            let shape = RoundedRectangle(cornerRadius: theme.rowCornerRadius, style: .continuous)
+            if item.isInProgress || isTrackedActive {
+                shape.fill(theme.accent.opacity(isRowHovering ? 0.22 : 0.16))
+            } else if isRowHovering {
+                shape.fill(theme.primaryInk.opacity(0.06))
+            } else {
+                shape.fill(Color.clear)
+            }
         }
     }
 
     /// Sits behind the leading edge, revealed by a right swipe. Mirrors the
     /// delete button on the trailing edge.
     private var progressReveal: some View {
-        Image(systemName: "circle.lefthalf.filled")
+        Image(systemName: theme.usesXPChrome ? "square.lefthalf.filled" : "circle.lefthalf.filled")
             .font(.system(size: 14, weight: .semibold))
             .foregroundStyle(Palette.onAccent)
             .frame(width: swipe.progressWidth)
             .frame(maxHeight: .infinity)
-            .background(theme.accent)
+            .background(theme.usesXPChrome ? Palette.xpSelection : theme.accent)
             .accessibilityHidden(true)
     }
 
@@ -257,36 +285,38 @@ struct TaskRowView: View, Equatable {
                 }
             }
         } label: {
-            Image(systemName: checkboxSymbol)
-                .font(.system(size: theme.checkboxSize, weight: .medium))
-                .foregroundStyle(
-                    item.isDone || item.isInProgress
-                        ? AnyShapeStyle(.tint) : AnyShapeStyle(.tertiary)
-                )
-                .contentTransition(.symbolEffect(.replace))
-                .frame(width: 24, height: 24)
-                .background(
-                    // Theme ink, not a system gray, so the hover ring matches
-                    // the row hover wash on the art-directed surfaces.
-                    isCheckboxHovering ? theme.primaryInk.opacity(0.08) : Color.clear,
-                    in: Circle()
-                )
-                .padding(6) // enlarge the click target without shifting layout
-                .contentShape(Circle())
-                .padding(-6)
-                .background(
-                    // Track the checkbox center in panel space so the
-                    // unclipped confetti layer can burst from exactly here.
-                    GeometryReader { geo in
-                        Color.clear
-                            .onAppear { checkboxFrame = geo.frame(in: .named("panel")) }
-                            .onChange(of: geo.frame(in: .named("panel"))) { _, f in
-                                checkboxFrame = f
-                            }
-                    }
-                )
+            if theme.usesXPChrome {
+                XPCheckbox(done: item.isDone, inProgress: item.isInProgress, size: theme.checkboxSize)
+            } else {
+                Image(systemName: checkboxSymbol)
+                    .font(.system(size: theme.checkboxSize, weight: .medium))
+                    .foregroundStyle(
+                        item.isDone || item.isInProgress
+                            ? AnyShapeStyle(.tint) : AnyShapeStyle(.tertiary)
+                    )
+                    .contentTransition(.symbolEffect(.replace))
+                    .frame(width: 24, height: 24)
+            }
         }
         .buttonStyle(.plain)
+        .background(
+            isCheckboxHovering && !theme.usesXPChrome
+                ? theme.primaryInk.opacity(0.08)
+                : Color.clear,
+            in: Circle()
+        )
+        .padding(theme.usesXPChrome ? 4 : 6)
+        .contentShape(theme.usesXPChrome ? AnyShape(Rectangle()) : AnyShape(Circle()))
+        .padding(theme.usesXPChrome ? -4 : -6)
+        .background(
+            GeometryReader { geo in
+                Color.clear
+                    .onAppear { checkboxFrame = geo.frame(in: .named("panel")) }
+                    .onChange(of: geo.frame(in: .named("panel"))) { _, f in
+                        checkboxFrame = f
+                    }
+            }
+        )
         .accessibilityLabel(item.isDone ? "Mark task incomplete" : "Complete task")
         .accessibilityValue(item.title)
         .accessibilityHint("Update this task in the markdown file.")
@@ -302,18 +332,24 @@ struct TaskRowView: View, Equatable {
             // No Save/Cancel: type, then click away to save, same as the title.
             TextField("Add details", text: $draftNote, axis: .vertical)
                 .textFieldStyle(.plain)
-                .font(.system(size: max(10, taskFontSize - 2)))
+                .font(theme.uiFont(size: max(10, taskFontSize - 2)))
                 .foregroundStyle(.secondary)
                 .lineLimit(1...8)
                 .focused($noteFieldFocused)
                 .padding(8)
-                .background(.quaternary.opacity(0.4), in: RoundedRectangle(cornerRadius: 8))
+                .background {
+                    if theme.usesXPChrome {
+                        XPSunkenPanel()
+                    } else {
+                        RoundedRectangle(cornerRadius: 8).fill(.quaternary.opacity(0.4))
+                    }
+                }
                 .onChange(of: noteFieldFocused) { _, focused in
                     if !focused { saveNote() }   // save on blur
                 }
         } else if let note = item.note, !note.isEmpty {
             Text(linkified(note))
-                .font(.system(size: max(10, taskFontSize - 2)))
+                .font(theme.uiFont(size: max(10, taskFontSize - 2)))
                 .foregroundStyle(.secondary)
                 // Links take the theme accent, not a hardcoded blue, so they
                 // sit right on parchment, paper, and the dark surfaces alike.
@@ -328,7 +364,7 @@ struct TaskRowView: View, Equatable {
         } else {
             Button(action: beginEditNote) {
                 Label("Add note", systemImage: "plus")
-                    .font(.caption2)
+                    .font(theme.uiFont(size: 11))
             }
             .buttonStyle(.plain)
             .foregroundStyle(.tertiary)

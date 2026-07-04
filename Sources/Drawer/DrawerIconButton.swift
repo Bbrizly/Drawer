@@ -11,25 +11,40 @@ struct DrawerIconButton: View {
     var action: () -> Void
 
     @Environment(\.drawerTheme) private var theme
+    @Environment(\.xpOnDarkChrome) private var xpOnDark
     @State private var isHovering = false
 
     var body: some View {
         Button(action: action) {
-            Image(systemName: systemName)
-                .font(.system(size: iconSize, weight: .semibold))
-                .foregroundStyle(foregroundStyle)
-                .frame(width: size, height: size)
-                .background(
-                    backgroundStyle,
-                    in: RoundedRectangle(cornerRadius: size * 0.3, style: .continuous)
+            if theme.usesXPChrome {
+                // Bigger hit target than the other themes; XP toolbar buttons
+                // that are too tight feel fiddly to press.
+                XPToolbarIcon(
+                    systemName: systemName,
+                    active: isSelected,
+                    prominent: isProminent,
+                    size: max(size + 4, 32),
+                    iconSize: iconSize + 1,
+                    isHovering: isHovering,
+                    onDark: xpOnDark
                 )
-                .overlay {
-                    if isProminent {
-                        RoundedRectangle(cornerRadius: size * 0.3, style: .continuous)
-                            .stroke(Palette.onAccent.opacity(0.18), lineWidth: 0.5)
+            } else {
+                Image(systemName: systemName)
+                    .font(.system(size: iconSize, weight: .semibold))
+                    .foregroundStyle(foregroundStyle)
+                    .frame(width: size, height: size)
+                    .background(
+                        backgroundStyle,
+                        in: RoundedRectangle(cornerRadius: size * 0.3, style: .continuous)
+                    )
+                    .overlay {
+                        if isProminent {
+                            RoundedRectangle(cornerRadius: size * 0.3, style: .continuous)
+                                .stroke(Palette.onAccent.opacity(0.18), lineWidth: 0.5)
+                        }
                     }
-                }
-                .contentShape(RoundedRectangle(cornerRadius: size * 0.3, style: .continuous))
+                    .contentShape(RoundedRectangle(cornerRadius: size * 0.3, style: .continuous))
+            }
         }
         .buttonStyle(.plain)
         .accessibilityLabel(accessibilityLabel)
@@ -45,8 +60,6 @@ struct DrawerIconButton: View {
         if isSelected {
             return AnyShapeStyle(theme.accent)
         }
-        // Theme ink, not the system gray, so icons match the surface's world
-        // (walnut on parchment, cool white in the arcade).
         return AnyShapeStyle(theme.secondaryInk)
     }
 

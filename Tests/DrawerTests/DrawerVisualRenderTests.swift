@@ -6,6 +6,18 @@ import XCTest
 
 @MainActor
 final class DrawerVisualRenderTests: XCTestCase {
+    func testIdlePomodoroTimerPillStaysCompactForHeaderRow() throws {
+        let timer = PomodoroTimer()
+
+        let width = fittingWidth(PomodoroHeaderView(timer: timer))
+
+        XCTAssertLessThanOrEqual(
+            width,
+            190,
+            "Idle Pomodoro timer should fit the standard drawer timer row without widening the panel."
+        )
+    }
+
     func testRunningFocusTimerPillStaysCompactForWorkTimerRow() throws {
         let timer = FocusTimer()
         timer.start(taskTitle: "Focus", seconds: 25 * 60)
@@ -33,6 +45,7 @@ final class DrawerVisualRenderTests: XCTestCase {
         let store = TodoStore(fileURL: sampleFile, todayProvider: { "2026-06-07" })
         store.reload()
         let timer = FocusTimer()
+        let pomodoroTimer = PomodoroTimer()
         let workLog = WorkSessionLog(
             fileURL: FileManager.default.temporaryDirectory
                 .appendingPathComponent("drawer-notebook-margin-\(UUID().uuidString).jsonl"))
@@ -42,7 +55,12 @@ final class DrawerVisualRenderTests: XCTestCase {
         defer { UserDefaults.standard.removeObject(forKey: "drawerTheme") }
 
         let bitmap = try renderBitmap(
-            DrawerView(store: store, timer: timer, workClock: workClock),
+            DrawerView(
+                store: store,
+                timer: timer,
+                pomodoroTimer: pomodoroTimer,
+                workClock: workClock
+            ),
             appearance: .aqua,
             size: NSSize(width: 320, height: 220)
         )
@@ -86,6 +104,7 @@ final class DrawerVisualRenderTests: XCTestCase {
         let store = TodoStore(fileURL: sampleFile, todayProvider: { "2026-06-07" })
         store.reload()
         let timer = FocusTimer()
+        let pomodoroTimer = PomodoroTimer()
         let workLog = WorkSessionLog(
             fileURL: FileManager.default.temporaryDirectory
                 .appendingPathComponent("drawer-visual-work-\(UUID().uuidString).jsonl"))
@@ -105,13 +124,23 @@ final class DrawerVisualRenderTests: XCTestCase {
             let name = theme.rawValue
             UserDefaults.standard.set(theme.rawValue, forKey: "drawerTheme")
             try render(
-                DrawerView(store: store, timer: timer, workClock: workClock),
+                DrawerView(
+                    store: store,
+                    timer: timer,
+                    pomodoroTimer: pomodoroTimer,
+                    workClock: workClock
+                ),
                 appearance: .aqua,
                 size: size,
                 to: outputURL.appendingPathComponent("drawer-\(name)-light.png")
             )
             try render(
-                DrawerView(store: store, timer: timer, workClock: workClock),
+                DrawerView(
+                    store: store,
+                    timer: timer,
+                    pomodoroTimer: pomodoroTimer,
+                    workClock: workClock
+                ),
                 appearance: .darkAqua,
                 size: size,
                 to: outputURL.appendingPathComponent("drawer-\(name)-dark.png")
@@ -120,13 +149,71 @@ final class DrawerVisualRenderTests: XCTestCase {
         UserDefaults.standard.set(DrawerTheme.liquidGlass.rawValue, forKey: "drawerTheme")
         timer.start(taskTitle: "Focus", seconds: 25 * 60)
         try render(
-            DrawerView(store: store, timer: timer, workClock: workClock),
+            DrawerView(
+                store: store,
+                timer: timer,
+                pomodoroTimer: pomodoroTimer,
+                workClock: workClock
+            ),
             appearance: .darkAqua,
             size: size,
             to: outputURL.appendingPathComponent("drawer-glass-active-dark.png")
         )
         timer.reset()
         UserDefaults.standard.removeObject(forKey: "drawerTheme")
+    }
+
+    func testRenderSettingsWhenRequested() throws {
+        guard let outputDirectory = ProcessInfo.processInfo.environment["DRAWER_SETTINGS_RENDER_DIR"] else {
+            throw XCTSkip("Set DRAWER_SETTINGS_RENDER_DIR to generate the settings visual review image.")
+        }
+
+        let outputURL = URL(fileURLWithPath: outputDirectory, isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: outputURL,
+            withIntermediateDirectories: true
+        )
+
+        UserDefaults.standard.set(DrawerTheme.liquidGlass.rawValue, forKey: "drawerTheme")
+        defer { UserDefaults.standard.removeObject(forKey: "drawerTheme") }
+
+        try renderSettings(
+            appearance: .darkAqua,
+            size: NSSize(width: 440, height: 580),
+            scrollOffset: 0,
+            to: outputURL.appendingPathComponent("settings-general-dark.png")
+        )
+        try renderSettings(
+            appearance: .darkAqua,
+            size: NSSize(width: 440, height: 580),
+            scrollOffset: 1420,
+            to: outputURL.appendingPathComponent("settings-timers-dark.png")
+        )
+
+        UserDefaults.standard.set(DrawerTheme.pixel.rawValue, forKey: "drawerTheme")
+        try renderSettings(
+            appearance: .darkAqua,
+            size: NSSize(width: 440, height: 580),
+            scrollOffset: 1420,
+            to: outputURL.appendingPathComponent("settings-timers-pixel-dark.png")
+        )
+    }
+
+    func testPixelThemeSettingsTimersDoNotUseLargeBrightAccentSurfaces() throws {
+        UserDefaults.standard.set(DrawerTheme.pixel.rawValue, forKey: "drawerTheme")
+        defer { UserDefaults.standard.removeObject(forKey: "drawerTheme") }
+
+        let bitmap = try renderSettingsBitmap(
+            appearance: .darkAqua,
+            size: NSSize(width: 440, height: 580),
+            scrollOffset: 1420
+        )
+
+        XCTAssertLessThan(
+            countBrightCyanPixels(in: bitmap),
+            50,
+            "Settings timer controls should use settings-safe tokens, not large bright drawer accent fills."
+        )
     }
 
     private func containsDarkChromePixels(
@@ -226,6 +313,131 @@ final class DrawerVisualRenderTests: XCTestCase {
         }
         host.cacheDisplay(in: host.bounds, to: bitmap)
         return bitmap
+    }
+
+    private func renderSettings(
+        appearance: NSAppearance.Name,
+        size: NSSize,
+        scrollOffset: CGFloat,
+        to outputURL: URL
+    ) throws {
+        let host = NSHostingView(rootView:
+            SettingsView(
+                onChooseFile: { _ in },
+                onHotkeyChange: { _ in true },
+                onLayoutChange: {}
+            )
+        )
+        host.frame = NSRect(origin: .zero, size: size)
+        host.appearance = NSAppearance(named: appearance)
+
+        let window = NSWindow(
+            contentRect: NSRect(origin: .zero, size: size),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.backgroundColor = .clear
+        window.isOpaque = false
+        window.contentView = host
+        window.layoutIfNeeded()
+        host.layoutSubtreeIfNeeded()
+
+        if scrollOffset > 0, let scrollView = firstScrollView(in: host) {
+            let documentHeight = scrollView.documentView?.bounds.height ?? 0
+            let visibleHeight = scrollView.contentView.bounds.height
+            let y = min(scrollOffset, max(0, documentHeight - visibleHeight))
+            scrollView.contentView.scroll(to: NSPoint(x: 0, y: y))
+            scrollView.reflectScrolledClipView(scrollView.contentView)
+            window.layoutIfNeeded()
+            host.layoutSubtreeIfNeeded()
+        }
+
+        guard let bitmap = host.bitmapImageRepForCachingDisplay(in: host.bounds) else {
+            XCTFail("Could not create a bitmap for the settings window.")
+            return
+        }
+        host.cacheDisplay(in: host.bounds, to: bitmap)
+        guard let png = bitmap.representation(using: .png, properties: [:]) else {
+            XCTFail("Could not encode the settings PNG.")
+            return
+        }
+        try png.write(to: outputURL)
+    }
+
+    private func renderSettingsBitmap(
+        appearance: NSAppearance.Name,
+        size: NSSize,
+        scrollOffset: CGFloat
+    ) throws -> NSBitmapImageRep {
+        let host = NSHostingView(rootView:
+            SettingsView(
+                onChooseFile: { _ in },
+                onHotkeyChange: { _ in true },
+                onLayoutChange: {}
+            )
+        )
+        host.frame = NSRect(origin: .zero, size: size)
+        host.appearance = NSAppearance(named: appearance)
+
+        let window = NSWindow(
+            contentRect: NSRect(origin: .zero, size: size),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.backgroundColor = .clear
+        window.isOpaque = false
+        window.contentView = host
+        window.layoutIfNeeded()
+        host.layoutSubtreeIfNeeded()
+
+        if scrollOffset > 0, let scrollView = firstScrollView(in: host) {
+            let documentHeight = scrollView.documentView?.bounds.height ?? 0
+            let visibleHeight = scrollView.contentView.bounds.height
+            let y = min(scrollOffset, max(0, documentHeight - visibleHeight))
+            scrollView.contentView.scroll(to: NSPoint(x: 0, y: y))
+            scrollView.reflectScrolledClipView(scrollView.contentView)
+            window.layoutIfNeeded()
+            host.layoutSubtreeIfNeeded()
+        }
+
+        guard let bitmap = host.bitmapImageRepForCachingDisplay(in: host.bounds) else {
+            XCTFail("Could not create a bitmap for the settings window.")
+            throw CocoaError(.fileReadUnknown)
+        }
+        host.cacheDisplay(in: host.bounds, to: bitmap)
+        return bitmap
+    }
+
+    private func firstScrollView(in view: NSView) -> NSScrollView? {
+        if let scrollView = view as? NSScrollView {
+            return scrollView
+        }
+        for subview in view.subviews {
+            if let found = firstScrollView(in: subview) {
+                return found
+            }
+        }
+        return nil
+    }
+
+    private func countBrightCyanPixels(in bitmap: NSBitmapImageRep) -> Int {
+        var count = 0
+        for y in 0..<bitmap.pixelsHigh {
+            for x in 0..<bitmap.pixelsWide {
+                guard let color = bitmap.colorAt(x: x, y: y)?.usingColorSpace(.deviceRGB),
+                      color.alphaComponent > 0.8 else {
+                    continue
+                }
+                if color.redComponent < 0.45
+                    && color.greenComponent > 0.60
+                    && color.blueComponent > 0.75 {
+                    count += 1
+                }
+            }
+        }
+        return count
     }
 
     private func fittingWidth<V: View>(_ view: V) -> CGFloat {

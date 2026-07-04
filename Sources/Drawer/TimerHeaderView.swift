@@ -6,20 +6,32 @@ struct TimerHeaderView: View {
     @AppStorage("defaultMinutesText") private var minutesText = "25"
     @Environment(\.drawerTheme) private var theme
 
+    private var labelFont: Font {
+        theme.usesXPChrome
+            ? FontLoader.xpFont(size: 9, weight: .bold)
+            : .system(size: 9, weight: .bold)
+    }
+
+    private var timeFont: Font {
+        theme.usesXPChrome
+            ? FontLoader.xpFont(size: 22, weight: .semibold).monospacedDigit()
+            : .system(size: 22, weight: .semibold, design: .rounded)
+    }
+
     var body: some View {
         switch timer.phase {
         case .idle:
             HStack(spacing: 10) {
                 VStack(alignment: .leading, spacing: 1) {
-                    Text("FOCUS")
-                        .font(.system(size: 9, weight: .bold))
-                        .tracking(0.8)
+                    Text("Focus")
+                        .font(labelFont)
+                        .tracking(theme.usesXPChrome ? 0 : 0.8)
                         .foregroundStyle(.tertiary)
 
                     HStack(alignment: .firstTextBaseline, spacing: 3) {
                         TextField("25", text: $minutesText)
                             .textFieldStyle(.plain)
-                            .font(.system(size: 22, weight: .semibold, design: .rounded))
+                            .font(timeFont)
                             .multilineTextAlignment(.leading)
                             .frame(width: 36)
                             .accessibilityLabel("Focus duration")
@@ -30,7 +42,7 @@ struct TimerHeaderView: View {
                             }
                             .onSubmit(start)
                         Text("min")
-                            .font(.caption)
+                            .font(theme.uiFont(size: 12))
                             .foregroundStyle(.secondary)
                             .fixedSize()
                     }
@@ -47,26 +59,22 @@ struct TimerHeaderView: View {
             .padding(.leading, 11)
             .padding(.trailing, 7)
             .padding(.vertical, 7)
-            // A thin outline, not a filled pill, so the idle timer reads as a
-            // plain control instead of looking permanently selected.
-            .background(
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .strokeBorder(.quaternary, lineWidth: 1)
-            )
-            .fixedSize(horizontal: true, vertical: false)
+            .xpTimerWidth(theme)
+            .background { timerChrome(outlined: true) }
         case .running, .paused:
             HStack(spacing: 4) {
                 VStack(alignment: .leading, spacing: 0) {
-                    Text(timer.phase == .running ? "FOCUSING" : "PAUSED")
-                        .font(.system(size: 9, weight: .bold))
-                        .tracking(0.8)
+                    Text(timer.phase == .running ? "Focusing" : "Paused")
+                        .font(labelFont)
+                        .tracking(theme.usesXPChrome ? 0 : 0.8)
                         .foregroundStyle(
                             timer.phase == .running
                                 ? AnyShapeStyle(theme.accent) : AnyShapeStyle(.secondary)
                         )
                     Text(FocusTimer.format(timer.remaining))
-                        .font(.system(size: 25, weight: .semibold, design: .rounded)
-                            .monospacedDigit())
+                        .font(theme.usesXPChrome
+                              ? FontLoader.xpFont(size: 25, weight: .semibold).monospacedDigit()
+                              : .system(size: 25, weight: .semibold, design: .rounded).monospacedDigit())
                 }
                 if timer.phase == .running {
                     DrawerIconButton(
@@ -104,24 +112,23 @@ struct TimerHeaderView: View {
             .padding(.leading, 9)
             .padding(.trailing, 5)
             .padding(.vertical, 7)
-            .background(.quaternary.opacity(0.55), in: RoundedRectangle(cornerRadius: 12))
-            .fixedSize(horizontal: true, vertical: false)
+            .xpTimerWidth(theme)
+            .background { timerChrome(outlined: false) }
         case .finished:
-            // The alarm card. Loud on purpose: an accent-filled pill with a
-            // pulsing bell that stays (and the chime repeats, see AppDelegate)
-            // until the X dismisses it. A banner alone is too easy to miss.
             HStack(spacing: 10) {
                 Image(systemName: "bell.and.waves.left.and.right.fill")
                     .font(.system(size: 17, weight: .semibold))
                     .foregroundStyle(Palette.onAccent)
                     .symbolEffect(.pulse, options: .repeating)
                 VStack(alignment: .leading, spacing: 0) {
-                    Text("TIME'S UP")
-                        .font(.system(size: 9, weight: .bold))
-                        .tracking(0.8)
+                    Text("Time's up")
+                        .font(labelFont)
+                        .tracking(theme.usesXPChrome ? 0 : 0.8)
                         .foregroundStyle(Palette.onAccent.opacity(0.85))
                     Text(timer.taskTitle.isEmpty ? "Focus done" : timer.taskTitle)
-                        .font(.system(size: 15, weight: .semibold, design: .rounded))
+                        .font(theme.usesXPChrome
+                              ? FontLoader.xpFont(size: 15, weight: .semibold)
+                              : .system(size: 15, weight: .semibold, design: .rounded))
                         .foregroundStyle(Palette.onAccent)
                         .lineLimit(1)
                         .truncationMode(.tail)
@@ -134,8 +141,11 @@ struct TimerHeaderView: View {
                         .font(.system(size: 12, weight: .bold))
                         .foregroundStyle(theme.accent)
                         .frame(width: 28, height: 28)
-                        .background(Palette.onAccent, in: Circle())
-                        .contentShape(Circle())
+                        .background(
+                            theme.usesXPChrome ? AnyShapeStyle(Color.white) : AnyShapeStyle(Palette.onAccent),
+                            in: theme.usesXPChrome ? AnyShape(Rectangle()) : AnyShape(Circle())
+                        )
+                        .contentShape(theme.usesXPChrome ? AnyShape(Rectangle()) : AnyShape(Circle()))
                 }
                 .buttonStyle(.plain)
                 .help("Dismiss the finished timer.")
@@ -144,10 +154,32 @@ struct TimerHeaderView: View {
             .padding(.leading, 11)
             .padding(.trailing, 7)
             .padding(.vertical, 9)
-            .background(
-                theme.accent.gradient,
-                in: RoundedRectangle(cornerRadius: 12, style: .continuous)
-            )
+            .xpTimerWidth(theme)
+            .background {
+                if theme.usesXPChrome {
+                    Rectangle().fill(Palette.xpSelection)
+                } else {
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .fill(theme.accent.gradient)
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func timerChrome(outlined: Bool) -> some View {
+        if theme.usesXPChrome {
+            if outlined {
+                XPSunkenPanel()
+            } else {
+                XPSunkenPanel()
+            }
+        } else if outlined {
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .strokeBorder(.quaternary, lineWidth: 1)
+        } else {
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(.quaternary.opacity(0.55))
         }
     }
 
