@@ -21,6 +21,7 @@ struct IdeaBoardPage: View {
 
     private var transparent: Bool { boardBackground == "transparent" }
     private var paper: Bool { boardBackground == "paper" || theme == .notebook }
+    private var xpBoard: Bool { theme.usesXPChrome && !transparent }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -31,6 +32,7 @@ struct IdeaBoardPage: View {
                 transparentBackground: transparent,
                 globalPanEnabled: swipe.showingBoard,
                 paperBackground: paper,
+                xpBackground: xpBoard,
                 defaultCardColor: defaultColor
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -103,11 +105,26 @@ struct IdeaBoardPage: View {
                 cycleBackground()
             }
             Text("\(store.document.items.count)")
-                .font(.system(size: 11, weight: .semibold, design: .rounded))
-                .foregroundStyle(.tertiary)
+                .font(theme.usesXPChrome
+                      ? FontLoader.xpFont(size: 11, weight: .semibold)
+                      : .system(size: 11, weight: .semibold, design: .rounded))
+                .foregroundStyle(
+                    theme.usesXPChrome
+                        ? AnyShapeStyle(Color.white.opacity(0.85))
+                        : AnyShapeStyle(.tertiary)
+                )
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 10)
+        .background {
+            if theme.usesXPChrome {
+                LinearGradient(
+                    colors: [Palette.xpTitleTop, Palette.xpTitleBottom],
+                    startPoint: .top, endPoint: .bottom
+                )
+            }
+        }
+        .environment(\.xpOnDarkChrome, theme.usesXPChrome)
         .contentShape(Rectangle())
         // Hovering this bar arms the swipe-back gesture (see ScrollSwipeMonitor).
         .onHover { swipe.pointerOverChrome = $0 }
@@ -119,13 +136,17 @@ struct IdeaBoardPage: View {
         } label: {
             HStack(spacing: 5) {
                 Text(store.activeBoardName)
-                    .font(.system(size: 14, weight: .semibold))
+                    .font(theme.usesXPChrome
+                          ? FontLoader.xpFont(size: 14, weight: .bold)
+                          : .system(size: 14, weight: .semibold))
                     .lineLimit(1)
                 Image(systemName: "chevron.down")
                     .font(.system(size: 9, weight: .bold))
-                    .foregroundStyle(.tertiary)
+                    .foregroundStyle(theme.usesXPChrome
+                                     ? AnyShapeStyle(Color.white.opacity(0.9))
+                                     : AnyShapeStyle(.tertiary))
             }
-            .foregroundStyle(theme.primaryInk)
+            .foregroundStyle(theme.usesXPChrome ? Color.white : theme.primaryInk)
             .frame(maxWidth: 150, alignment: .leading)
             .contentShape(Rectangle())
         }
@@ -262,6 +283,7 @@ private struct BoardSelectorPopover: View {
 private struct BoardSelectorRow: View {
     let board: BoardRecord
     let selected: Bool
+    @Environment(\.drawerTheme) private var theme
 
     var body: some View {
         HStack(spacing: 8) {
@@ -270,11 +292,11 @@ private struct BoardSelectorRow: View {
                 .opacity(selected ? 1 : 0)
                 .frame(width: 14)
             Text(board.name)
-                .font(.system(size: 13, weight: selected ? .semibold : .regular))
+                .font(theme.uiFont(size: 13, weight: selected ? .semibold : .regular))
                 .lineLimit(1)
             Spacer()
             Text("\(board.items.count)")
-                .font(.system(size: 11, weight: .semibold, design: .rounded))
+                .font(theme.uiFont(size: 11, weight: .semibold, design: .rounded))
                 .foregroundStyle(.tertiary)
         }
         .padding(.vertical, 7)
@@ -346,7 +368,7 @@ private struct BoardEditPopover: View {
                 .fontWeight(.semibold)
                 .foregroundStyle(theme.primaryInk)
         }
-        .font(.system(size: 12))
+        .font(theme.uiFont(size: 12))
     }
 
     private func rename() {

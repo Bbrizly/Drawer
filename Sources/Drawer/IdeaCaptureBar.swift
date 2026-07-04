@@ -8,6 +8,7 @@ struct IdeaCaptureBar: View {
     var reduceMotion: Bool
     var onDone: () -> Void
 
+    @Environment(\.drawerTheme) private var theme
     @State private var text = ""
     @State private var parking = false   // the car is mounted
     @State private var driving = false   // animate it (and the note) away
@@ -43,7 +44,9 @@ struct IdeaCaptureBar: View {
                     .focused($focused)
                     .scrollContentBackground(.hidden)
                     .frame(height: 78)
-                    .font(.system(size: 13))
+                    .font(theme.usesXPChrome
+                          ? FontLoader.xpFont(size: 13)
+                          : .system(size: 13))
             }
             HStack(spacing: 8) {
                 Spacer()
@@ -52,18 +55,32 @@ struct IdeaCaptureBar: View {
                     .foregroundStyle(.secondary)
                 Button(action: park) {
                     Text("Park ◂")
-                        .font(.system(size: 12, weight: .semibold))
+                        .font(theme.usesXPChrome
+                              ? FontLoader.xpFont(size: 12, weight: .semibold)
+                              : .system(size: 12, weight: .semibold))
                         .padding(.horizontal, 12)
                         .padding(.vertical, 6)
-                        .background(.tint, in: RoundedRectangle(cornerRadius: 8))
-                        .foregroundStyle(Palette.onAccent)
+                        .background {
+                            if theme.usesXPChrome {
+                                XPRaisedPanel()
+                            } else {
+                                RoundedRectangle(cornerRadius: 8).fill(.tint)
+                            }
+                        }
+                        .foregroundStyle(theme.usesXPChrome ? Palette.xpInk : Palette.onAccent)
                 }
                 .buttonStyle(.plain)
             }
         }
         .padding(.horizontal, 11)
         .padding(.vertical, 9)
-        .background(.quaternary.opacity(0.65), in: RoundedRectangle(cornerRadius: 11))
+        .background {
+            if theme.usesXPChrome {
+                XPSunkenPanel()
+            } else {
+                RoundedRectangle(cornerRadius: 11).fill(.quaternary.opacity(0.65))
+            }
+        }
     }
 
     private func park() {

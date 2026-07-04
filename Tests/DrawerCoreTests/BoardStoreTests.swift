@@ -267,4 +267,61 @@ final class BoardStoreTests: XCTestCase {
         store.saveNow()
         XCTAssertEqual(writes, 1)
     }
+
+    // MARK: media preservation
+
+    private func makeMedia(_ store: BoardStore, _ name: String) throws -> URL {
+        try FileManager.default.createDirectory(
+            at: store.mediaDirectory, withIntermediateDirectories: true)
+        let url = store.mediaDirectory.appendingPathComponent(name)
+        try Data([1, 2, 3]).write(to: url)
+        return url
+    }
+
+    func testAddingImageNeverDeletesItsOwnFile() throws {
+        // Board media is user data. Adding a board item must never remove the
+        // image file that was just persisted for it.
+        let store = makeStore()
+        store.addText(title: "seed", body: "")
+        store.undo()
+        let file = try makeMedia(store, "a.png")
+        store.addImage(
+            file: "media/a.png", naturalSize: .init(width: 10, height: 10),
+            displaySize: .init(width: 10, height: 10), at: .zero)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: file.path))
+    }
+
+    func testLoadKeepsInUseMediaAndUnreferencedFiles() throws {
+        // Board media is user data. A launch-time cleanup cannot know whether
+        // an unreferenced file is stale, temporarily unsaved, or about to be
+        // relinked, so load must not delete it.
+        let seed = makeStore()
+        _ = try makeMedia(seed, "keep.png")
+        seed.addImage(
+            file: "media/keep.png", naturalSize: .init(width: 10, height: 10),
+            displaySize: .init(width: 10, height: 10), at: .zero)
+        seed.saveNow()
+        let orphan = try makeMedia(seed, "old.png")
+
+        makeStore().load()
+        XCTAssertTrue(FileManager.default.fileExists(atPath: orphan.path))
+        XCTAssertTrue(FileManager.default.fileExists(
+            atPath: seed.mediaDirectory.appendingPathComponent("keep.png").path))
+    }
+
+    func testDeletedImageMediaSurvivesNextLoad() throws {
+        let seed = makeStore()
+        let file = try makeMedia(seed, "a.png")
+        let img = seed.addImage(
+            file: "media/a.png", naturalSize: .init(width: 10, height: 10),
+            displaySize: .init(width: 10, height: 10), at: .zero)
+        seed.saveNow()
+
+        seed.remove(img.id) // delete it; still undoable this session, so file stays
+        seed.saveNow()
+        XCTAssertTrue(FileManager.default.fileExists(atPath: file.path))
+
+        makeStore().load()
+        XCTAssertTrue(FileManager.default.fileExists(atPath: file.path))
+    }
 }

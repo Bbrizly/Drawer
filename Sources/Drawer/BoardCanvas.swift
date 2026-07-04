@@ -16,6 +16,8 @@ struct BoardCanvas: NSViewRepresentable {
     var globalPanEnabled = false
     /// Ruled-paper backdrop (Notebook theme).
     var paperBackground = false
+    /// Bliss-style desktop (Windows XP theme).
+    var xpBackground = false
     /// Color new cards start as (Settings default).
     var defaultCardColor: String?
 
@@ -50,6 +52,7 @@ struct BoardCanvas: NSViewRepresentable {
         view.setViewport(store.document.viewport)
         view.setTransparent(transparentBackground)
         view.setPaper(paperBackground)
+        view.setXPBackground(xpBackground)
         view.setGlobalPanEnabled(globalPanEnabled)
         view.defaultCardColor = defaultCardColor
         return view
@@ -60,6 +63,7 @@ struct BoardCanvas: NSViewRepresentable {
         view.setViewport(store.document.viewport)
         view.setTransparent(transparentBackground)
         view.setPaper(paperBackground)
+        view.setXPBackground(xpBackground)
         view.setGlobalPanEnabled(globalPanEnabled)
         view.defaultCardColor = defaultCardColor
         if recenterRequests != context.coordinator.lastRecenter {

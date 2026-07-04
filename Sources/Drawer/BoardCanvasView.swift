@@ -36,6 +36,8 @@ final class BoardCanvasView: NSView, NSTextViewDelegate {
     private let paperLayer = CALayer()        // ruled paper, in content space so it pans/zooms with items
     private let handleLayer = CALayer()       // resize grip on the selected item
     private var itemLayers: [UUID: CALayer] = [:]
+    private var imageFiles: [UUID: String] = [:]
+    private var loadingThumbnails: Set<UUID> = []
     private var items: [BoardItem] = []
     private var viewport = BoardViewport()
 
@@ -63,7 +65,8 @@ final class BoardCanvasView: NSView, NSTextViewDelegate {
     private var keyboardMonitor: Any?
     private var transparentBg = false
     private var paperBg = false
-    private var showingPaper: Bool { paperBg && !transparentBg }
+    private var xpBg = false
+    private var showingPaper: Bool { paperBg && !transparentBg && !xpBg }
 
     override var isFlipped: Bool { false }            // bottom-left, matches board space
     override var acceptsFirstResponder: Bool { true }
@@ -167,6 +170,8 @@ final class BoardCanvasView: NSView, NSTextViewDelegate {
         for (id, layer) in itemLayers where !incoming.contains(id) {
             layer.removeFromSuperlayer()
             itemLayers[id] = nil
+            imageFiles[id] = nil
+            loadingThumbnails.remove(id)
         }
 
         for item in newItems {
@@ -187,21 +192,49 @@ final class BoardCanvasView: NSView, NSTextViewDelegate {
 
     func setTransparent(_ on: Bool) { transparentBg = on; updateBackground() }
     func setPaper(_ on: Bool) { paperBg = on; updateBackground() }
+    func setXPBackground(_ on: Bool) {
+        xpBg = on
+        handleLayer.cornerRadius = on ? 0 : handleSize / 2
+        handleLayer.borderColor = (on ? NSColor.black : NSColor.controlAccentColor).cgColor
+        handleLayer.borderWidth = on ? 1 : 2
+        marqueeLayer.borderColor = (on ? Palette.xpSelectionRGBA.ns : NSColor.controlAccentColor).cgColor
+        marqueeLayer.backgroundColor = (on ? Palette.xpSelectionRGBA.ns : NSColor.controlAccentColor)
+            .withAlphaComponent(on ? 0.18 : 0.12).cgColor
+        updateBackground()
+    }
 
     private func updateBackground() {
         let color: NSColor
         if transparentBg {
-            // Not fully clear: a hair of alpha keeps the window hit-testable, so
-            // clicks/scroll/pinch reach the board, not the desktop. 1% is invisible.
             color = Palette.hitClear.ns
+        } else if xpBg {
+            color = Palette.xpDesktopRGBA.ns
+            layer?.backgroundColor = color.cgColor
+            layer?.contents = nil
         } else if paperBg {
-            color = Palette.paperFill.ns // solid cream; the rule lines are the paperLayer
+            color = Palette.paperFill.ns
+            layer?.backgroundColor = color.cgColor
+            layer?.contents = nil
         } else {
             color = Palette.boardDark.ns
+            layer?.backgroundColor = color.cgColor
+            layer?.contents = nil
         }
-        layer?.backgroundColor = color.cgColor
-        paperLayer.isHidden = !showingPaper   // ruled lines only in visible paper mode
-        reinkText() // plain text adapts to the surface; keep it legible on a switch
+        if !xpBg { layer?.contents = nil }
+        paperLayer.isHidden = !showingPaper
+        reinkText()
+        refreshCardChrome()
+    }
+
+    /// Re-apply card fills and borders when the surface changes.
+    private func refreshCardChrome() {
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        for item in items {
+            guard let layer = itemLayers[item.id] else { continue }
+            applyCardChrome(to: layer, for: item)
+        }
+        CATransaction.commit()
     }
 
     /// Re-apply the adaptive ink to every text layer (called when the background
@@ -237,12 +270,12 @@ final class BoardCanvasView: NSView, NSTextViewDelegate {
     private func makeLayer(for item: BoardItem) -> CALayer {
         let layer = CALayer()
         layer.anchorPoint = .zero
-        layer.cornerRadius = 12
+        layer.cornerRadius = xpBg ? 0 : 12
         layer.contentsScale = scale
         layer.shadowColor = NSColor.black.cgColor
-        layer.shadowOpacity = 0.32
-        layer.shadowRadius = 7
-        layer.shadowOffset = CGSize(width: 0, height: -2)
+        layer.shadowOpacity = xpBg ? 0.45 : 0.32
+        layer.shadowRadius = xpBg ? 0 : 7
+        layer.shadowOffset = xpBg ? CGSize(width: 2, height: -2) : CGSize(width: 0, height: -2)
         if item.kind == .text {
             let text = CATextLayer()
             text.name = "text"
@@ -250,21 +283,38 @@ final class BoardCanvasView: NSView, NSTextViewDelegate {
             text.isWrapped = true
             text.truncationMode = .end
             layer.addSublayer(text)
-            // Plain text on the canvas: no card fill, no shadow, no rounded box.
-            layer.backgroundColor = NSColor.clear.cgColor
-            layer.shadowOpacity = 0
-            layer.cornerRadius = 0
+            if !xpBg {
+                layer.backgroundColor = NSColor.clear.cgColor
+                layer.shadowOpacity = 0
+                layer.cornerRadius = 0
+            }
         } else {
             let img = CALayer()
             img.name = "image"
             img.contentsScale = scale
-            img.cornerRadius = 12
+            img.cornerRadius = xpBg ? 0 : 12
             img.masksToBounds = true
             img.backgroundColor = Palette.imageBackdrop.ns.cgColor
             layer.addSublayer(img)
-            requestThumbnail(for: item, into: img)
         }
         return layer
+    }
+
+    private func applyCardChrome(to layer: CALayer, for item: BoardItem) {
+        guard item.kind == .text else { return }
+        if xpBg {
+            let fill = item.color.map { Self.cardColor($0) } ?? Palette.xpStickyNote.ns
+            layer.backgroundColor = fill.cgColor
+            layer.borderWidth = 2
+            layer.borderColor = Palette.xpBevelShadowRGBA.ns.cgColor
+            layer.shadowOpacity = 0.45
+            layer.cornerRadius = 0
+        } else {
+            layer.backgroundColor = NSColor.clear.cgColor
+            layer.borderWidth = 0
+            layer.shadowOpacity = 0
+            layer.cornerRadius = 0
+        }
     }
 
     private func configure(_ layer: CALayer, for item: BoardItem) {
@@ -280,13 +330,15 @@ final class BoardCanvasView: NSView, NSTextViewDelegate {
         if let text = layer.sublayers?.first(where: { $0.name == "text" }) as? CATextLayer {
             text.frame = CGRect(x: 12, y: 10, width: item.width - 24, height: item.height - 20)
             text.string = attributedText(for: item)
-            text.isHidden = editingID == item.id // hide under the live editor
+            text.isHidden = editingID == item.id
         }
-        if item.kind == .text {
+        applyCardChrome(to: layer, for: item)
+        if item.kind == .text, !xpBg {
             layer.backgroundColor = NSColor.clear.cgColor
         }
         if let img = layer.sublayers?.first(where: { $0.name == "image" }) {
             img.frame = CGRect(x: 0, y: 0, width: item.width, height: item.height)
+            configureThumbnail(for: item, into: img)
         }
         CATransaction.commit()
     }
@@ -297,6 +349,7 @@ final class BoardCanvasView: NSView, NSTextViewDelegate {
     /// Ink for plain board text: a chosen color tints it; otherwise it adapts to
     /// the surface so it stays legible (dark on paper, light on the dark board).
     private func textInk(for item: BoardItem) -> NSColor {
+        if xpBg { return Palette.xpInkRGBA.ns }
         if let key = item.color { return Palette.card(key).ns }
         return showingPaper ? Palette.cardInk.ns : .white
     }
@@ -311,10 +364,18 @@ final class BoardCanvasView: NSView, NSTextViewDelegate {
     /// The size argument lets a live resize re-render without touching the model.
     private func attributedText(for item: BoardItem, size: CGFloat) -> NSAttributedString {
         let ink = textInk(for: item)
+        let titleWeight: NSFont.Weight = .bold
+        let bodyWeight: NSFont.Weight = .regular
+        let titleFont = xpBg
+            ? FontLoader.xpNSFont(size: size, weight: titleWeight)
+            : NSFont.systemFont(ofSize: size, weight: titleWeight)
+        let bodyFont = xpBg
+            ? FontLoader.xpNSFont(size: size * 0.82, weight: bodyWeight)
+            : NSFont.systemFont(ofSize: size * 0.82, weight: bodyWeight)
         let out = NSMutableAttributedString(
             string: item.title ?? "",
             attributes: [
-                .font: NSFont.systemFont(ofSize: size, weight: .semibold),
+                .font: titleFont,
                 .foregroundColor: ink,
             ]
         )
@@ -322,7 +383,7 @@ final class BoardCanvasView: NSView, NSTextViewDelegate {
             out.append(NSAttributedString(
                 string: "\n" + body,
                 attributes: [
-                    .font: NSFont.systemFont(ofSize: size * 0.82, weight: .regular),
+                    .font: bodyFont,
                     .foregroundColor: ink.withAlphaComponent(0.75),
                 ]
             ))
@@ -330,8 +391,22 @@ final class BoardCanvasView: NSView, NSTextViewDelegate {
         return out
     }
 
+    private func configureThumbnail(for item: BoardItem, into img: CALayer) {
+        let file = item.file ?? ""
+        if imageFiles[item.id] != file {
+            imageFiles[item.id] = file
+            loadingThumbnails.remove(item.id)
+            img.contents = nil
+        }
+        guard img.contents == nil, !loadingThumbnails.contains(item.id) else { return }
+        requestThumbnail(for: item, into: img)
+    }
+
     private func requestThumbnail(for item: BoardItem, into img: CALayer) {
-        thumbnailProvider?(item) { [weak img] cg in
+        guard let thumbnailProvider else { return }
+        loadingThumbnails.insert(item.id)
+        thumbnailProvider(item) { [weak self, weak img] cg in
+            self?.loadingThumbnails.remove(item.id)
             guard let img, let cg else { return }
             CATransaction.begin()
             CATransaction.setDisableActions(true)
@@ -388,8 +463,10 @@ final class BoardCanvasView: NSView, NSTextViewDelegate {
         CATransaction.setDisableActions(true)
         for (id, layer) in itemLayers {
             let on = selectedIDs.contains(id)
-            layer.borderWidth = on ? 3 : 0
-            layer.borderColor = on ? NSColor.controlAccentColor.cgColor : nil
+            layer.borderWidth = on ? (xpBg ? 2 : 3) : 0
+            layer.borderColor = on
+                ? (xpBg ? Palette.xpSelectionRGBA.ns : NSColor.controlAccentColor).cgColor
+                : nil
         }
         updateHandle()
         CATransaction.commit()
