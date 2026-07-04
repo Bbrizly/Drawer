@@ -18,13 +18,7 @@
   <img src="https://img.shields.io/badge/themes-8-111111?style=flat-square" alt="Eight themes">
 </p>
 
-<p align="center">
-  <video src="https://github.com/user-attachments/assets/66ff6738-7924-4964-a7b2-50e88a528baf" width="380" muted autoplay loop playsinline></video>
-</p>
-
-<p align="center">
-  <img src="Docs/media/themes.gif" width="380" alt="Drawer shown in eight themes">
-</p>
+https://github.com/user-attachments/assets/66ff6738-7924-4964-a7b2-50e88a528baf
 
 Drawer is a menu bar app for macOS. It lives at the top-left edge of the screen and slides out with a global hotkey. Inside is today's to-do list, read straight from a plain markdown file, plus a focus timer to work through it.
 
@@ -61,7 +55,7 @@ Switch in Settings, Command-comma.
 - **Widget**: rounded type, minimal chrome
 - **Medieval**: aged parchment with a gold-ruled frame
 - **Pixel**: an 8-bit game window with a bitmap font
-- **Artistic**: a vibrant mesh gradient
+- **Dots**: frosted glass over a cool dot grid
 - **Notebook**: ruled paper with a handwritten feel
 - **Windows XP**: the Luna desktop, blue title bar and beige toolbar
 

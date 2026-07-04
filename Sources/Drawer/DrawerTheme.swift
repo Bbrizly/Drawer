@@ -5,7 +5,7 @@ import SwiftUI
 /// (below); views never write a raw `Color(red:...)`. Non-color layout tokens
 /// (corner radii, checkbox size, fonts) still live on the theme since they are
 /// not colors. Two base palettes, light and dark, cover the plain themes; the
-/// art-directed themes (medieval, pixel, artistic, notebook) start from a base
+/// art-directed themes (medieval, pixel, dots, notebook) start from a base
 /// and override the few colors that make their world.
 enum DrawerTheme: String, CaseIterable, Identifiable {
     case liquidGlass
@@ -13,7 +13,7 @@ enum DrawerTheme: String, CaseIterable, Identifiable {
     case widget
     case medieval
     case pixel
-    case artistic
+    case dots
     case notebook
     case windowsXP
 
@@ -28,7 +28,7 @@ enum DrawerTheme: String, CaseIterable, Identifiable {
         case .widget: return "Widget"
         case .medieval: return "Medieval"
         case .pixel: return "Pixel"
-        case .artistic: return "Artistic"
+        case .dots: return "Dots"
         case .notebook: return "Notebook"
         case .windowsXP: return "Windows XP"
         }
@@ -37,7 +37,7 @@ enum DrawerTheme: String, CaseIterable, Identifiable {
     /// Art-directed themes paint their own opaque world (see PanelBackground).
     var isArtDirected: Bool {
         switch self {
-        case .medieval, .pixel, .artistic, .notebook, .windowsXP: return true
+        case .medieval, .pixel, .dots, .notebook, .windowsXP: return true
         default: return false
         }
     }
@@ -50,7 +50,7 @@ enum DrawerTheme: String, CaseIterable, Identifiable {
     var forcedColorScheme: ColorScheme? {
         switch self {
         case .notebook, .medieval, .windowsXP: return .light
-        case .pixel, .artistic: return .dark
+        case .pixel, .dots: return .dark
         default: return nil
         }
     }
@@ -96,21 +96,14 @@ enum DrawerTheme: String, CaseIterable, Identifiable {
             p.controlFill = AnyShapeStyle(Color.white.opacity(0.07))
             p.sectionHeader = AnyShapeStyle(Color(red: 1.0, green: 0.82, blue: 0.25)) // arcade yellow
             return p
-        case .artistic:
+        case .dots:
             var p = Palette.dark
-            p.accent = Color(red: 1.0, green: 0.32, blue: 0.62)           // hot pink
+            p.accent = Color(red: 0.20, green: 0.80, blue: 0.85)          // cool teal
             p.primary = .white
             p.secondary = Color.white.opacity(0.75)
             p.tertiary = Color.white.opacity(0.5)
-            p.controlFill = AnyShapeStyle(Color.white.opacity(0.16))
-            p.sectionHeader = AnyShapeStyle(LinearGradient(
-                colors: [
-                    Color(red: 1.0, green: 0.45, blue: 0.42),
-                    Color(red: 1.0, green: 0.32, blue: 0.62),
-                    Color(red: 0.60, green: 0.45, blue: 1.0),
-                ],
-                startPoint: .leading, endPoint: .trailing
-            ))
+            p.controlFill = AnyShapeStyle(Color(red: 0.35, green: 0.85, blue: 0.92).opacity(0.12))
+            p.sectionHeader = AnyShapeStyle(Color(red: 0.30, green: 0.86, blue: 0.90))
             return p
         case .notebook:
             var p = Palette.light
@@ -159,7 +152,7 @@ enum DrawerTheme: String, CaseIterable, Identifiable {
         case .widget: return 22
         case .medieval: return 12
         case .pixel: return 6      // near-square, hard-edged game window
-        case .artistic: return 22
+        case .dots: return 22
         case .notebook: return 8
         case .windowsXP: return 0
         }
@@ -175,7 +168,7 @@ enum DrawerTheme: String, CaseIterable, Identifiable {
         case .widget: return 14
         case .medieval: return 16
         case .pixel: return 15
-        case .artistic: return 16
+        case .dots: return 16
         case .notebook: return 16
         case .windowsXP: return 13
         }
@@ -220,7 +213,7 @@ enum DrawerTheme: String, CaseIterable, Identifiable {
 
     var fontDesign: Font.Design {
         switch self {
-        case .widget, .artistic: return .rounded
+        case .widget, .dots: return .rounded
         case .medieval: return .serif
         case .pixel: return .monospaced
         default: return .default
@@ -255,7 +248,7 @@ enum DrawerTheme: String, CaseIterable, Identifiable {
         case .medieval: return .system(size: 11, weight: .bold) // serif via root design
         case .pixel: return .custom(FontLoader.pixelFamily, size: 11)
         case .windowsXP: return FontLoader.xpFont(size: 12, weight: .bold)
-        case .artistic: return .system(size: 11, weight: .heavy)
+        case .dots: return .system(size: 11, weight: .heavy)
         default: return .system(size: 10, weight: .bold)
         }
     }
@@ -366,7 +359,7 @@ struct Palette {
 
 /// Tokens for the Settings window. These intentionally follow the Settings
 /// surface instead of any drawer art theme surface, so controls stay readable
-/// while a bright Pixel/Artistic drawer theme is selected.
+/// while a dark Pixel/Dots drawer theme is selected.
 struct SettingsPalette {
     static let standard = SettingsPalette(
         primary: .primary,
@@ -427,8 +420,8 @@ struct PanelBackground: View {
             MedievalParchment(shape: shape)
         case .pixel:
             PixelFrame(shape: shape, accent: theme.accent)
-        case .artistic:
-            ArtisticMesh(shape: shape)
+        case .dots:
+            DotMatrix(shape: shape)
         case .notebook:
             NotebookPaper(shape: shape)
         case .windowsXP:
@@ -590,33 +583,42 @@ private struct Scanlines: View {
     }
 }
 
-/// A vibrant nine-point mesh gradient with a soft dark vignette so white ink
-/// stays readable. The signature "colourful artistic" surface.
-private struct ArtisticMesh: View {
+/// Frosted Liquid Glass deepened with a cool teal, dusted with a fine dot grid.
+/// The desktop shows through the glass; the dots give it a calm, technical feel.
+private struct DotMatrix: View {
     let shape: RoundedRectangle
 
     var body: some View {
-        MeshGradient(
-            width: 3, height: 3,
-            points: [
-                SIMD2<Float>(0.0, 0.0), SIMD2<Float>(0.5, 0.0), SIMD2<Float>(1.0, 0.0),
-                SIMD2<Float>(0.0, 0.5), SIMD2<Float>(0.5, 0.5), SIMD2<Float>(1.0, 0.5),
-                SIMD2<Float>(0.0, 1.0), SIMD2<Float>(0.5, 1.0), SIMD2<Float>(1.0, 1.0),
-            ],
-            colors: [
-                Color(red: 0.42, green: 0.18, blue: 0.78), Color(red: 0.95, green: 0.27, blue: 0.55), Color(red: 1.0, green: 0.52, blue: 0.30),
-                Color(red: 0.20, green: 0.42, blue: 0.92), Color(red: 0.65, green: 0.30, blue: 0.86), Color(red: 0.98, green: 0.35, blue: 0.62),
-                Color(red: 0.12, green: 0.62, blue: 0.80), Color(red: 0.36, green: 0.34, blue: 0.88), Color(red: 0.80, green: 0.24, blue: 0.70),
-            ]
-        )
-        .clipShape(shape)
-        .overlay(
-            shape.fill(RadialGradient(
-                colors: [.clear, Color.black.opacity(0.28)],
-                center: .center, startRadius: 80, endRadius: 240
-            ))
-        )
-        .overlay(shape.strokeBorder(Color.white.opacity(0.22), lineWidth: 0.75))
+        Color.clear
+            .glassEffect(.regular, in: shape)
+            // Cool teal deepening so white ink stays crisp on the frosted glass.
+            .overlay(shape.fill(Color(red: 0.05, green: 0.16, blue: 0.20).opacity(0.55)))
+            .overlay(DotField().clipShape(shape))
+            .overlay(shape.strokeBorder(Color.white.opacity(0.18), lineWidth: 0.75))
+    }
+}
+
+/// A regular grid of small cool dots. Drawn once, purely decorative.
+private struct DotField: View {
+    var body: some View {
+        Canvas { ctx, size in
+            let spacing: CGFloat = 22
+            let r: CGFloat = 1.3
+            let dot = Color(red: 0.45, green: 0.85, blue: 0.92).opacity(0.18)
+            var y = spacing / 2
+            while y < size.height {
+                var x = spacing / 2
+                while x < size.width {
+                    ctx.fill(
+                        Path(ellipseIn: CGRect(x: x - r, y: y - r, width: r * 2, height: r * 2)),
+                        with: .color(dot)
+                    )
+                    x += spacing
+                }
+                y += spacing
+            }
+        }
+        .allowsHitTesting(false)
     }
 }
 

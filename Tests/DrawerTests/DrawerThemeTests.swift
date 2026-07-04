@@ -34,7 +34,7 @@ final class DrawerThemeTests: XCTestCase {
     }
 
     func testArtDirectedThemesExist() {
-        for theme in [DrawerTheme.medieval, .pixel, .artistic, .notebook, .windowsXP] {
+        for theme in [DrawerTheme.medieval, .pixel, .dots, .notebook, .windowsXP] {
             XCTAssertTrue(theme.isArtDirected)
             XCTAssertNotNil(theme.sectionHeaderStyle)
         }
