@@ -258,9 +258,12 @@
     .flow{grid-template-columns:1fr}
     .bento{grid-template-columns:1fr}
     .band-inner{padding:44px 24px}
-    .paper{position:relative;left:0;top:0;width:100%;transform:none;margin-bottom:18px}
+    .paper{position:relative;left:0;top:0;width:100%;transform:none;margin-bottom:18px;overflow-x:auto}
     .panel{width:100%}
-    .stage{display:flex;flex-direction:column}
+    .stage{display:flex;flex-direction:column;width:100%}
+    .stage>*{max-width:100%}
+    .cta-row{flex-direction:column;align-items:flex-start;gap:16px}
+    .hero h1{font-size:clamp(40px,10vw,60px)}
   }
   @media (prefers-reduced-motion:reduce){
     *{transition:none!important;animation:none!important}
