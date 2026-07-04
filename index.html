@@ -162,7 +162,7 @@
     background:rgba(244,238,225,.85);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);
     border:1px solid rgba(255,255,255,.6);border-radius:22px;
     box-shadow:0 40px 80px -30px rgba(28,24,19,.5),inset 0 1px 1px rgba(255,255,255,.7);
-    padding:16px;
+    padding:16px;overflow:hidden;
   }
   .panel .bar{display:flex;align-items:center;justify-content:space-between;padding:2px 6px 14px}
   .panel .bar .t{font-family:'Playfair Display',serif;font-size:18px}
@@ -173,7 +173,7 @@
   .task.done .ck{background:var(--sage);border-color:var(--sage)}
   .task.done .ck svg{opacity:1}
   .task .ck svg{opacity:0;transition:opacity .4s var(--ease)}
-  .task .txt{font-size:13.5px;font-weight:500;flex:1}
+  .task .txt{font-size:13.5px;font-weight:500;flex:1;min-width:0}
   .task.done .txt{color:var(--ink-3);text-decoration:line-through;text-decoration-color:var(--hair)}
   .task .note{font-size:11.5px;color:var(--ink-3);font-weight:400;margin-top:3px}
   .task .dur{font-size:10.5px;font-weight:600;color:var(--sage);background:rgba(94,107,87,.12);padding:2px 8px;border-radius:999px;margin-left:6px;white-space:nowrap}
