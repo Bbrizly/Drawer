@@ -19,24 +19,20 @@
 </p>
 
 <p align="center">
+  <video src="https://github.com/user-attachments/assets/66ff6738-7924-4964-a7b2-50e88a528baf" width="380" muted autoplay loop playsinline></video>
+</p>
+
+<p align="center">
   <img src="Docs/media/themes.gif" width="380" alt="Drawer shown in eight themes">
 </p>
 
-Drawer is a menu bar app for macOS. It lives at the top-left edge of the
-screen and slides out with a global hotkey. Inside is today's to-do list, read
-straight from a plain markdown file, plus a focus timer to work through it.
+Drawer is a menu bar app for macOS. It lives at the top-left edge of the screen and slides out with a global hotkey. Inside is today's to-do list, read straight from a plain markdown file, plus a focus timer to work through it.
 
-The list is just text, so you can edit it in Obsidian, an editor, or iCloud,
-and the panel stays in sync. Check a task off in the panel and the checkbox is
-written back to the file. Nothing to sync, no account, no database. Your tasks
-stay yours.
+The list is just text, so you can edit it in Obsidian, an editor, or iCloud, and the panel stays in sync. Check a task off in the panel and the checkbox is written back to the file. Nothing to sync, no account, no database. Your tasks stay yours.
 
 ## Why
 
-I keep my whole day in one markdown file. I wanted to see it and check things
-off without opening an app or switching windows. Drawer reads that file, shows
-today's tasks, and writes the checkboxes back. That is the whole idea. Every
-other feature is optional and can be switched off.
+I keep my whole day in one markdown file. I wanted to see it and check things off without opening an app or switching windows. Drawer reads that file, shows today's tasks, and writes the checkboxes back. That is the whole idea. Every other feature is optional and can be switched off.
 
 ## Features
 
@@ -73,35 +69,34 @@ Switch in Settings, Command-comma.
 
 Tasks are markdown checkboxes under a dated heading.
 
-    ## 2026-07-04
-    - [ ] Call the landlord (15m)
-    - [x] Done task
+```
+## 2026-07-04
+- [ ] Call the landlord (15m)
+- [x] Done task
+```
 
-A `##` heading with a date starts a day, and the tasks under it belong to that
-day. Weekday prefixes like `## Mon 2026-07-04` work too. `## Backlog` and
-`## Archive` collect tasks with no date and show collapsed at the bottom.
-Inside those, `###` subheadings become group labels. A duration like `(15m)`
-sets the focus timer hint for a task.
+A `##` heading with a date starts a day, and the tasks under it belong to that day. Weekday prefixes like `## Mon 2026-07-04` work too. `## Backlog` and `## Archive` collect tasks with no date and show collapsed at the bottom. Inside those, `###` subheadings become group labels. A duration like `(15m)`sets the focus timer hint for a task.
 
-Indent lines right under a task to give it a description. Everything indented
-until the next blank line is the note.
+Indent lines right under a task to give it a description. Everything indented until the next blank line is the note.
 
-    - [ ] Call the landlord
-        Ask about the lease renewal.
-        Mention the broken heater too.
+```
+- [ ] Call the landlord
+    Ask about the lease renewal.
+    Mention the broken heater too.
+```
 
 It is meant to be easy to write by hand or by an AI. That is the whole format.
 
+If you keep your file in a vault where you use an AI, copy `.claude/skills/drawer-tasks/` into your own `.claude/skills/` folder. It teaches the AI this format, so you can just say "add three tasks for tomorrow" and it writes them where Drawer will find them.
+
 ## Download and install
 
-Get the latest build from
-[Releases](https://github.com/Bbrizly/Drawer/releases/latest).
+Get the latest build from [Releases](https://github.com/Bbrizly/Drawer/releases/latest).
 
 1. Download **Drawer-macOS.zip**.
 2. Unzip it to get **Drawer.app**.
 3. Drag **Drawer.app** into **Applications**.
-4. The first time, right-click the app and choose **Open**. macOS blocks
-   unsigned apps until you do that once.
+4. The first time, right-click the app and choose **Open**. macOS blocks unsigned apps until you do that once.
 
 ## Controls
 
@@ -120,7 +115,9 @@ Get the latest build from
 
 ## Build from source
 
-    make app && open Drawer.app
+```
+make app && open Drawer.app
+```
 
 `make install` copies it to /Applications.
 
@@ -130,4 +127,6 @@ macOS 26 or later. Swift 6.2.
 
 ## Test
 
-    swift test
+```
+swift test
+```
