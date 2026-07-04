@@ -1,4 +1,5 @@
 import AppKit
+import DrawerCore
 import ServiceManagement
 import SwiftUI
 import UniformTypeIdentifiers
@@ -8,26 +9,69 @@ struct SettingsView: View {
     var onHotkeyChange: (HotkeyBinding) -> Bool
     var onLayoutChange: () -> Void
 
+    private enum Tab: String, CaseIterable {
+        case general = "General"
+        case features = "Features"
+        case board = "Board"
+        case advanced = "Advanced"
+        case help = "Help"
+
+        var icon: String {
+            switch self {
+            case .general: return "gearshape"
+            case .features: return "switch.2"
+            case .board: return "square.grid.2x2"
+            case .advanced: return "slider.horizontal.3"
+            case .help: return "questionmark.circle"
+            }
+        }
+    }
+
+    @State private var tab: Tab = .general
+
     var body: some View {
-        TabView {
-            GeneralSettingsView(
-                onChooseFile: onChooseFile,
-                onHotkeyChange: onHotkeyChange,
-                onLayoutChange: onLayoutChange
-            )
-            .tabItem { Label("General", systemImage: "gearshape") }
+        VStack(spacing: 0) {
+            HStack(spacing: 6) {
+                ForEach(Tab.allCases, id: \.self) { item in
+                    Button {
+                        tab = item
+                    } label: {
+                        VStack(spacing: 3) {
+                            Image(systemName: item.icon).font(.system(size: 16))
+                            Text(item.rawValue).font(.caption)
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 6)
+                        .background(
+                            RoundedRectangle(cornerRadius: 7)
+                                .fill(tab == item ? Color.accentColor.opacity(0.18) : .clear)
+                        )
+                        .contentShape(RoundedRectangle(cornerRadius: 7))
+                        .foregroundStyle(tab == item ? AnyShapeStyle(Color.accentColor) : AnyShapeStyle(.secondary))
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityAddTraits(tab == item ? [.isButton, .isSelected] : .isButton)
+                }
+            }
+            .padding(8)
+            Divider()
 
-            FeatureSettingsView()
-                .tabItem { Label("Features", systemImage: "switch.2") }
-
-            BoardSettingsView()
-                .tabItem { Label("Board", systemImage: "square.grid.2x2") }
-
-            AdvancedSettingsView()
-                .tabItem { Label("Advanced", systemImage: "slider.horizontal.3") }
-
-            HelpView()
-                .tabItem { Label("Help", systemImage: "questionmark.circle") }
+            switch tab {
+            case .general:
+                GeneralSettingsView(
+                    onChooseFile: onChooseFile,
+                    onHotkeyChange: onHotkeyChange,
+                    onLayoutChange: onLayoutChange
+                )
+            case .features:
+                FeatureSettingsView()
+            case .board:
+                BoardSettingsView()
+            case .advanced:
+                AdvancedSettingsView()
+            case .help:
+                HelpView()
+            }
         }
         .frame(width: 440, height: 580)
     }
@@ -105,6 +149,18 @@ private struct GeneralSettingsView: View {
     @AppStorage("drawerFilePath") private var filePath = AppPaths.defaultDrawerFile
     @State private var hotkey = HotkeyBinding.saved
     @AppStorage("defaultMinutesText") private var defaultMinutes = "25"
+    @AppStorage("feature.focusTimer") private var focusTimerEnabled = true
+    @AppStorage("feature.pomodoro") private var pomodoroEnabled = true
+    @AppStorage("feature.workMode") private var stopwatchEnabled = true
+    @AppStorage(PomodoroPreferences.focusMinutesKey) private var pomodoroFocusMinutes =
+        PomodoroTimer.Settings.standard.focusMinutes
+    @AppStorage(PomodoroPreferences.shortBreakMinutesKey) private var pomodoroShortBreakMinutes =
+        PomodoroTimer.Settings.standard.shortBreakMinutes
+    @AppStorage(PomodoroPreferences.longBreakMinutesKey) private var pomodoroLongBreakMinutes =
+        PomodoroTimer.Settings.standard.longBreakMinutes
+    @AppStorage(PomodoroPreferences.sessionsUntilLongBreakKey)
+    private var pomodoroSessionsUntilLongBreak =
+        PomodoroTimer.Settings.standard.sessionsUntilLongBreak
     @AppStorage("panelWidth") private var panelWidth = 300.0
     @AppStorage("panelCompactHeight") private var panelHeight = 440.0
     @AppStorage("drawerTheme") private var themeRaw = DrawerTheme.default.rawValue
@@ -119,6 +175,15 @@ private struct GeneralSettingsView: View {
     @State private var showHotkeyError = false
     @State private var isRecordingHotkey = false
     @State private var hotkeyRecorder = HotkeyRecorder()
+
+    private var pomodoroSettings: PomodoroTimer.Settings {
+        PomodoroPreferences.settings(
+            focusMinutes: pomodoroFocusMinutes,
+            shortBreakMinutes: pomodoroShortBreakMinutes,
+            longBreakMinutes: pomodoroLongBreakMinutes,
+            sessionsUntilLongBreak: pomodoroSessionsUntilLongBreak
+        )
+    }
 
     var body: some View {
         ScrollView {
@@ -140,7 +205,7 @@ private struct GeneralSettingsView: View {
                     .padding(.vertical, 4)
                     SettingsCaption(
                         "Each theme changes the panel surface, type, and accent. "
-                        + "Art-directed themes (Medieval, Pixel, Notebook) also reshape the chrome."
+                        + "Art-directed themes also reshape the chrome."
                     )
                 }
                 Section("Text") {
@@ -285,14 +350,26 @@ private struct GeneralSettingsView: View {
                     }
                 }
             }
-            Section("Timer") {
+            Section("Timers") {
+                TimerFeatureToggleGrid(
+                    focusTimerEnabled: $focusTimerEnabled,
+                    pomodoroEnabled: $pomodoroEnabled,
+                    stopwatchEnabled: $stopwatchEnabled,
+                    palette: .standard
+                )
+                SettingsCaption(
+                    "Choose which timer pills appear at the top. Stopwatch is the task time "
+                    + "tracker formerly shown as Work Mode."
+                )
+                Divider()
                 HStack {
-                    Text("Default minutes")
+                    Text("Focus timer default")
                     Spacer()
-                    TextField("25", text: $defaultMinutes)
+                    TextField("", text: $defaultMinutes)
                         .textFieldStyle(.roundedBorder)
                         .multilineTextAlignment(.center)
                         .frame(width: 56)
+                        .accessibilityLabel("Focus timer default minutes")
                         .onChange(of: defaultMinutes) { _, newValue in
                             let digits = String(newValue.filter(\.isNumber).prefix(3))
                             if digits != newValue { defaultMinutes = digits }
@@ -301,6 +378,18 @@ private struct GeneralSettingsView: View {
                 SettingsCaption(
                     "Pre-fills the focus timer when you tap play. A task can override this "
                     + "with a duration like (15m) in the markdown file."
+                )
+                PomodoroCadenceSettings(
+                    focusMinutes: $pomodoroFocusMinutes,
+                    shortBreakMinutes: $pomodoroShortBreakMinutes,
+                    longBreakMinutes: $pomodoroLongBreakMinutes,
+                    sessionsUntilLongBreak: $pomodoroSessionsUntilLongBreak,
+                    palette: .standard,
+                    applyPreset: applyPomodoroPreset
+                )
+                SettingsCaption(
+                    "The tuned default is 25 minutes of focus, 5 minutes off, and a "
+                    + "15-minute reset after four focus rounds."
                 )
             }
             Section("Panel size") {
@@ -343,10 +432,15 @@ private struct GeneralSettingsView: View {
             hotkey = HotkeyBinding.saved
             launchAtLogin = SMAppService.mainApp.status == .enabled
             checkOffOptions = CheckOffSound.options()
+            sanitizePomodoroSettings()
         }
         .onDisappear { stopHotkeyRecording() }
         .onChange(of: panelWidth) { _, _ in onLayoutChange() }
         .onChange(of: panelHeight) { _, _ in onLayoutChange() }
+        .onChange(of: pomodoroFocusMinutes) { _, _ in sanitizePomodoroSettings() }
+        .onChange(of: pomodoroShortBreakMinutes) { _, _ in sanitizePomodoroSettings() }
+        .onChange(of: pomodoroLongBreakMinutes) { _, _ in sanitizePomodoroSettings() }
+        .onChange(of: pomodoroSessionsUntilLongBreak) { _, _ in sanitizePomodoroSettings() }
         .alert("Shortcut unavailable", isPresented: $showHotkeyError) {
             Button("OK", role: .cancel) {}
         } message: {
@@ -416,6 +510,446 @@ private struct GeneralSettingsView: View {
             at: dir, withIntermediateDirectories: true
         )
         NSWorkspace.shared.open(dir)
+    }
+
+    private func sanitizePomodoroSettings() {
+        let clean = pomodoroSettings
+        if pomodoroFocusMinutes != clean.focusMinutes {
+            pomodoroFocusMinutes = clean.focusMinutes
+        }
+        if pomodoroShortBreakMinutes != clean.shortBreakMinutes {
+            pomodoroShortBreakMinutes = clean.shortBreakMinutes
+        }
+        if pomodoroLongBreakMinutes != clean.longBreakMinutes {
+            pomodoroLongBreakMinutes = clean.longBreakMinutes
+        }
+        if pomodoroSessionsUntilLongBreak != clean.sessionsUntilLongBreak {
+            pomodoroSessionsUntilLongBreak = clean.sessionsUntilLongBreak
+        }
+    }
+
+    private func applyPomodoroPreset(_ preset: PomodoroPreferences.Preset) {
+        let settings = preset.settings
+        withAnimation(.snappy(duration: 0.22)) {
+            pomodoroFocusMinutes = settings.focusMinutes
+            pomodoroShortBreakMinutes = settings.shortBreakMinutes
+            pomodoroLongBreakMinutes = settings.longBreakMinutes
+            pomodoroSessionsUntilLongBreak = settings.sessionsUntilLongBreak
+        }
+    }
+}
+
+private struct TimerFeatureToggleGrid: View {
+    @Binding var focusTimerEnabled: Bool
+    @Binding var pomodoroEnabled: Bool
+    @Binding var stopwatchEnabled: Bool
+    let palette: SettingsPalette
+
+    var body: some View {
+        HStack(spacing: 8) {
+            TimerFeatureToggleCard(
+                title: "Focus",
+                subtitle: "Countdown",
+                icon: "timer",
+                isOn: $focusTimerEnabled,
+                palette: palette
+            )
+            TimerFeatureToggleCard(
+                title: "Pomodoro",
+                subtitle: "Cadence",
+                icon: "target",
+                isOn: $pomodoroEnabled,
+                palette: palette
+            )
+            TimerFeatureToggleCard(
+                title: "Stopwatch",
+                subtitle: "Work log",
+                icon: "briefcase",
+                isOn: $stopwatchEnabled,
+                palette: palette
+            )
+        }
+    }
+}
+
+private struct TimerFeatureToggleCard: View {
+    let title: String
+    let subtitle: String
+    let icon: String
+    @Binding var isOn: Bool
+    let palette: SettingsPalette
+
+    var body: some View {
+        Button {
+            withAnimation(.snappy(duration: 0.18)) {
+                isOn.toggle()
+            }
+        } label: {
+            VStack(alignment: .leading, spacing: 7) {
+                HStack {
+                    Image(systemName: icon)
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(isOn ? palette.accent : palette.secondary)
+                    Spacer()
+                    PomodoroMiniSwitch(isOn: isOn, palette: palette)
+                }
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(title)
+                        .font(.system(size: 12, weight: .semibold, design: .rounded))
+                        .foregroundStyle(palette.primary)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.82)
+                    Text(subtitle)
+                        .font(.caption2)
+                        .foregroundStyle(palette.secondary)
+                        .lineLimit(1)
+                }
+            }
+            .padding(9)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(
+                RoundedRectangle(cornerRadius: 11, style: .continuous)
+                    .fill(isOn ? palette.accentFill : palette.controlFill)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 11, style: .continuous)
+                    .strokeBorder(
+                        isOn ? palette.selectedStroke : palette.stroke,
+                        lineWidth: 1
+                    )
+            )
+            .contentShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
+        }
+        .buttonStyle(PomodoroPressStyle())
+        .accessibilityLabel(title)
+        .accessibilityValue(isOn ? "On" : "Off")
+        .accessibilityAddTraits(isOn ? [.isButton, .isSelected] : .isButton)
+    }
+}
+
+private struct PomodoroMiniSwitch: View {
+    let isOn: Bool
+    let palette: SettingsPalette
+
+    var body: some View {
+        Capsule()
+            .fill(isOn ? palette.accent.opacity(0.20) : palette.controlFillStrong)
+            .frame(width: 30, height: 18)
+            .overlay(alignment: isOn ? .trailing : .leading) {
+                Circle()
+                    .fill(isOn ? palette.accent : palette.secondary.opacity(0.72))
+                    .frame(width: 14, height: 14)
+                    .padding(2)
+            }
+            .animation(.snappy(duration: 0.18), value: isOn)
+            .accessibilityHidden(true)
+    }
+}
+
+private struct PomodoroCadenceSettings: View {
+    @Binding var focusMinutes: Int
+    @Binding var shortBreakMinutes: Int
+    @Binding var longBreakMinutes: Int
+    @Binding var sessionsUntilLongBreak: Int
+    let palette: SettingsPalette
+    let applyPreset: (PomodoroPreferences.Preset) -> Void
+
+    private var settings: PomodoroTimer.Settings {
+        PomodoroPreferences.settings(
+            focusMinutes: focusMinutes,
+            shortBreakMinutes: shortBreakMinutes,
+            longBreakMinutes: longBreakMinutes,
+            sessionsUntilLongBreak: sessionsUntilLongBreak
+        )
+    }
+
+    private var selectedPreset: PomodoroPreferences.Preset? {
+        PomodoroPreferences.Preset.matching(settings)
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .firstTextBaseline) {
+                Label("Pomodoro rhythm", systemImage: "timer")
+                    .font(.headline)
+                Spacer()
+                Text("\(focusMinutes)/\(shortBreakMinutes)/\(longBreakMinutes)")
+                    .font(.caption)
+                    .foregroundStyle(palette.secondary)
+                    .monospacedDigit()
+            }
+
+            HStack(spacing: 7) {
+                ForEach(PomodoroPreferences.Preset.allCases) { preset in
+                    PomodoroPresetChip(
+                        preset: preset,
+                        selected: selectedPreset == preset,
+                        palette: palette
+                    ) {
+                        applyPreset(preset)
+                    }
+                }
+                PomodoroCustomChip(isSelected: selectedPreset == nil, palette: palette)
+            }
+
+            HStack(spacing: 8) {
+                PomodoroDurationTile(
+                    title: "Focus",
+                    icon: "target",
+                    value: $focusMinutes,
+                    range: PomodoroTimer.Settings.focusRange,
+                    palette: palette
+                )
+                PomodoroDurationTile(
+                    title: "Short",
+                    icon: "cup.and.saucer.fill",
+                    value: $shortBreakMinutes,
+                    range: PomodoroTimer.Settings.shortBreakRange,
+                    palette: palette
+                )
+                PomodoroDurationTile(
+                    title: "Long",
+                    icon: "sparkles",
+                    value: $longBreakMinutes,
+                    range: PomodoroTimer.Settings.longBreakRange,
+                    palette: palette
+                )
+            }
+
+            PomodoroRoundControl(
+                value: $sessionsUntilLongBreak,
+                range: PomodoroTimer.Settings.sessionsUntilLongBreakRange,
+                palette: palette
+            )
+        }
+        .padding(10)
+        .background(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .fill(palette.controlFill)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .strokeBorder(palette.stroke, lineWidth: 1)
+        )
+    }
+}
+
+private struct PomodoroPresetChip: View {
+    let preset: PomodoroPreferences.Preset
+    let selected: Bool
+    let palette: SettingsPalette
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            VStack(alignment: .leading, spacing: 1) {
+                Text(preset.title)
+                    .font(.system(size: 12, weight: .semibold, design: .rounded))
+                    .foregroundStyle(palette.primary)
+                    .lineLimit(1)
+                Text(preset.subtitle)
+                    .font(.caption2)
+                    .foregroundStyle(palette.secondary)
+                    .monospacedDigit()
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 9)
+            .padding(.vertical, 7)
+            .background(
+                RoundedRectangle(cornerRadius: 9, style: .continuous)
+                    .fill(selected ? palette.accentFill : palette.controlFill)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 9, style: .continuous)
+                    .strokeBorder(
+                        selected ? palette.selectedStroke : palette.stroke,
+                        lineWidth: 1
+                    )
+            )
+            .contentShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
+        }
+        .buttonStyle(PomodoroPressStyle())
+        .accessibilityLabel("\(preset.title) Pomodoro preset")
+        .help(preset.subtitle)
+    }
+}
+
+private struct PomodoroCustomChip: View {
+    let isSelected: Bool
+    let palette: SettingsPalette
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 1) {
+            Text("Custom")
+                .font(.system(size: 12, weight: .semibold, design: .rounded))
+                .lineLimit(1)
+            Text("Live")
+                .font(.caption2)
+                .foregroundStyle(palette.secondary)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 9)
+        .padding(.vertical, 7)
+        .foregroundStyle(palette.primary)
+        .background(
+            RoundedRectangle(cornerRadius: 9, style: .continuous)
+                .fill(isSelected ? palette.accentFill : palette.controlFill)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 9, style: .continuous)
+                .strokeBorder(
+                    isSelected ? palette.selectedStroke : palette.stroke,
+                    lineWidth: 1
+                )
+        )
+        .accessibilityLabel("Custom Pomodoro cadence")
+    }
+}
+
+private struct PomodoroDurationTile: View {
+    let title: String
+    let icon: String
+    @Binding var value: Int
+    let range: ClosedRange<Int>
+    let palette: SettingsPalette
+
+    private var sliderValue: Binding<Double> {
+        Binding(
+            get: { Double(value) },
+            set: { value = min(max(Int($0.rounded()), range.lowerBound), range.upperBound) }
+        )
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 7) {
+            HStack(spacing: 5) {
+                Image(systemName: icon)
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(palette.accent)
+                Text(title)
+                    .font(.caption)
+                    .fontWeight(.semibold)
+                    .foregroundStyle(palette.secondary)
+            }
+            HStack(spacing: 5) {
+                PomodoroNudgeButton(systemName: "minus", palette: palette) { decrement() }
+                    .disabled(value <= range.lowerBound)
+                Spacer(minLength: 0)
+                Text("\(value)")
+                    .font(.system(size: 24, weight: .semibold, design: .rounded))
+                    .foregroundStyle(palette.primary)
+                    .monospacedDigit()
+                    .frame(minWidth: 34)
+                Text("m")
+                    .font(.caption)
+                    .foregroundStyle(palette.secondary)
+                Spacer(minLength: 0)
+                PomodoroNudgeButton(systemName: "plus", palette: palette) { increment() }
+                    .disabled(value >= range.upperBound)
+            }
+            Slider(value: sliderValue, in: Double(range.lowerBound)...Double(range.upperBound), step: 1)
+                .tint(palette.accent)
+                .controlSize(.small)
+        }
+        .padding(9)
+        .frame(maxWidth: .infinity)
+        .background(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(palette.controlFill)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .strokeBorder(palette.stroke, lineWidth: 1)
+        )
+    }
+
+    private func decrement() {
+        withAnimation(.snappy(duration: 0.16)) {
+            value = max(range.lowerBound, value - 1)
+        }
+    }
+
+    private func increment() {
+        withAnimation(.snappy(duration: 0.16)) {
+            value = min(range.upperBound, value + 1)
+        }
+    }
+}
+
+private struct PomodoroNudgeButton: View {
+    let systemName: String
+    let palette: SettingsPalette
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: systemName)
+                .font(.system(size: 10, weight: .bold))
+                .foregroundStyle(palette.accent)
+                .frame(width: 24, height: 24)
+                .background(palette.accentFill, in: Circle())
+                .contentShape(Circle())
+        }
+        .buttonStyle(PomodoroPressStyle())
+    }
+}
+
+private struct PomodoroRoundControl: View {
+    @Binding var value: Int
+    let range: ClosedRange<Int>
+    let palette: SettingsPalette
+
+    var body: some View {
+        HStack(spacing: 10) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Long break every")
+                    .font(.caption)
+                    .fontWeight(.semibold)
+                    .foregroundStyle(palette.secondary)
+                Text("\(value) focus rounds")
+                    .font(.system(size: 15, weight: .semibold, design: .rounded))
+                    .foregroundStyle(palette.primary)
+                    .monospacedDigit()
+            }
+            Spacer()
+            HStack(spacing: 5) {
+                ForEach(0..<range.upperBound, id: \.self) { index in
+                    Circle()
+                        .fill(index < value ? palette.accent : palette.tertiary.opacity(0.35))
+                        .frame(width: 5, height: 5)
+                        .opacity(index < range.lowerBound || index < value ? 1 : 0.55)
+                }
+            }
+            PomodoroNudgeButton(systemName: "minus", palette: palette) {
+                withAnimation(.snappy(duration: 0.16)) {
+                    value = max(range.lowerBound, value - 1)
+                }
+            }
+            .disabled(value <= range.lowerBound)
+            PomodoroNudgeButton(systemName: "plus", palette: palette) {
+                withAnimation(.snappy(duration: 0.16)) {
+                    value = min(range.upperBound, value + 1)
+                }
+            }
+            .disabled(value >= range.upperBound)
+        }
+        .padding(9)
+        .background(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(palette.controlFill)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .strokeBorder(palette.stroke, lineWidth: 1)
+        )
+    }
+}
+
+private struct PomodoroPressStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .scaleEffect(configuration.isPressed ? 0.96 : 1)
+            .animation(.snappy(duration: 0.14), value: configuration.isPressed)
     }
 }
 

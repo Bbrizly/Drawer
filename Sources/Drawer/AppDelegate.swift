@@ -12,6 +12,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var boardStore: BoardStore!
     private var teleprompter: TeleprompterController!
     private var focusTimer: FocusTimer!
+    private var pomodoroTimer: PomodoroTimer!
     private var workClock: WorkClock!
     private let hotkey = HotkeyManager()
     private var statusItem: NSStatusItem!
@@ -23,7 +24,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         FontLoader.registerBundledFonts() // the Pixel theme's typeface
-        UserDefaults.standard.register(defaults: [
+        var defaults: [String: Any] = [
             "drawerFilePath": AppPaths.defaultDrawerFile,
             "panelWidth": 300.0,
             "panelCompactHeight": 440.0,
@@ -43,7 +44,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             "teleprompterFontSize": 34.0,
             "notesPaneHeight": 160.0,
             "exportWorkLogMarkdown": true,
-        ])
+        ]
+        defaults.merge(PomodoroPreferences.defaults) { current, _ in current }
+        UserDefaults.standard.register(defaults: defaults)
         // Every feature defaults to on.
         FeatureFlag.registerDefaults()
 
@@ -62,7 +65,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         teleprompter = TeleprompterController(store: notesStore)
         focusTimer = FocusTimer()
         focusTimer.onComplete = { [weak self] title in
-            self?.timerFinished(title)
+            self?.timerFinished(title, notificationTitle: "Focus session done")
+        }
+        pomodoroTimer = PomodoroTimer()
+        pomodoroTimer.onComplete = { [weak self] segment in
+            self?.pomodoroFinished(segment)
         }
 
         workClock = WorkClock(log: WorkSessionLog(fileURL: AppPaths.workLogFile))
@@ -72,6 +79,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let rootView = DrawerView(
             store: store,
             timer: focusTimer,
+            pomodoroTimer: pomodoroTimer,
             workClock: workClock,
             onToggleSize: { controller?.toggleSize() },
             onNeedsKeyboard: { controller?.makeKeyIfShown() },
@@ -215,10 +223,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     /// The timer hit zero. Surface the drawer so the Time's Up card is seen,
     /// ring until it is dismissed, and post a banner for other Spaces.
-    private func timerFinished(_ title: String) {
+    private func timerFinished(_ title: String, notificationTitle: String) {
         if !panelController.isShown { panelController.show() }
         startAlarm()
-        notifyComplete(title)
+        notifyComplete(title, notificationTitle: notificationTitle)
+    }
+
+    private func pomodoroFinished(_ segment: PomodoroTimer.Segment) {
+        switch segment {
+        case .focus:
+            timerFinished("Start a break when you are ready.", notificationTitle: "Pomodoro focus done")
+        case .shortBreak:
+            timerFinished("Short break complete.", notificationTitle: "Pomodoro break done")
+        case .longBreak:
+            timerFinished("Long break complete.", notificationTitle: "Pomodoro cycle done")
+        }
     }
 
     /// Repeats a chime every few seconds while the timer sits in `finished`.
@@ -230,7 +249,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let timer = Timer(timeInterval: 2.5, repeats: true) { [weak self] _ in
             Task { @MainActor in
                 guard let self else { return }
-                if self.focusTimer.phase == .finished {
+                if self.focusTimer.phase == .finished || self.pomodoroTimer.phase == .finished {
                     NSSound(named: "Glass")?.play()
                 } else {
                     self.alarmTimer?.invalidate()
@@ -242,14 +261,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         alarmTimer = timer
     }
 
-    private func notifyComplete(_ title: String) {
+    private func notifyComplete(_ body: String, notificationTitle: String) {
         // Banner rides the same "Sound when timer ends" flag; the in-drawer
         // alarm card shows regardless.
         guard UserDefaults.standard.bool(forKey: "completionSound") else { return }
         guard Bundle.main.bundleIdentifier != nil else { return }
         let content = UNMutableNotificationContent()
-        content.title = "Focus session done"
-        content.body = title
+        content.title = notificationTitle
+        content.body = body
         UNUserNotificationCenter.current().add(
             UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: nil)
         )

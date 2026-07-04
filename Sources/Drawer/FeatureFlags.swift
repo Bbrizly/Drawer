@@ -6,6 +6,7 @@ import SwiftUI
 /// keep their original UserDefaults keys so saved preferences carry over.
 enum FeatureFlag: String, CaseIterable, Identifiable {
     case focusTimer
+    case pomodoro
     case focusSound
     case timerEndSound
     case confetti
@@ -38,6 +39,7 @@ enum FeatureFlag: String, CaseIterable, Identifiable {
     var title: String {
         switch self {
         case .focusTimer: return "Focus timer"
+        case .pomodoro: return "Pomodoro"
         case .focusSound: return "Focus sound"
         case .timerEndSound: return "Sound when timer ends"
         case .confetti: return "Celebrate completed tasks"
@@ -52,7 +54,7 @@ enum FeatureFlag: String, CaseIterable, Identifiable {
         case .tomorrowSection: return "Tomorrow section"
         case .backlogSection: return "Backlog section"
         case .archiveSection: return "Archive section"
-        case .workMode: return "Work mode"
+        case .workMode: return "Stopwatch"
         case .ideas: return "Idea board"
         }
     }
@@ -60,6 +62,7 @@ enum FeatureFlag: String, CaseIterable, Identifiable {
     var blurb: String {
         switch self {
         case .focusTimer: return "The countdown pill in the header."
+        case .pomodoro: return "A focus, short break, long break cycle in the header."
         case .focusSound: return "A speaker button to play pink or brown noise."
         case .timerEndSound: return "Chime and notification when a session ends."
         case .confetti: return "Confetti and a haptic tap on completion."
@@ -81,13 +84,13 @@ enum FeatureFlag: String, CaseIterable, Identifiable {
 
     var group: String {
         switch self {
-        case .focusTimer, .focusSound, .timerEndSound: return "Focus"
+        case .focusTimer, .pomodoro, .workMode: return "Timers"
+        case .focusSound, .timerEndSound: return "Focus"
         case .confetti, .checkOffPop: return "Feedback"
         case .swipeDelete, .swipeProgress: return "Swipe gestures"
         case .taskNotes, .minuteBadges: return "Task rows"
         case .carriedSection, .tomorrowSection, .backlogSection, .archiveSection: return "Sections"
         case .filterMenu, .notes, .ideas: return "Controls"
-        case .workMode: return "Work"
         }
     }
 
@@ -101,7 +104,7 @@ enum FeatureFlag: String, CaseIterable, Identifiable {
     var defaultValue: Bool { true }
 
     static let groupsInOrder = [
-        "Work", "Focus", "Feedback", "Swipe gestures", "Task rows", "Sections", "Controls",
+        "Timers", "Focus", "Feedback", "Swipe gestures", "Task rows", "Sections", "Controls",
     ]
 
     static func registerDefaults() {
