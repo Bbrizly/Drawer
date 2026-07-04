@@ -8,7 +8,7 @@
 <h1 align="center">Drawer</h1>
 
 <p align="center">
-  <em>Your day is a text file. Drawer just slides it into view.</em>
+  <em>Your day is a markdown file. Drawer just slides it into view.</em>
 </p>
 
 <p align="center">
