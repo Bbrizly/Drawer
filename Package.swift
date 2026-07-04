@@ -12,7 +12,7 @@ let package = Package(
         .executableTarget(
             name: "Drawer",
             dependencies: ["DrawerCore"],
-            resources: [.copy("Resources/Fonts")],
+            resources: [.copy("Resources/Fonts"), .copy("Resources/menubar-logo.png")],
             swiftSettings: [.swiftLanguageMode(.v5)]
         ),
         .testTarget(

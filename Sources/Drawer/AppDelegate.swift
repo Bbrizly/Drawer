@@ -145,9 +145,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func setupStatusItem() {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
-        statusItem.button?.image = NSImage(
-            systemSymbolName: "sidebar.left", accessibilityDescription: "Drawer"
-        )
+        // The Drawer mark, drawn as a template so it tints for light and dark menu bars.
+        if let url = Bundle.module.url(forResource: "menubar-logo", withExtension: "png"),
+           let logo = NSImage(contentsOf: url) {
+            logo.size = NSSize(width: 18, height: 16)
+            logo.isTemplate = true
+            statusItem.button?.image = logo
+        } else {
+            statusItem.button?.image = NSImage(
+                systemSymbolName: "sidebar.left", accessibilityDescription: "Drawer"
+            )
+        }
+        statusItem.button?.image?.accessibilityDescription = "Drawer"
         let menu = NSMenu()
         let toggleItem = NSMenuItem(
             title: "Toggle Drawer (\(HotkeyBinding.saved.label))",
