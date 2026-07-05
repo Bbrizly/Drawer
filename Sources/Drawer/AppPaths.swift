@@ -10,10 +10,8 @@ enum AppPaths {
     static let workLogMarkdownFilePathKey = "workLogMarkdownFilePath"
     static let ideasDirectoryPathKey = "ideasDirectoryPath"
 
-    static let defaultDrawerFile = FileManager.default.homeDirectoryForCurrentUser
-        .appendingPathComponent("Library/Mobile Documents/iCloud~md~obsidian/Documents")
-        .appendingPathComponent("My life/1 Projects/Drawer.md")
-        .path
+    // The default lives in DrawerCore so the MCP binary resolves it identically.
+    static let defaultDrawerFile = DrawerFilePath.default
 
     static var drawerDataDirectory: URL {
         let base = FileManager.default
