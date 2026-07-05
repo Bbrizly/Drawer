@@ -174,6 +174,21 @@ carried work, and stays within your recent daily capacity.
 Without Apple Intelligence the button is hidden, but the MCP `write_day_plan`
 path still lets your Claude plan into the same file.
 
+## Time-travel history
+
+Scrub through your week and watch the work happen. Drawer keeps an append-only
+history of `Drawer.md` and a slider that replays it: tasks appearing, getting
+checked off, carrying forward, sweeping into Archive. It is view-only in v1 — you
+travel through time and watch, but there is no restore button.
+
+History is a live-session timeline, not a complete audit of every edit ever:
+snapshots are captured while the app runs (any change, from Drawer, the MCP
+server, Obsidian, or an editor, debounced so one edit is one snapshot), and
+changes made while the app is closed collapse into a single snapshot on next
+launch. It keeps the last 500 versions, deduplicated by content hash so the
+store barely grows. Everything is local, under
+`~/Library/Application Support/Drawer/history/`; delete that folder to clear it.
+
 ## Build from source
 
 ```

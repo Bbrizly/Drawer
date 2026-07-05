@@ -1,0 +1,102 @@
+import DrawerCore
+import SwiftUI
+
+/// Scrub through your week and watch the work happen. A slider across the
+/// retained snapshots; above it, the reconstructed Drawer.md at that instant,
+/// rendered read-only with the same parser the live drawer uses.
+struct HistoryScrubberView: View {
+    @ObservedObject var recorder: HistoryRecorder
+    let today: String
+    @State private var position: Double = 0
+
+    private var records: [SnapshotRecord] { recorder.records }
+    private var index: Int { min(max(0, Int(position.rounded())), max(0, records.count - 1)) }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            if records.isEmpty {
+                emptyState
+            } else {
+                snapshot(records[index]).frame(maxHeight: .infinity)
+                Divider()
+                controls
+            }
+        }
+        .frame(width: 400, height: 540)
+        .onAppear { position = Double(max(0, records.count - 1)) }
+        .onChange(of: records.count) { position = Double(max(0, records.count - 1)) }
+    }
+
+    private var emptyState: some View {
+        VStack(spacing: 6) {
+            Image(systemName: "clock.arrow.circlepath").font(.largeTitle).foregroundStyle(.secondary)
+            Text("History starts now").foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private var controls: some View {
+        VStack(spacing: 6) {
+            if records.count > 1 {
+                Slider(value: $position, in: 0...Double(records.count - 1), step: 1)
+            }
+            HStack {
+                Text(label(records[index].ts)).font(.caption).foregroundStyle(.secondary)
+                Spacer()
+                Text("\(index + 1) of \(records.count)").font(.caption).foregroundStyle(.secondary)
+            }
+        }
+        .padding(12)
+    }
+
+    @ViewBuilder
+    private func snapshot(_ record: SnapshotRecord) -> some View {
+        switch recorder.reconstruct(record) {
+        case .unavailable:
+            Text("This snapshot is unavailable.").foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        case let .available(bytes):
+            let text = String(data: bytes, encoding: .utf8) ?? ""
+            let display = TodoParser.display(sections: TodoParser.parse(text), today: today)
+            ScrollView {
+                VStack(alignment: .leading, spacing: 10) {
+                    section("Today", display.today)
+                    section("Carried over", display.carried)
+                    section(display.upcomingDate.map { "Upcoming — \($0)" } ?? "Upcoming", display.upcoming)
+                    section("Backlog", display.backlog)
+                    section("Archive", display.archive)
+                }
+                .padding(12)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func section(_ title: String, _ items: [TodoItem]) -> some View {
+        if !items.isEmpty {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(title).font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                ForEach(items) { row($0) }
+            }
+        }
+    }
+
+    private func row(_ item: TodoItem) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: item.isDone
+                ? "checkmark.circle.fill"
+                : (item.isInProgress ? "circle.lefthalf.filled" : "circle"))
+                .foregroundStyle(item.isDone ? .green : .secondary)
+            Text(item.title).strikethrough(item.isDone).foregroundStyle(item.isDone ? .secondary : .primary)
+            Spacer()
+            if item.minutes != 25 {
+                Text("\(item.minutes)m").font(.caption).foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    private func label(_ date: Date) -> String {
+        date.formatted(date: .abbreviated, time: .shortened)
+    }
+}

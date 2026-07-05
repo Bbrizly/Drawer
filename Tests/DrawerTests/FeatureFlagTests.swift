@@ -9,7 +9,8 @@ final class FeatureFlagTests: XCTestCase {
 
         XCTAssertEqual(
             timerTitles,
-            ["Focus timer", "Pomodoro", "Stopwatch", "Automatic attribution", "AI day planner"])
+            ["Focus timer", "Pomodoro", "Stopwatch", "Automatic attribution",
+             "AI day planner", "Time-travel history"])
     }
 
     func testPomodoroFeatureDefaultsOnWithStableKey() {

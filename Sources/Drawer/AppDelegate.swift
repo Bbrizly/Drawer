@@ -18,6 +18,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var attribution: AttributionController!
     private var planner: PlannerController!
     private var plannerWindow: NSWindow?
+    private var historyRecorder: HistoryRecorder!
+    private var historyWindow: NSWindow?
+    private var historyMenuItem: NSMenuItem?
     private let hotkey = HotkeyManager()
     private var statusItem: NSStatusItem!
     private var escMonitor: Any?
@@ -87,6 +90,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
         setupAttribution()
         setupPlanner()
+        setupHistory()
 
         var controller: PanelController!
         let rootView = DrawerView(
@@ -198,6 +202,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu.addItem(planItem)
         plannerMenuItem = planItem
 
+        let historyItem = NSMenuItem(title: "History…", action: #selector(openHistory), keyEquivalent: "")
+        historyItem.target = self
+        historyItem.isHidden = !historyEnabled
+        menu.addItem(historyItem)
+        historyMenuItem = historyItem
+
         menu.addItem(.separator())
         menu.addItem(NSMenuItem(
             title: "Quit Drawer", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"
@@ -216,6 +226,44 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     func menuWillOpen(_ menu: NSMenu) {
         reviewMenuItem?.isHidden = !attributionEnabled
         plannerMenuItem?.isHidden = !plannerVisible
+        historyMenuItem?.isHidden = !historyEnabled
+    }
+
+    // MARK: - History scrubber (spec 04)
+
+    private func setupHistory() {
+        historyRecorder = HistoryRecorder(
+            store: SnapshotStore(directory: AppPaths.historyDirectory),
+            fileURL: URL(fileURLWithPath: AppPaths.drawerFile))
+        if historyEnabled { historyRecorder.start() }
+        NotificationCenter.default.addObserver(
+            self, selector: #selector(syncHistory),
+            name: UserDefaults.didChangeNotification, object: nil)
+    }
+
+    private var historyEnabled: Bool {
+        UserDefaults.standard.object(forKey: FeatureFlag.history.key) as? Bool ?? true
+    }
+
+    @objc private func syncHistory() {
+        historyEnabled ? historyRecorder.start() : historyRecorder.stop()
+    }
+
+    @objc private func openHistory() {
+        guard historyEnabled else { return }
+        if historyWindow == nil {
+            let view = HistoryScrubberView(recorder: historyRecorder, today: TodoStore.localToday())
+            let window = NSWindow(
+                contentRect: NSRect(x: 0, y: 0, width: 400, height: 540),
+                styleMask: [.titled, .closable], backing: .buffered, defer: false)
+            window.title = "History"
+            window.contentView = NSHostingView(rootView: view)
+            window.isReleasedWhenClosed = false
+            window.center()
+            historyWindow = window
+        }
+        NSApp.activate(ignoringOtherApps: true)
+        historyWindow?.makeKeyAndOrderFront(nil)
     }
 
     // MARK: - Planner (spec 03)

@@ -29,6 +29,8 @@ enum FeatureFlag: String, CaseIterable, Identifiable {
     /// One-button on-device day planner. Default on, but the button only appears
     /// when Apple Foundation Models is available (checked at render time).
     case planner
+    /// A view-only time-travel scrubber over Drawer.md's recent history.
+    case history
     case ideas
     /// Exposes Drawer to AI agents over MCP (a separate `drawer-mcp` binary you
     /// register with `claude mcp add`). The app doesn't run the server, so this
@@ -70,6 +72,7 @@ enum FeatureFlag: String, CaseIterable, Identifiable {
         case .workMode: return "Stopwatch"
         case .attribution: return "Automatic attribution"
         case .planner: return "AI day planner"
+        case .history: return "Time-travel history"
         case .ideas: return "Idea board"
         case .mcp: return "MCP server"
         }
@@ -96,6 +99,7 @@ enum FeatureFlag: String, CaseIterable, Identifiable {
         case .workMode: return "A stopwatch that logs real hours against tasks."
         case .attribution: return "Watch app and window to propose sessions you approve. Off by default."
         case .planner: return "A button that drafts a day plan with calibrated durations. Needs Apple Intelligence."
+        case .history: return "Scrub through recent versions of your drawer. View-only."
         case .ideas: return "A light bulb to jot ideas, and a board you swipe to."
         case .mcp: return "Let AI agents read and write your drawer over MCP."
         }
@@ -110,6 +114,7 @@ enum FeatureFlag: String, CaseIterable, Identifiable {
         case .taskNotes, .minuteBadges: return "Task rows"
         case .carriedSection, .tomorrowSection, .backlogSection, .archiveSection: return "Sections"
         case .filterMenu, .notes, .ideas: return "Controls"
+        case .history: return "Timers"
         // "Integrations" is intentionally absent from groupsInOrder, so this
         // flag exists without rendering a toggle (see the case comment).
         case .mcp: return "Integrations"
