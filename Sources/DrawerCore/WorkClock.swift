@@ -33,6 +33,10 @@ public final class WorkClock {
     // are only ever mutated on the main actor, so this is safe in practice.
     @ObservationIgnored nonisolated(unsafe) private var ticker: Timer?
     @ObservationIgnored nonisolated(unsafe) private var dayObserver: NSObjectProtocol?
+    /// False while the panel is hidden. `elapsed` is display-only (segments
+    /// close from absolute dates), so the 0.5s tick can stop entirely with no
+    /// one looking and catch up from `segmentStart` when the panel returns.
+    @ObservationIgnored private var displayActive = true
 
     /// Built once from the fixed `calendar` time zone. Day grouping happens on
     /// every segment close, so a fresh DateFormatter per call would be wasteful.
@@ -73,6 +77,20 @@ public final class WorkClock {
     }
 
     public var isOn: Bool { phase != .off }
+
+    /// Call when the panel shows (true) or hides (false). The midnight split
+    /// observer is untouched, so day attribution stays exact while hidden.
+    public func setDisplayActive(_ active: Bool) {
+        guard active != displayActive else { return }
+        displayActive = active
+        guard phase == .running else { return }
+        if active {
+            tick() // catch the display up before the first visible frame
+            startTicker()
+        } else {
+            stopTicker()
+        }
+    }
 
     private func dayString(_ date: Date) -> String {
         dayFormatter.string(from: date)
@@ -261,6 +279,7 @@ public final class WorkClock {
 
     private func startTicker() {
         stopTicker()
+        guard displayActive else { return }
         let timer = Timer(timeInterval: 0.5, repeats: true) { [weak self] _ in
             Task { @MainActor in self?.tick() }
         }

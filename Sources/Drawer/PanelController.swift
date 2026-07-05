@@ -7,6 +7,10 @@ final class PanelController {
     private var transitionState = PanelTransitionState()
     var isShown: Bool { transitionState.isShown }
     private(set) var isExpanded = false
+    /// Fired with true on show, false on hide. Lets the timers park their
+    /// display tickers while the panel is hidden (SwiftUI's onDisappear does
+    /// not fire reliably on orderOut, so this is the authoritative signal).
+    var onVisibilityChange: ((Bool) -> Void)?
     private var boardCoverage: CGFloat = 0   // 0 = normal panel, 1 = full screen
 
     // Defaults are registered at launch, so plain reads are safe.
@@ -110,10 +114,12 @@ final class PanelController {
             panel.animator().setFrame(target, display: true)
         }
         transitionState.beginShow()
+        onVisibilityChange?(true)
     }
 
     func hide() {
         let hideGeneration = transitionState.beginHide()
+        onVisibilityChange?(false)
         var off = panel.frame
         off.origin.x -= width + 36
         NSAnimationContext.runAnimationGroup({ ctx in
