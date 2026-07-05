@@ -6,7 +6,12 @@ final class PanelController {
     private let panel = DrawerPanel()
     private var transitionState = PanelTransitionState()
     var isShown: Bool { transitionState.isShown }
-    private(set) var isExpanded = false
+    // Backed by UserDefaults so the drawer's expand button can watch the same
+    // key via @AppStorage and flip its icon.
+    private var isExpanded: Bool {
+        get { UserDefaults.standard.bool(forKey: "drawerExpanded") }
+        set { UserDefaults.standard.set(newValue, forKey: "drawerExpanded") }
+    }
     /// Fired with true on show, false on hide. Lets the timers park their
     /// display tickers while the panel is hidden (SwiftUI's onDisappear does
     /// not fire reliably on orderOut, so this is the authoritative signal).
@@ -102,6 +107,7 @@ final class PanelController {
     }
 
     func show() {
+        if UserDefaults.standard.bool(forKey: "startExpanded") { isExpanded = true }
         let target = targetFrame()
         guard target != .zero else { return }
         var start = target
