@@ -1,5 +1,13 @@
 import Foundation
 
+/// What kind of logged span this is. Absent/`.task` for real task work;
+/// `.unattributed` for approved auto time that matched no task (an explicit
+/// marker, never a fake title). The planner excludes `.unattributed` rows so
+/// they never pollute calibration.
+public enum WorkSessionKind: String, Codable, Sendable {
+    case task, unattributed
+}
+
 /// One continuous stretch of work on a single task. Persisted as one JSONL line.
 public struct WorkSession: Codable, Equatable, Identifiable, Sendable {
     public let id: UUID
@@ -11,10 +19,17 @@ public struct WorkSession: Codable, Equatable, Identifiable, Sendable {
     /// (spec 02), nil/absent for manual stopwatch time. Optional so every
     /// pre-existing log line still decodes; omitted from JSON when nil.
     public let source: String?
+    /// Absent means a normal task session (back-compat). `.unattributed` marks
+    /// approved auto time that matched no task.
+    public let kind: WorkSessionKind?
+    /// The `AttributionQueueEntry.id` this session was approved from, so an undo
+    /// can find and delete exactly this row.
+    public let attributionID: UUID?
 
     public init(
         id: UUID = UUID(), taskID: String, taskTitle: String,
-        start: Date, end: Date, source: String? = nil
+        start: Date, end: Date, source: String? = nil,
+        kind: WorkSessionKind? = nil, attributionID: UUID? = nil
     ) {
         self.id = id
         self.taskID = taskID
@@ -22,9 +37,15 @@ public struct WorkSession: Codable, Equatable, Identifiable, Sendable {
         self.start = start
         self.end = end
         self.source = source
+        self.kind = kind
+        self.attributionID = attributionID
     }
 
     public var seconds: TimeInterval { max(0, end.timeIntervalSince(start)) }
+
+    /// True for sessions the planner may learn from: real task work, not
+    /// approved-but-unattributed time.
+    public var isAttributable: Bool { kind != .unattributed }
 }
 
 /// Per-task roll-up for one day. Identifiable by day so the view can present it
