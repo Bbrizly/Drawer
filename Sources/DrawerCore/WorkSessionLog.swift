@@ -117,16 +117,26 @@ public struct WorkSessionLog: Sendable {
     }
 
     /// One summary per day that has logged time, most recent day first.
+    /// Decodes the log once and reuses it for every day, so a long history
+    /// costs O(sessions), not O(days x sessions).
     public func allSummaries(calendar: Calendar = .current) -> [WorkSummary] {
         let f = Self.dayFormatter(calendar)
-        let days = Set(all().map { f.string(from: $0.start) })
-        return days.sorted(by: >).map { summary(for: $0, calendar: calendar) }
+        let sessions = all()
+        let days = Set(sessions.map { f.string(from: $0.start) })
+        return days.sorted(by: >).map {
+            Self.summary(for: $0, sessions: sessions, formatter: f)
+        }
     }
 
     /// Per-task roll-up for one day, longest first.
     public func summary(for day: String, calendar: Calendar = .current) -> WorkSummary {
-        let f = Self.dayFormatter(calendar)
-        let sameDay = all().filter { f.string(from: $0.start) == day }
+        Self.summary(for: day, sessions: all(), formatter: Self.dayFormatter(calendar))
+    }
+
+    private static func summary(
+        for day: String, sessions: [WorkSession], formatter f: DateFormatter
+    ) -> WorkSummary {
+        let sameDay = sessions.filter { f.string(from: $0.start) == day }
         var byTitle: [String: TimeInterval] = [:]
         for s in sameDay { byTitle[s.taskTitle, default: 0] += s.seconds }
         let rows = byTitle
