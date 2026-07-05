@@ -17,6 +17,11 @@ public final class TodoStore: ObservableObject {
     private let readData: (URL) throws -> Data
     private let writeData: (Data, URL) throws -> Void
     private var lastWrittenData: Data?
+    /// The bytes the current display was parsed from. The watcher covers the
+    /// whole directory, so sibling-file saves fire reloads constantly; when
+    /// the drawer file itself is byte-identical, the parse and the publishes
+    /// are skipped outright. Cleared on day change (display depends on today).
+    private var lastAppliedData: Data?
     private var calendarObservers: [NSObjectProtocol] = []
 
     public convenience init(
@@ -51,6 +56,7 @@ public final class TodoStore: ObservableObject {
         watcher.stop()
         fileURL = url
         lastWrittenData = nil
+        lastAppliedData = nil
         watcher = FileWatcher(directory: url.deletingLastPathComponent())
         watcher.onChange = { [weak self] in self?.reload() }
         watcher.start()
@@ -100,6 +106,7 @@ public final class TodoStore: ObservableObject {
             statusMessage = Self.isMissingFileError(error)
                 ? "No drawer file yet"
                 : "Could not read drawer file"
+            lastAppliedData = nil
             return
         }
         // Self-write suppression: skip reload churn for our own write.
@@ -107,6 +114,9 @@ public final class TodoStore: ObservableObject {
             lastWrittenData = nil
             if data == last { return }
         }
+        // Sibling-file suppression: the directory watcher fired but the drawer
+        // file itself did not change, so what is displayed is already right.
+        if data == lastAppliedData { return }
         // Sweep done tasks older than the keep window into Archive > Done.
         // Idempotent and only writes when something actually moved, so the
         // follow-up watcher event is caught by the suppression check above.
@@ -152,8 +162,10 @@ public final class TodoStore: ObservableObject {
     /// Looks up a currently displayed item by its id, across every section.
     /// Lets the swipe coordinator act on a row it only knows by id.
     public func item(withID id: String) -> TodoItem? {
-        let all = todayItems + carriedItems + upcomingItems + backlogItems + archiveItems
-        return all.first { $0.id == id }
+        for items in [todayItems, carriedItems, upcomingItems, backlogItems, archiveItems] {
+            if let hit = items.first(where: { $0.id == id }) { return hit }
+        }
+        return nil
     }
 
     public func setInProgress(_ item: TodoItem, _ inProgress: Bool) {
@@ -279,6 +291,7 @@ public final class TodoStore: ObservableObject {
     private func apply(_ data: Data) {
         guard let text = String(data: data, encoding: .utf8) else {
             statusMessage = "File is not UTF-8"
+            lastAppliedData = nil
             return
         }
         let today = todayProvider()
@@ -286,17 +299,24 @@ public final class TodoStore: ObservableObject {
             sections: TodoParser.parse(text),
             today: today
         )
-        todayItems = display.today
-        carriedItems = display.carried
-        upcomingItems = display.upcoming
-        backlogItems = display.backlog
-        archiveItems = display.archive
+        // Publish only what actually changed. An edit usually touches one
+        // section; the other five publishes would re-evaluate every
+        // subscriber's body for nothing. The compares are cheap value
+        // equality on the visible items.
+        if todayItems != display.today { todayItems = display.today }
+        if carriedItems != display.carried { carriedItems = display.carried }
+        if upcomingItems != display.upcoming { upcomingItems = display.upcoming }
+        if backlogItems != display.backlog { backlogItems = display.backlog }
+        if archiveItems != display.archive { archiveItems = display.archive }
+        let label: String
         if let next = display.upcomingDate {
-            upcomingLabel = next == Self.dayAfter(today) ? "Tomorrow" : next
+            label = next == Self.dayAfter(today) ? "Tomorrow" : next
         } else {
-            upcomingLabel = ""
+            label = ""
         }
-        statusMessage = nil
+        if upcomingLabel != label { upcomingLabel = label }
+        if statusMessage != nil { statusMessage = nil }
+        lastAppliedData = data
     }
 
     static func dayAfter(_ date: String) -> String? {
@@ -317,7 +337,10 @@ public final class TodoStore: ObservableObject {
         calendarObservers = names.map { name in
             center.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
                 Task { @MainActor in
+                    // Both caches must go: "today" changed, so identical bytes
+                    // no longer mean an identical display.
                     self?.lastWrittenData = nil
+                    self?.lastAppliedData = nil
                     self?.reload()
                 }
             }
