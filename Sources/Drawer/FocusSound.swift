@@ -66,7 +66,10 @@ final class NoiseGenerator: @unchecked Sendable {
         return Double(c.rng) / Double(UInt32.max) * 2 - 1
     }
 
-    private func sample(_ c: inout Channel, lfo: Double) -> Double {
+    /// `kind` is passed in, read once per render block in `render`, not once
+    /// per sample: at 88,200 samples/s the shared-var read (and its benign
+    /// race) has no business inside this loop.
+    private func sample(_ c: inout Channel, kind: Kind, lfo: Double) -> Double {
         let w = white(&c)
         let v: Double
         switch kind {
@@ -110,12 +113,13 @@ final class NoiseGenerator: @unchecked Sendable {
     func render(into buffers: UnsafeMutableAudioBufferListPointer, frames: Int) {
         let lfoInc = 2 * Double.pi * 0.09 / sampleRate // ~11 s wave period
         let channels = buffers.count
+        let kind = self.kind // one read per block; a mode switch lands next block
         for frame in 0..<frames {
             // Smooth toward the target so volume moves and fades never click
             // (time constant ~50 ms at 44.1 kHz).
             curAmp += (targetAmp - curAmp) * 0.0005
-            let l = Float(sample(&left, lfo: lfoPhase)) * curAmp
-            let r = Float(sample(&right, lfo: lfoPhase)) * curAmp
+            let l = Float(sample(&left, kind: kind, lfo: lfoPhase)) * curAmp
+            let r = Float(sample(&right, kind: kind, lfo: lfoPhase)) * curAmp
             lfoPhase += lfoInc
             if lfoPhase > 2 * .pi { lfoPhase -= 2 * .pi }
             if channels >= 2 {
@@ -153,7 +157,8 @@ final class FocusSoundPlayer: ObservableObject {
     private let generator = NoiseGenerator()
     private var source: AVAudioSourceNode?
     private var stopWork: DispatchWorkItem?
-    private var defaultsObserver: NSObjectProtocol?
+    private var kindObservation: NSKeyValueObservation?
+    private var volumeObservation: NSKeyValueObservation?
 
     /// Slider value 0...1 mapped to a gain ceiling that never clips.
     private var mappedVolume: Float {
@@ -166,17 +171,15 @@ final class FocusSoundPlayer: ObservableObject {
             name: UserDefaults.standard.string(forKey: "focusSoundKind") ?? "pink"
         )
         // Settings lives in another window and edits the sound type and volume
-        // via @AppStorage, so pull the latest into the live generator on any
-        // defaults change. Cheap: it reads two values.
-        defaultsObserver = NotificationCenter.default.addObserver(
-            forName: UserDefaults.didChangeNotification, object: nil, queue: .main
-        ) { [weak self] _ in
+        // via @AppStorage. KVO on exactly those two keys, not the app-wide
+        // didChangeNotification: every other @AppStorage write in the app
+        // (flags, sliders, layout) should never wake the sound player.
+        kindObservation = UserDefaults.standard.observe(\.focusSoundKind) { [weak self] _, _ in
             Task { @MainActor in self?.syncFromDefaults() }
         }
-    }
-
-    deinit {
-        if let defaultsObserver { NotificationCenter.default.removeObserver(defaultsObserver) }
+        volumeObservation = UserDefaults.standard.observe(\.focusSoundVolume) { [weak self] _, _ in
+            Task { @MainActor in self?.syncFromDefaults() }
+        }
     }
 
     private func syncFromDefaults() {
@@ -230,4 +233,11 @@ final class FocusSoundPlayer: ObservableObject {
         stopWork = work
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.25, execute: work)
     }
+}
+
+/// KVO-visible views of the two focus-sound defaults, so `FocusSoundPlayer`
+/// can observe just these keys. The property names must match the key strings.
+private extension UserDefaults {
+    @objc dynamic var focusSoundKind: String? { string(forKey: "focusSoundKind") }
+    @objc dynamic var focusSoundVolume: Double { double(forKey: "focusSoundVolume") }
 }
