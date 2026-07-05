@@ -26,6 +26,9 @@ enum FeatureFlag: String, CaseIterable, Identifiable {
     /// approve in a review queue. Off by default: explicit opt-in, needs
     /// Accessibility permission. Nothing is written without your approval.
     case attribution
+    /// One-button on-device day planner. Default on, but the button only appears
+    /// when Apple Foundation Models is available (checked at render time).
+    case planner
     case ideas
     /// Exposes Drawer to AI agents over MCP (a separate `drawer-mcp` binary you
     /// register with `claude mcp add`). The app doesn't run the server, so this
@@ -66,6 +69,7 @@ enum FeatureFlag: String, CaseIterable, Identifiable {
         case .archiveSection: return "Archive section"
         case .workMode: return "Stopwatch"
         case .attribution: return "Automatic attribution"
+        case .planner: return "AI day planner"
         case .ideas: return "Idea board"
         case .mcp: return "MCP server"
         }
@@ -91,6 +95,7 @@ enum FeatureFlag: String, CaseIterable, Identifiable {
         case .archiveSection: return "Collapsible Archive at the bottom."
         case .workMode: return "A stopwatch that logs real hours against tasks."
         case .attribution: return "Watch app and window to propose sessions you approve. Off by default."
+        case .planner: return "A button that drafts a day plan with calibrated durations. Needs Apple Intelligence."
         case .ideas: return "A light bulb to jot ideas, and a board you swipe to."
         case .mcp: return "Let AI agents read and write your drawer over MCP."
         }
@@ -98,7 +103,7 @@ enum FeatureFlag: String, CaseIterable, Identifiable {
 
     var group: String {
         switch self {
-        case .focusTimer, .pomodoro, .workMode, .attribution: return "Timers"
+        case .focusTimer, .pomodoro, .workMode, .attribution, .planner: return "Timers"
         case .focusSound, .timerEndSound: return "Focus"
         case .confetti, .checkOffPop: return "Feedback"
         case .swipeDelete, .swipeProgress: return "Swipe gestures"

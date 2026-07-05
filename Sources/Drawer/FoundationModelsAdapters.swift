@@ -38,6 +38,15 @@ func makeDaySummarizerIfAvailable() -> DaySummarizer? {
     return nil
 }
 
+func makeDayPlannerIfAvailable() -> DayPlanner? {
+#if canImport(FoundationModels)
+    if #available(macOS 26.0, *), foundationModelsAvailable() {
+        return FoundationModelsDayPlanner()
+    }
+#endif
+    return nil
+}
+
 #if canImport(FoundationModels)
 @available(macOS 26.0, *)
 struct FoundationModelsTaskMatcher: TaskMatcher {
@@ -102,6 +111,54 @@ struct FoundationModelsDaySummarizer: DaySummarizer {
             Estimate misses: \(misses.isEmpty ? "none" : misses).
             """
         return try await session.respond(to: prompt, generating: Summary.self).content.summary
+    }
+}
+
+@available(macOS 26.0, *)
+struct FoundationModelsDayPlanner: DayPlanner {
+    @Generable
+    struct Draft {
+        @Guide(description: "4 to 8 chosen tasks, best first")
+        var entries: [Entry]
+        @Guide(description: "One short line about capacity, e.g. 'you average ~5 focused hours'")
+        var capacityNote: String?
+    }
+
+    @Generable
+    struct Entry {
+        @Guide(description: "The task index from the candidate list, or null for a new task")
+        var taskIndex: Int?
+        @Guide(description: "The task title (only needed when taskIndex is null)")
+        var title: String
+        @Guide(description: "Minutes to allot, using the calibration table")
+        var minutes: Int
+        @Guide(description: "One short reason this task is on today's plan")
+        var reason: String?
+    }
+
+    func draft(context: PlanContext) async throws -> PlanDraft {
+        let session = LanguageModelSession(instructions: """
+            You plan one focused work day. Pick 4 to 8 tasks. Order by the user's \
+            stated priorities first, then deadlines in task notes; prefer in-progress \
+            and carried tasks. Use the calibration minutes for each task. Do not exceed \
+            the day's realistic capacity. Reference tasks by their index. Add at most one \
+            new task, and only if the priorities clearly demand something not listed. \
+            Never invent work.
+            """)
+        let draft = try await session.respond(
+            to: PlannerPrompt.render(context), generating: Draft.self).content
+
+        let entries: [PlanDraftEntry] = draft.entries.compactMap { entry in
+            if let index = entry.taskIndex, context.openTasks.indices.contains(index) {
+                let task = context.openTasks[index]
+                return PlanDraftEntry(
+                    title: task.title, taskID: task.id, minutes: max(1, entry.minutes), reason: entry.reason)
+            }
+            let title = entry.title.trimmingCharacters(in: .whitespaces)
+            guard !title.isEmpty else { return nil }
+            return PlanDraftEntry(title: title, taskID: nil, minutes: max(1, entry.minutes), reason: entry.reason)
+        }
+        return PlanDraft(entries: entries, capacityNote: draft.capacityNote)
     }
 }
 #endif

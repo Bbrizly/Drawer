@@ -16,6 +16,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var pomodoroTimer: PomodoroTimer!
     private var workClock: WorkClock!
     private var attribution: AttributionController!
+    private var planner: PlannerController!
+    private var plannerWindow: NSWindow?
     private let hotkey = HotkeyManager()
     private var statusItem: NSStatusItem!
     private var escMonitor: Any?
@@ -24,6 +26,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var attributionRulesWindow: NSWindow?
     private var toggleMenuItem: NSMenuItem?
     private var reviewMenuItem: NSMenuItem?
+    private var plannerMenuItem: NSMenuItem?
     private var cancellables: Set<AnyCancellable> = []
     private var attributionEnabled = false
     /// Repeats the time's-up chime while the finished timer waits for dismissal.
@@ -83,6 +86,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         workClock.restore()
 
         setupAttribution()
+        setupPlanner()
 
         var controller: PanelController!
         let rootView = DrawerView(
@@ -188,6 +192,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         reviewMenuItem = reviewItem
         updateReviewMenu()
 
+        let planItem = NSMenuItem(title: "Plan today…", action: #selector(openPlanner), keyEquivalent: "")
+        planItem.target = self
+        planItem.isHidden = !plannerVisible
+        menu.addItem(planItem)
+        plannerMenuItem = planItem
+
         menu.addItem(.separator())
         menu.addItem(NSMenuItem(
             title: "Quit Drawer", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"
@@ -198,6 +208,52 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func toggleDrawer() {
         panelController.toggle()
+    }
+
+    // MARK: - Planner (spec 03)
+
+    private func setupPlanner() {
+        planner = PlannerController(
+            store: store,
+            workLog: WorkSessionLog(fileURL: AppPaths.workLogFile),
+            todayProvider: { TodoStore.localToday() },
+            prioritiesProvider: {
+                guard let path = AppPaths.plannerPrioritiesFile else { return (nil, false) }
+                if let text = try? String(contentsOf: URL(fileURLWithPath: path), encoding: .utf8) {
+                    return (text, false)
+                }
+                return (nil, true)  // configured but missing/unreadable
+            })
+        planner.$state
+            .sink { [weak self] state in
+                if case .idle = state { self?.plannerWindow?.close() }
+            }
+            .store(in: &cancellables)
+    }
+
+    /// The planner button is visible only with the flag on AND Foundation Models
+    /// available right now (read fresh, never cached).
+    private var plannerVisible: Bool {
+        let flagOn = UserDefaults.standard.object(forKey: FeatureFlag.planner.key) as? Bool ?? true
+        return flagOn && planner?.available == true
+    }
+
+    @objc private func openPlanner() {
+        guard planner.available else { return }
+        let today = TodoStore.localToday()
+        if plannerWindow == nil {
+            let window = NSWindow(
+                contentRect: NSRect(x: 0, y: 0, width: 440, height: 460),
+                styleMask: [.titled, .closable], backing: .buffered, defer: false)
+            window.title = "Plan Today"
+            window.contentView = NSHostingView(rootView: PlannerPanel(controller: planner, date: today))
+            window.isReleasedWhenClosed = false
+            window.center()
+            plannerWindow = window
+        }
+        planner.plan(date: today)
+        NSApp.activate(ignoringOtherApps: true)
+        plannerWindow?.makeKeyAndOrderFront(nil)
     }
 
     // MARK: - Attribution (spec 02)

@@ -161,6 +161,19 @@ deleted. Raw titles can hold sensitive text, which is why they stay local and
 short-lived and never reach the log. No network, no screen recording, no
 keystroke content, ever.
 
+## AI day planner
+
+It plans with your real speed, not your optimism. On a Mac with Apple
+Intelligence, "Plan today" drafts a dated plan: the right tasks, ranked, with
+durations calibrated from what similar tasks actually took. A preview card shows
+every entry and minute value; nothing is written until you Accept, which commits
+through the same writer the MCP server uses. It ranks by a priorities file you
+pick in Settings (defaults to `0 Focus.md` in the vault), prefers in-progress and
+carried work, and stays within your recent daily capacity.
+
+Without Apple Intelligence the button is hidden, but the MCP `write_day_plan`
+path still lets your Claude plan into the same file.
+
 ## Build from source
 
 ```

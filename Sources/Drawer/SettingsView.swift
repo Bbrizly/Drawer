@@ -993,6 +993,7 @@ private struct AdvancedSettingsView: View {
     @AppStorage(AppPaths.workLogFilePathKey) private var workLogFilePath = ""
     @AppStorage(AppPaths.workLogMarkdownFilePathKey) private var workLogMarkdownPath = ""
     @AppStorage(AppPaths.ideasDirectoryPathKey) private var ideasDirectoryPath = ""
+    @AppStorage(AppPaths.plannerPrioritiesPathKey) private var plannerPrioritiesPath = AppPaths.defaultPrioritiesFile
     @AppStorage("exportWorkLogMarkdown") private var exportWorkLogMarkdown = true
     @AppStorage("teleprompterSpeed") private var teleprompterSpeed = 45.0
     @AppStorage("teleprompterFontSize") private var teleprompterFontSize = 34.0
@@ -1042,6 +1043,13 @@ private struct AdvancedSettingsView: View {
                         storedPath: $ideasDirectoryPath,
                         defaultPath: AppPaths.defaultIdeasDirectory,
                         pickKind: .directory
+                    )
+                    SettingsPathRow(
+                        title: "Planner priorities",
+                        caption: "The AI day planner reads this file to rank tasks. Clear it to plan "
+                            + "without priorities.",
+                        storedPath: $plannerPrioritiesPath,
+                        defaultPath: AppPaths.defaultPrioritiesFile
                     )
                     Button("Open Drawer data folder") {
                         let dir = AppPaths.drawerDataDirectory

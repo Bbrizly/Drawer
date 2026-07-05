@@ -9,6 +9,7 @@ enum AppPaths {
     static let workLogFilePathKey = "workLogFilePath"
     static let workLogMarkdownFilePathKey = "workLogMarkdownFilePath"
     static let ideasDirectoryPathKey = "ideasDirectoryPath"
+    static let plannerPrioritiesPathKey = "plannerPrioritiesPath"
 
     // The default lives in DrawerCore so the MCP binary resolves it identically.
     static let defaultDrawerFile = DrawerFilePath.default
@@ -40,6 +41,22 @@ enum AppPaths {
     }
 
     // Attribution sidecars (spec 02), all local-only under Application Support.
+    static var defaultPrioritiesFile: String {
+        FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Library/Mobile Documents/iCloud~md~obsidian/Documents")
+            .appendingPathComponent("My life/0 Focus.md")
+            .path
+    }
+
+    /// The planner priorities file, or nil when the user cleared it (empty =
+    /// skip). Absent key = the default focus file.
+    static var plannerPrioritiesFile: String? {
+        if let stored = UserDefaults.standard.string(forKey: plannerPrioritiesPathKey) {
+            return stored.isEmpty ? nil : stored
+        }
+        return defaultPrioritiesFile
+    }
+
     static var rawActivityFile: URL { drawerDataDirectory.appendingPathComponent("raw-activity.jsonl") }
     static var attributionQueueFile: URL { drawerDataDirectory.appendingPathComponent("attribution-queue.jsonl") }
     static var attributionRulesFile: URL { drawerDataDirectory.appendingPathComponent("attribution-rules.json") }

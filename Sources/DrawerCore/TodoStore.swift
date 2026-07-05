@@ -197,6 +197,22 @@ public final class TodoStore: ObservableObject {
         }
     }
 
+    /// Commits a day plan through the shared PlanWriter (the same path the MCP
+    /// server uses). Throws PlanWriter's validation errors so the caller can
+    /// surface a rejection instead of silently doing nothing.
+    public func writeDayPlan(date: String, entries: [PlanEntry], replace: Bool) throws {
+        let data: Data
+        do {
+            data = try readData(fileURL)
+        } catch where Self.isMissingFileError(error) {
+            data = Data()
+        }
+        let newData = try PlanWriter.write(date: date, entries: entries, replace: replace, in: data)
+        lastWrittenData = newData
+        try writeData(newData, fileURL)
+        apply(newData)
+    }
+
     public func add(_ title: String) {
         let trimmed = title.trimmingCharacters(in: .whitespaces)
         guard !trimmed.isEmpty else { return }

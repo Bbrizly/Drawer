@@ -7,7 +7,9 @@ final class FeatureFlagTests: XCTestCase {
             .filter { $0.group == "Timers" }
             .map(\.title)
 
-        XCTAssertEqual(timerTitles, ["Focus timer", "Pomodoro", "Stopwatch", "Automatic attribution"])
+        XCTAssertEqual(
+            timerTitles,
+            ["Focus timer", "Pomodoro", "Stopwatch", "Automatic attribution", "AI day planner"])
     }
 
     func testPomodoroFeatureDefaultsOnWithStableKey() {
