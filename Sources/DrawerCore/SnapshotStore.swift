@@ -96,7 +96,18 @@ public struct SnapshotStore: Sendable {
                 if !fm.fileExists(atPath: indexURL.path) { fm.createFile(atPath: indexURL.path, contents: nil) }
                 let handle = try FileHandle(forWritingTo: indexURL)
                 defer { try? handle.close() }
-                _ = try handle.seekToEnd()
+                // Repair a torn final line (a crash mid-append) by ensuring the
+                // file ends with a newline before appending, so the new record
+                // never concatenates onto a partial one.
+                let end = try handle.seekToEnd()
+                if end > 0 {
+                    try handle.seek(toOffset: end - 1)
+                    if try handle.read(upToCount: 1) != Data("\n".utf8) {
+                        try handle.seekToEnd()
+                        try handle.write(contentsOf: Data("\n".utf8))
+                    }
+                    try handle.seekToEnd()
+                }
                 try handle.write(contentsOf: data)
             },
             blobExists: { FileManager.default.fileExists(atPath: blobsDir.appendingPathComponent($0).path) },
@@ -105,7 +116,12 @@ public struct SnapshotStore: Sendable {
                 try data.write(to: blobsDir.appendingPathComponent(hash), options: .atomic)
             },
             readBlob: { try Data(contentsOf: blobsDir.appendingPathComponent($0)) },
-            listBlobs: { (try? FileManager.default.contentsOfDirectory(atPath: blobsDir.path)) ?? [] },
+            listBlobs: {
+                // Missing dir = no blobs; a real IO error propagates so prune
+                // doesn't report success while unreachable blobs linger.
+                guard FileManager.default.fileExists(atPath: blobsDir.path) else { return [] }
+                return try FileManager.default.contentsOfDirectory(atPath: blobsDir.path)
+            },
             deleteBlob: { try FileManager.default.removeItem(at: blobsDir.appendingPathComponent($0)) }))
     }
 
@@ -141,10 +157,12 @@ public struct SnapshotStore: Sendable {
         return .appended(record)
     }
 
-    /// The exact bytes for a snapshot, or `.unavailable` if its blob is gone
-    /// (manual tampering); the scrubber skips unavailable snapshots.
+    /// The exact bytes for a snapshot, or `.unavailable` if its blob is gone or
+    /// its content no longer hashes to the recorded hash (tampering/corruption).
+    /// The scrubber skips unavailable snapshots.
     public func reconstruct(_ record: SnapshotRecord) -> SnapshotReadResult {
         guard let data = try? io.readBlob(record.hash) else { return .unavailable }
+        guard data.count == record.bytes, hash(data) == record.hash else { return .unavailable }
         return .available(data)
     }
 
@@ -165,7 +183,7 @@ public struct SnapshotStore: Sendable {
         try io.replaceIndex(Data((body.isEmpty ? "" : body + "\n").utf8))
 
         var deleted = 0
-        for blob in (try? io.listBlobs()) ?? [] where !reachable.contains(blob) {
+        for blob in try io.listBlobs() where !reachable.contains(blob) {
             try io.deleteBlob(blob)
             deleted += 1
         }

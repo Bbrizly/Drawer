@@ -11,8 +11,8 @@ final class HistoryRecorder: ObservableObject {
     @Published private(set) var records: [SnapshotRecord] = []
 
     private let store: SnapshotStore
-    private let fileURL: URL
-    private let watcher: FileWatcher
+    private var fileURL: URL
+    private var watcher: FileWatcher
     private var debouncer = QuietPeriodDebouncer(quietInterval: 3)
     private var pollTimer: Timer?
     private let retention = 500
@@ -22,15 +22,28 @@ final class HistoryRecorder: ObservableObject {
         self.store = store
         self.fileURL = fileURL
         watcher = FileWatcher(directory: fileURL.deletingLastPathComponent())
-        watcher.onChange = { [weak self] in self?.fileChanged() }
         records = store.readRange()
+        watcher.onChange = { [weak self] in self?.fileChanged() }
     }
 
     func start() {
         guard !running else { return }
         running = true
-        capture()          // anchor the session with a "now" snapshot
+        // Watch first, then capture, so a write landing during the launch
+        // snapshot is still observed rather than missed until the next change.
         watcher.start()
+        capture()
+    }
+
+    /// Points at a different drawer file (Settings changed the path). Rebuilds
+    /// the watcher so history stops following the old file.
+    func repoint(to newFileURL: URL) {
+        let wasRunning = running
+        stop()
+        fileURL = newFileURL
+        watcher = FileWatcher(directory: newFileURL.deletingLastPathComponent())
+        watcher.onChange = { [weak self] in self?.fileChanged() }
+        if wasRunning { start() }
     }
 
     func stop() {

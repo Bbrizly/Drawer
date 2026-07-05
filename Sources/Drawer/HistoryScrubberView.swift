@@ -24,7 +24,10 @@ struct HistoryScrubberView: View {
         }
         .frame(width: 400, height: 540)
         .onAppear { position = Double(max(0, records.count - 1)) }
-        .onChange(of: records.count) { position = Double(max(0, records.count - 1)) }
+        // Jump to newest on any new capture. Observe the newest snapshot's
+        // timestamp, not the count, which stays pinned at 500 once retention
+        // fills (prune-one, append-one).
+        .onChange(of: records.last?.ts) { position = Double(max(0, records.count - 1)) }
     }
 
     private var emptyState: some View {

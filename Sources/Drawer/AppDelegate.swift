@@ -246,7 +246,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     @objc private func syncHistory() {
-        historyEnabled ? historyRecorder.start() : historyRecorder.stop()
+        if historyEnabled {
+            historyRecorder.start()
+        } else {
+            historyRecorder.stop()
+            historyWindow?.close()  // don't leave a live timeline open when gated off
+        }
     }
 
     @objc private func openHistory() {
@@ -449,6 +454,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             let view = SettingsView(
                 onChooseFile: { [weak self] url in
                     self?.store.updateFileURL(url)
+                    self?.historyRecorder.repoint(to: url)  // follow the new drawer file
                 },
                 onHotkeyChange: { [weak self] binding in
                     guard let self else { return false }

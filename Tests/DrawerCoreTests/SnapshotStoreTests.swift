@@ -63,6 +63,26 @@ final class SnapshotStoreTests: XCTestCase {
         XCTAssertEqual(store.reconstruct(record), .unavailable)
     }
 
+    func testReconstructRejectsCorruptedBlob() throws {
+        let mem = MemStore()
+        let store = SnapshotStore(io: mem.io())
+        _ = try store.append(bytes: Data("real".utf8), ts: t0)
+        let record = store.readRange()[0]
+        mem.blobs[record.hash] = Data("tampered".utf8)  // wrong content under the hash
+        XCTAssertEqual(store.reconstruct(record), .unavailable)
+    }
+
+    func testPruneSurfacesBlobListingError() {
+        var io = MemStore().io()
+        struct DiskError: Error {}
+        io = SnapshotStoreIO(
+            readIndex: io.readIndex, replaceIndex: io.replaceIndex, appendIndexLine: io.appendIndexLine,
+            blobExists: io.blobExists, writeBlob: io.writeBlob, readBlob: io.readBlob,
+            listBlobs: { throw DiskError() }, deleteBlob: io.deleteBlob)
+        let store = SnapshotStore(io: io)
+        XCTAssertThrowsError(try store.prune(keepLast: 1)) { XCTAssertTrue($0 is DiskError) }
+    }
+
     func testPruneKeepsLastN() throws {
         let mem = MemStore()
         let store = SnapshotStore(io: mem.io())
