@@ -139,6 +139,28 @@ reads the file and plans through the same writer the in-app planner uses.
 
 Smoke-test it end to end with `scripts/mcp-smoke.sh`.
 
+## Automatic time attribution
+
+A timesheet that drafts itself, waits for your nod, and never leaves your Mac.
+Turn it on in Settings (it is off by default and needs Accessibility permission).
+Drawer then watches which app and window is frontmost, groups that into work
+blocks, matches each block to an open task, and proposes a session. Nothing is
+ever written to your log without approval: every match lands in a review queue
+you clear from the menu bar, one tap. A green dot on the menu-bar icon means it
+is observing. No dot, not observing.
+
+On a Mac with Apple Intelligence, the on-device model helps place blocks rules
+can't and writes a short end-of-day summary. Without it, deterministic rules do
+the work and unmatched blocks simply wait in the Unattributed bucket.
+
+Privacy: Drawer reads app names and window titles plus system idle time, nothing
+else. Window titles never appear in your work log or vault; only matched task
+titles do. The raw trail lives 7 days on disk at
+`~/Library/Application Support/Drawer/raw-activity.jsonl`, local only, then is
+deleted. Raw titles can hold sensitive text, which is why they stay local and
+short-lived and never reach the log. No network, no screen recording, no
+keystroke content, ever.
+
 ## Build from source
 
 ```

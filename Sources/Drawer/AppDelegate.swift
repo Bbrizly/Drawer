@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import DrawerCore
 import ServiceManagement
 import SwiftUI
@@ -14,11 +15,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var focusTimer: FocusTimer!
     private var pomodoroTimer: PomodoroTimer!
     private var workClock: WorkClock!
+    private var attribution: AttributionController!
     private let hotkey = HotkeyManager()
     private var statusItem: NSStatusItem!
     private var escMonitor: Any?
     private var settingsWindow: NSWindow?
+    private var reviewWindow: NSWindow?
+    private var attributionRulesWindow: NSWindow?
     private var toggleMenuItem: NSMenuItem?
+    private var reviewMenuItem: NSMenuItem?
+    private var cancellables: Set<AnyCancellable> = []
+    private var attributionEnabled = false
     /// Repeats the time's-up chime while the finished timer waits for dismissal.
     private var alarmTimer: Timer?
 
@@ -74,6 +81,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         workClock = WorkClock(log: WorkSessionLog(fileURL: AppPaths.workLogFile))
         workClock.restore()
+
+        setupAttribution()
 
         var controller: PanelController!
         let rootView = DrawerView(
@@ -170,15 +179,154 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         )
         settingsItem.target = self
         menu.addItem(settingsItem)
+
+        let reviewItem = NSMenuItem(
+            title: "Review time…", action: #selector(openReview), keyEquivalent: "")
+        reviewItem.target = self
+        reviewItem.isHidden = !attributionEnabled
+        menu.addItem(reviewItem)
+        reviewMenuItem = reviewItem
+        updateReviewMenu()
+
         menu.addItem(.separator())
         menu.addItem(NSMenuItem(
             title: "Quit Drawer", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"
         ))
         statusItem.menu = menu
+        updateStatusDot()
     }
 
     @objc private func toggleDrawer() {
         panelController.toggle()
+    }
+
+    // MARK: - Attribution (spec 02)
+
+    private func setupAttribution() {
+        let workLog = WorkSessionLog(fileURL: AppPaths.workLogFile)
+        attribution = AttributionController(
+            raw: RawActivityStore(fileURL: AppPaths.rawActivityFile),
+            service: AttributionService(
+                queue: AttributionQueueStore(fileURL: AppPaths.attributionQueueFile), log: workLog),
+            workLog: workLog,
+            daySummaries: DaySummaryStore(fileURL: AppPaths.daySummariesFile),
+            rulesURL: AppPaths.attributionRulesFile,
+            candidatesProvider: { [weak self] in self?.attributionCandidates() ?? [] },
+            manualSpansProvider: { [weak self] day in self?.manualSpans(on: day, log: workLog) ?? [] },
+            todayProvider: { TodoStore.localToday() })
+
+        attribution.$isObserving
+            .sink { [weak self] _ in self?.updateStatusDot() }.store(in: &cancellables)
+        attribution.$pendingCount
+            .sink { [weak self] _ in self?.updateReviewMenu() }.store(in: &cancellables)
+
+        syncAttribution()
+        NotificationCenter.default.addObserver(
+            self, selector: #selector(syncAttribution),
+            name: UserDefaults.didChangeNotification, object: nil)
+    }
+
+    /// Candidate tasks for matching: today, carried, upcoming, backlog;
+    /// in-progress and carried are weighted first.
+    private func attributionCandidates() -> [TaskCandidate] {
+        var out: [TaskCandidate] = []
+        for item in store.todayItems where !item.isDone {
+            out.append(TaskCandidate(id: item.id, title: item.title, priority: item.isInProgress))
+        }
+        for item in store.carriedItems where !item.isDone {
+            out.append(TaskCandidate(id: item.id, title: item.title, priority: true))
+        }
+        for item in store.upcomingItems + store.backlogItems where !item.isDone {
+            out.append(TaskCandidate(id: item.id, title: item.title, priority: false))
+        }
+        return out
+    }
+
+    /// Manual stopwatch spans for a day, subtracted from blocks so attribution
+    /// never queues a competing match for time already tracked by hand.
+    private func manualSpans(on day: Date, log: WorkSessionLog) -> [TimeRange] {
+        let calendar = Calendar.current
+        return log.all()
+            .filter { $0.source == nil && calendar.isDate($0.start, inSameDayAs: day) }
+            .map { TimeRange(start: $0.start, end: $0.end) }
+    }
+
+    @objc private func syncAttribution() {
+        let on = UserDefaults.standard.object(forKey: FeatureFlag.attribution.key) as? Bool ?? false
+        guard on != attributionEnabled else { return }  // ignore unrelated defaults writes
+        attributionEnabled = on
+        attribution.setEnabled(on)
+        reviewMenuItem?.isHidden = !on
+        updateStatusDot()
+    }
+
+    @objc private func openReview() {
+        if reviewWindow == nil {
+            let view = ReviewCardView(
+                controller: attribution,
+                candidates: { [weak self] in self?.attributionCandidates() ?? [] },
+                onEditRules: { [weak self] in self?.openAttributionRules() })
+            let window = NSWindow(
+                contentRect: .zero, styleMask: [.titled, .closable], backing: .buffered, defer: false)
+            window.title = "Review Time"
+            window.contentView = NSHostingView(rootView: view)
+            window.isReleasedWhenClosed = false
+            window.setContentSize(window.contentView!.fittingSize)
+            window.center()
+            reviewWindow = window
+        }
+        NSApp.activate(ignoringOtherApps: true)
+        reviewWindow?.makeKeyAndOrderFront(nil)
+    }
+
+    @objc private func openAttributionRules() {
+        if attributionRulesWindow == nil {
+            let window = NSWindow(
+                contentRect: .zero, styleMask: [.titled, .closable], backing: .buffered, defer: false)
+            window.title = "Attribution Rules"
+            window.contentView = NSHostingView(rootView: AttributionSettingsView(controller: attribution))
+            window.isReleasedWhenClosed = false
+            window.setContentSize(window.contentView!.fittingSize)
+            window.center()
+            attributionRulesWindow = window
+        }
+        NSApp.activate(ignoringOtherApps: true)
+        attributionRulesWindow?.makeKeyAndOrderFront(nil)
+    }
+
+    private func updateReviewMenu() {
+        let count = attribution?.pendingCount ?? 0
+        reviewMenuItem?.title = count > 0 ? "Review time (\(count))…" : "Review time…"
+    }
+
+    /// The observing dot: a small green mark on the menu-bar icon while
+    /// attribution is sampling. This is the honesty signal and is not optional.
+    private func updateStatusDot() {
+        guard let button = statusItem?.button, let base = baseStatusImage() else { return }
+        guard attribution?.isObserving == true else {
+            button.image = base
+            return
+        }
+        let size = base.size
+        let composite = NSImage(size: size)
+        composite.lockFocus()
+        base.draw(in: NSRect(origin: .zero, size: size))
+        NSColor.systemGreen.setFill()
+        let dot = NSRect(x: size.width - 5, y: size.height - 5, width: 5, height: 5)
+        NSBezierPath(ovalIn: dot).fill()
+        composite.unlockFocus()
+        composite.isTemplate = false  // keep the dot green, not tinted
+        button.image = composite
+    }
+
+    private func baseStatusImage() -> NSImage? {
+        if let url = Bundle.module.url(forResource: "menubar-logo", withExtension: "png"),
+           let logo = NSImage(contentsOf: url) {
+            logo.size = NSSize(width: 18, height: 16)
+            logo.isTemplate = true
+            return logo
+        }
+        return NSImage(systemSymbolName: "sidebar.left", accessibilityDescription: "Drawer")
     }
 
     // MARK: - Settings

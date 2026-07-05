@@ -190,8 +190,9 @@ public final class WorkClock {
     /// Regenerates the markdown work log at `url` from the full session
     /// history. Call after anything that changes logged time so the file on
     /// disk stays in sync.
-    public func exportMarkdown(to url: URL) {
-        let markdown = renderWorkLogMarkdown(log.allSummaries(calendar: calendar))
+    public func exportMarkdown(to url: URL, daySummaries: [String: String] = [:]) {
+        let markdown = renderWorkLogMarkdown(
+            log.allSummaries(calendar: calendar), daySummaries: daySummaries)
         try? FileManager.default.createDirectory(
             at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
         try? markdown.write(to: url, atomically: true, encoding: .utf8)

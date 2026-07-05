@@ -22,6 +22,10 @@ enum FeatureFlag: String, CaseIterable, Identifiable {
     case backlogSection
     case archiveSection
     case workMode
+    /// Watches the frontmost app and window title to propose work sessions you
+    /// approve in a review queue. Off by default: explicit opt-in, needs
+    /// Accessibility permission. Nothing is written without your approval.
+    case attribution
     case ideas
     /// Exposes Drawer to AI agents over MCP (a separate `drawer-mcp` binary you
     /// register with `claude mcp add`). The app doesn't run the server, so this
@@ -61,6 +65,7 @@ enum FeatureFlag: String, CaseIterable, Identifiable {
         case .backlogSection: return "Backlog section"
         case .archiveSection: return "Archive section"
         case .workMode: return "Stopwatch"
+        case .attribution: return "Automatic attribution"
         case .ideas: return "Idea board"
         case .mcp: return "MCP server"
         }
@@ -85,6 +90,7 @@ enum FeatureFlag: String, CaseIterable, Identifiable {
         case .backlogSection: return "Collapsible Backlog at the bottom."
         case .archiveSection: return "Collapsible Archive at the bottom."
         case .workMode: return "A stopwatch that logs real hours against tasks."
+        case .attribution: return "Watch app and window to propose sessions you approve. Off by default."
         case .ideas: return "A light bulb to jot ideas, and a board you swipe to."
         case .mcp: return "Let AI agents read and write your drawer over MCP."
         }
@@ -92,7 +98,7 @@ enum FeatureFlag: String, CaseIterable, Identifiable {
 
     var group: String {
         switch self {
-        case .focusTimer, .pomodoro, .workMode: return "Timers"
+        case .focusTimer, .pomodoro, .workMode, .attribution: return "Timers"
         case .focusSound, .timerEndSound: return "Focus"
         case .confetti, .checkOffPop: return "Feedback"
         case .swipeDelete, .swipeProgress: return "Swipe gestures"
@@ -111,8 +117,9 @@ enum FeatureFlag: String, CaseIterable, Identifiable {
     /// renders, it is not a flag).
     var minimalValue: Bool { self == .carriedSection }
 
-    /// Default when never set: everything on.
-    var defaultValue: Bool { true }
+    /// Default when never set: everything on, except attribution which is
+    /// an explicit opt-in (needs Accessibility permission).
+    var defaultValue: Bool { self != .attribution }
 
     static let groupsInOrder = [
         "Timers", "Focus", "Feedback", "Swipe gestures", "Task rows", "Sections", "Controls",

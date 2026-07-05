@@ -39,6 +39,12 @@ enum AppPaths {
         drawerDataDirectory.appendingPathComponent("Ideas", isDirectory: true).path
     }
 
+    // Attribution sidecars (spec 02), all local-only under Application Support.
+    static var rawActivityFile: URL { drawerDataDirectory.appendingPathComponent("raw-activity.jsonl") }
+    static var attributionQueueFile: URL { drawerDataDirectory.appendingPathComponent("attribution-queue.jsonl") }
+    static var attributionRulesFile: URL { drawerDataDirectory.appendingPathComponent("attribution-rules.json") }
+    static var daySummariesFile: URL { drawerDataDirectory.appendingPathComponent("day-summaries.jsonl") }
+
     static func storedPath(forKey key: String, default defaultPath: String) -> String {
         guard let stored = UserDefaults.standard.string(forKey: key), !stored.isEmpty else {
             return defaultPath
@@ -75,6 +81,8 @@ enum AppPaths {
     @MainActor
     static func exportWorkLog(_ workClock: WorkClock) {
         guard exportsWorkLogMarkdown else { return }
-        workClock.exportMarkdown(to: workLogMarkdownFile)
+        // Merge the AI day-summary sidecar (spec 02) under each day heading.
+        let daySummaries = DaySummaryStore(fileURL: daySummariesFile).byDay()
+        workClock.exportMarkdown(to: workLogMarkdownFile, daySummaries: daySummaries)
     }
 }
