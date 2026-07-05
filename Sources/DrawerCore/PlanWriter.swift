@@ -22,6 +22,13 @@ public enum PlanWriterError: Error, Equatable {
     case tooManyEntries(Int)
     case tooManyNewTasks
     case unresolvedTaskID(String)
+    /// A title or note that would inject extra tasks or a section heading
+    /// (a newline in the title, an empty title, a checkbox-shaped note line).
+    case invalidEntry(String)
+    /// A resolving taskID paired with a title that is not that task's title,
+    /// which would smuggle a new task past the one-new-task rule.
+    case taskIDTitleMismatch(String)
+    case invalidDate(String)
     case badEncoding
 }
 
@@ -47,7 +54,7 @@ public enum PlanWriter {
         guard let text = String(data: data, encoding: .utf8) else {
             throw PlanWriterError.badEncoding
         }
-        try validate(entries: entries, text: text)
+        try validate(date: date, entries: entries, text: text)
 
         let sections = TodoParser.parse(text)
         let target = sections.first { $0.date == date }
@@ -75,34 +82,64 @@ public enum PlanWriter {
         } else {
             lines = insertNewSection(date: date, blocks: blocks, into: lines)
         }
-        return Data(lines.joined(separator: newline).utf8)
+        let out = lines.joined(separator: newline)
+        // No net change (e.g. replace removed nothing, all entries deduped):
+        // leave the shared file's bytes exactly as they were.
+        if out == text { return data }
+        return Data(out.utf8)
     }
 
     // MARK: validation
 
-    private static func validate(entries: [PlanEntry], text: String) throws {
+    private static func validate(date: String, entries: [PlanEntry], text: String) throws {
+        guard TodoParser.isValidDate(date) else { throw PlanWriterError.invalidDate(date) }
         guard !entries.isEmpty else { throw PlanWriterError.emptyPlan }
         guard entries.count <= maxEntries else {
             throw PlanWriterError.tooManyEntries(entries.count)
         }
-        let sections = TodoParser.parse(text)
-        let existingIDs = Set(sections.flatMap(\.items).map(\.id))
-        let existingTitles = Set(sections.flatMap(\.items).map { TitleSimilarity.normalize($0.title) })
+        let items = TodoParser.parse(text).flatMap(\.items)
+        // id -> normalized title, so a taskID must name the task it resolves to.
+        let titleByID = Dictionary(items.map { ($0.id, TitleSimilarity.normalize($0.title)) }) { a, _ in a }
+        let existingTitles = Set(items.map { TitleSimilarity.normalize($0.title) })
 
         var newTasks = 0
         for entry in entries {
+            try checkContent(entry)
+            let title = TitleSimilarity.normalize(entry.title)
             if let id = entry.taskID {
-                guard existingIDs.contains(id) else {
+                guard let resolved = titleByID[id] else {
                     throw PlanWriterError.unresolvedTaskID(id)
                 }
-                continue // resolves to an existing task
+                // A taskID may only carry its own task's title; anything else is
+                // a new task wearing a borrowed id.
+                guard resolved == title else { throw PlanWriterError.taskIDTitleMismatch(id) }
+                continue
             }
-            if !existingTitles.contains(TitleSimilarity.normalize(entry.title)) {
-                newTasks += 1
-            }
+            if !existingTitles.contains(title) { newTasks += 1 }
         }
         guard newTasks <= 1 else { throw PlanWriterError.tooManyNewTasks }
     }
+
+    /// Rejects titles and notes that would break the one-task-per-entry model:
+    /// a newline (injects tasks or a `##` section), an empty title, or a note
+    /// line that TodoParser would read as a checkbox task rather than a note.
+    private static func checkContent(_ entry: PlanEntry) throws {
+        let title = entry.title
+        guard !title.contains("\n"), !title.contains("\r"),
+              !title.trimmingCharacters(in: .whitespaces).isEmpty
+        else { throw PlanWriterError.invalidEntry(title) }
+
+        if let note = entry.note {
+            for line in note.components(separatedBy: .newlines) {
+                let trimmed = line.trimmingCharacters(in: .whitespaces)
+                if trimmed.firstMatch(of: checkboxPrefix) != nil {
+                    throw PlanWriterError.invalidEntry(title)
+                }
+            }
+        }
+    }
+
+    private static let checkboxPrefix = #/^- \[[ xX/]\] /#
 
     // MARK: rendering
 
@@ -165,12 +202,21 @@ public enum PlanWriter {
 
     /// Removes blank-unchecked (`- [ ]`) task lines and their indented note
     /// lines. Checked (`- [x]`) and in-progress (`- [/]`) tasks stay, so done
-    /// and actively-worked items are never erased.
+    /// and actively-worked items are never erased. Fenced code blocks are
+    /// skipped whole: a `- [ ]` inside ``` fences is sample text, not a task,
+    /// exactly as TodoParser treats it.
     private static func dropUncheckedTasks(_ body: [String]) -> [String] {
         var out: [String] = []
+        var inFence = false
         var i = 0
         while i < body.count {
-            if marker(of: body[i]) == " " {
+            if body[i].trimmingCharacters(in: .whitespaces).hasPrefix("```") {
+                inFence.toggle()
+                out.append(body[i])
+                i += 1
+                continue
+            }
+            if !inFence, marker(of: body[i]) == " " {
                 i += 1
                 while i < body.count, TodoParser.isDescriptionLine(body[i]) { i += 1 }
                 continue

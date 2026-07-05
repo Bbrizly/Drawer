@@ -20,7 +20,8 @@ public enum DrawerFilePath {
         environment: [String: String],
         storedDefault: String?
     ) -> String {
-        if let i = arguments.firstIndex(of: "--file"), i + 1 < arguments.count {
+        if let i = arguments.firstIndex(of: "--file"), i + 1 < arguments.count,
+           !arguments[i + 1].isEmpty {
             return arguments[i + 1]
         }
         if let env = environment["DRAWER_FILE"], !env.isEmpty {

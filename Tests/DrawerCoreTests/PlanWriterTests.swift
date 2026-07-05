@@ -140,6 +140,77 @@ final class PlanWriterTests: XCTestCase {
         }
     }
 
+    // MARK: injection / hardening (codex review findings)
+
+    func testRejectsNewlineInTitle() {
+        XCTAssertThrowsError(try write(
+            "", date: "2026-07-06", [PlanEntry(title: "one\n- [ ] sneaky two")]
+        )) {
+            XCTAssertEqual($0 as? PlanWriterError, .invalidEntry("one\n- [ ] sneaky two"))
+        }
+    }
+
+    func testRejectsSectionInjectionInTitle() {
+        XCTAssertThrowsError(try write(
+            "", date: "2026-07-06", [PlanEntry(title: "one\n## 2026-07-07\n- [ ] two")]
+        )) {
+            guard case .invalidEntry = ($0 as? PlanWriterError) else {
+                return XCTFail("expected invalidEntry, got \($0)")
+            }
+        }
+    }
+
+    func testRejectsCheckboxShapedNoteLine() {
+        XCTAssertThrowsError(try write(
+            "", date: "2026-07-06",
+            [PlanEntry(title: "real task", note: "- [ ] injected task")]
+        )) {
+            guard case .invalidEntry = ($0 as? PlanWriterError) else {
+                return XCTFail("expected invalidEntry, got \($0)")
+            }
+        }
+    }
+
+    func testRejectsEmptyTitle() {
+        XCTAssertThrowsError(try write("", date: "2026-07-06", [PlanEntry(title: "   ")])) {
+            guard case .invalidEntry = ($0 as? PlanWriterError) else {
+                return XCTFail("expected invalidEntry, got \($0)")
+            }
+        }
+    }
+
+    func testTaskIDCannotAuthorizeAnUnrelatedTitle() {
+        // Real id, but title matches nothing: this is a smuggled new task.
+        let file = "## Backlog\n- [ ] ship it\n"
+        XCTAssertThrowsError(try write(
+            file, date: "2026-07-06",
+            [PlanEntry(title: "totally different thing", taskID: "backlog|0|- [ ] ship it")]
+        )) {
+            XCTAssertEqual(
+                $0 as? PlanWriterError, .taskIDTitleMismatch("backlog|0|- [ ] ship it")
+            )
+        }
+    }
+
+    func testReplaceIgnoresFencedCheckboxes() throws {
+        // A fenced code sample under the target date must survive replace:true;
+        // TodoParser never treats it as a task, so neither may the writer.
+        let file = "## 2026-07-06\n- [ ] real todo\n```\n- [ ] fenced sample\n```\n"
+        let out = try write(file, date: "2026-07-06", [PlanEntry(title: "planned")], replace: true)
+        XCTAssertEqual(
+            out, "## 2026-07-06\n```\n- [ ] fenced sample\n```\n- [ ] planned\n"
+        )
+    }
+
+    func testRejectsInvalidDate() {
+        XCTAssertThrowsError(try write("", date: "tomorrow", [PlanEntry(title: "x")])) {
+            XCTAssertEqual($0 as? PlanWriterError, .invalidDate("tomorrow"))
+        }
+        XCTAssertThrowsError(try write("", date: "2026-99-99", [PlanEntry(title: "x")])) {
+            XCTAssertEqual($0 as? PlanWriterError, .invalidDate("2026-99-99"))
+        }
+    }
+
     func testRejectsNonUTF8() {
         let bad = Data([0xFF, 0xFE, 0x00])
         XCTAssertThrowsError(

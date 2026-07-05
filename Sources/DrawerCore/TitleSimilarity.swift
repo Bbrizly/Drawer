@@ -36,12 +36,13 @@ public enum TitleSimilarity {
     /// Words in a title: camelCase humps split, punctuation split, lowercased,
     /// single characters dropped as noise.
     static func tokens(_ title: String) -> Set<String> {
-        splitCamelCase(title)
-            .lowercased()
-            .split(whereSeparator: { !$0.isLetter && !$0.isNumber })
-            .map(String.init)
-            .filter { $0.count >= 2 }
-            .reduce(into: Set<String>()) { $0.insert($1) }
+        Set(
+            splitCamelCase(title)
+                .lowercased()
+                .split(whereSeparator: { !$0.isLetter && !$0.isNumber })
+                .map(String.init)
+                .filter { $0.count >= 2 }
+        )
     }
 
     /// Inserts a space at each lowercase→uppercase boundary so "TodoParser"

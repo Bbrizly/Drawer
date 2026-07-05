@@ -47,6 +47,17 @@ final class DrawerFilePathTests: XCTestCase {
         XCTAssertEqual(path, DrawerFilePath.default)
     }
 
+    func testEmptyFileArgumentValueIsSkipped() {
+        // "--file ''" must not shadow the stored default with an empty path,
+        // matching how empty env/stored values fall through.
+        let path = DrawerFilePath.resolve(
+            arguments: ["drawer-mcp", "--file", ""],
+            environment: [:],
+            storedDefault: "/tmp/stored.md"
+        )
+        XCTAssertEqual(path, "/tmp/stored.md")
+    }
+
     func testFileArgumentWithoutValueIsIgnored() {
         // "--file" as the last token has no path after it; fall through.
         let path = DrawerFilePath.resolve(
