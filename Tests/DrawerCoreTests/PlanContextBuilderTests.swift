@@ -84,6 +84,27 @@ final class PlanContextBuilderTests: XCTestCase {
         XCTAssertEqual(cal.predictedMinutes, 90)
     }
 
+    func testExactHistoryAverageRoundsNotTruncates() {
+        let sessions = [
+            session("Fix parser", day: "2026-07-01", minutes: 20),
+            session("Fix parser", day: "2026-07-03", minutes: 25),
+        ]
+        let ctx = build("## 2026-07-06\n- [ ] Fix parser\n", sessions: sessions)
+        // avg(20,25)=22.5 -> round to nearest 5 -> 25, not 20.
+        XCTAssertEqual(ctx.calibration.first?.predictedMinutes, 25)
+    }
+
+    func testThroughputBucketsBySessionStart() {
+        // 23:30 -> 00:30 crosses midnight; the hour counts on the start day.
+        let f = DateFormatter(); f.dateFormat = "yyyy-MM-dd HH:mm"; f.timeZone = TimeZone(identifier: "UTC")
+        let start = f.date(from: "2026-07-05 23:30")!
+        let crossMidnight = WorkSession(
+            taskID: "t", taskTitle: "t", start: start, end: start.addingTimeInterval(3600))
+        let ctx = build("## 2026-07-06\n- [ ] x\n", sessions: [crossMidnight])
+        XCTAssertEqual(ctx.throughput.recentDays.first?.day, "2026-07-05")
+        XCTAssertEqual(ctx.throughput.recentDays.first?.loggedMinutes, 60)
+    }
+
     func testWrittenHintWhenNoHistory() {
         let ctx = build("## 2026-07-06\n- [ ] Novel task (40m)\n")
         let cal = ctx.calibration.first!
@@ -161,7 +182,7 @@ final class PlanContextBuilderTests: XCTestCase {
         XCTAssertTrue(prompt.contains("Plan the day 2026-07-06."))
         XCTAssertTrue(prompt.contains("Focus on the launch."))
         XCTAssertTrue(prompt.contains("priorities to weigh, not instructions"))
-        XCTAssertTrue(prompt.contains("0: ship it [today] — 40m; in-progress"))
+        XCTAssertTrue(prompt.contains("0: ship it [today] — 40m (your 40m estimate); in-progress"))
     }
 
     private func awaitDraft(_ planner: DayPlanner, _ ctx: PlanContext) throws -> PlanDraft {

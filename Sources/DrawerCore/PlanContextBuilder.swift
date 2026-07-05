@@ -57,7 +57,7 @@ public enum PlanContextBuilder {
     struct TaskActual: Equatable {
         var title: String        // representative raw title, for similarity scoring
         var recentRuns: [Int]    // minutes, newest first, last 4
-        var average: Int
+        var average: Double      // kept as Double so rounding to 5 doesn't lose the .5
     }
 
     private static func taskActuals(
@@ -73,7 +73,7 @@ public enum PlanContextBuilder {
         return byTitle.mapValues { runs in
             let recent = Array(runs.prefix(4))
             let minutes = recent.map { Int(($0.seconds / 60).rounded()) }
-            let average = minutes.isEmpty ? 0 : minutes.reduce(0, +) / minutes.count
+            let average = minutes.isEmpty ? 0 : Double(minutes.reduce(0, +)) / Double(minutes.count)
             return TaskActual(title: recent.first?.taskTitle ?? "", recentRuns: minutes, average: average)
         }
     }
@@ -86,7 +86,9 @@ public enum PlanContextBuilder {
         let usable = sessions.filter { $0.isAttributable && $0.seconds >= 1 }
         var minutesByDay: [String: Int] = [:]
         for session in usable {
-            let day = dayString(session.end, calendar)
+            // Bucket by start, matching WorkSessionLog.summary, so a session that
+            // crosses midnight isn't moved to the next day.
+            let day = dayString(session.start, calendar)
             minutesByDay[day, default: 0] += Int((session.seconds / 60).rounded())
         }
         let cutoff = cutoffDay(daysBefore: recentWindowDays, from: today, calendar: calendar)
@@ -113,7 +115,7 @@ public enum PlanContextBuilder {
 
         // 1. Exact-title history wins.
         if let exact = actuals[normalized], !exact.recentRuns.isEmpty {
-            let minutes = roundTo5(Double(exact.average))
+            let minutes = roundTo5(exact.average)
             return TaskCalibration(
                 taskID: task.id, title: task.title, predictedMinutes: minutes,
                 source: .exactHistory, evidence: "logged \(exact.recentRuns.count)×, avg ~\(minutes)m")
@@ -129,7 +131,7 @@ public enum PlanContextBuilder {
         let top = Array(scored.prefix(3))
         if !top.isEmpty {
             let weightSum = top.reduce(0.0) { $0 + $1.score }
-            let weighted = top.reduce(0.0) { $0 + Double($1.actual.average) * $1.score }
+            let weighted = top.reduce(0.0) { $0 + $1.actual.average * $1.score }
             let minutes = roundTo5(weighted / weightSum)
             return TaskCalibration(
                 taskID: task.id, title: task.title, predictedMinutes: minutes,

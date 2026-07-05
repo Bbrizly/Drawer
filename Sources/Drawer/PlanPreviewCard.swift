@@ -84,7 +84,7 @@ struct PlanPreviewCard: View {
             Spacer()
             TextField("min", value: Binding(
                 get: { entries[index].minutes },
-                set: { entries[index] = withMinutes(entries[index], max(1, $0)) }),
+                set: { entries[index].minutes = max(1, $0) }),
                 format: .number)
                 .frame(width: 44)
                 .multilineTextAlignment(.trailing)
@@ -113,8 +113,4 @@ struct PlanPreviewCard: View {
     }
 
     private var totalMinutes: Int { entries.reduce(0) { $0 + $1.minutes } }
-
-    private func withMinutes(_ entry: PlanDraftEntry, _ minutes: Int) -> PlanDraftEntry {
-        PlanDraftEntry(title: entry.title, taskID: entry.taskID, minutes: minutes, reason: entry.reason)
-    }
 }

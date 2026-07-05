@@ -149,7 +149,10 @@ struct FoundationModelsDayPlanner: DayPlanner {
             to: PlannerPrompt.render(context), generating: Draft.self).content
 
         let entries: [PlanDraftEntry] = draft.entries.compactMap { entry in
-            if let index = entry.taskIndex, context.openTasks.indices.contains(index) {
+            if let index = entry.taskIndex {
+                // A provided-but-invalid index is a hallucination: drop it, never
+                // let it become a fabricated new task.
+                guard context.openTasks.indices.contains(index) else { return nil }
                 let task = context.openTasks[index]
                 return PlanDraftEntry(
                     title: task.title, taskID: task.id, minutes: max(1, entry.minutes), reason: entry.reason)

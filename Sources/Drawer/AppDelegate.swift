@@ -6,7 +6,7 @@ import SwiftUI
 import UserNotifications
 
 @MainActor
-final class AppDelegate: NSObject, NSApplicationDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var panelController: PanelController!
     private var store: TodoStore!
     private var notesStore: NotesStore!
@@ -202,12 +202,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(NSMenuItem(
             title: "Quit Drawer", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"
         ))
+        menu.delegate = self  // refresh the attribution/planner items each open
         statusItem.menu = menu
         updateStatusDot()
     }
 
     @objc private func toggleDrawer() {
         panelController.toggle()
+    }
+
+    /// Keep the attribution/planner menu items in sync with their feature flags
+    /// and Foundation Models availability, which can both change after launch.
+    func menuWillOpen(_ menu: NSMenu) {
+        reviewMenuItem?.isHidden = !attributionEnabled
+        plannerMenuItem?.isHidden = !plannerVisible
     }
 
     // MARK: - Planner (spec 03)
@@ -239,7 +247,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc private func openPlanner() {
-        guard planner.available else { return }
+        guard plannerVisible else { return }  // flag AND Foundation Models
         let today = TodoStore.localToday()
         if plannerWindow == nil {
             let window = NSWindow(

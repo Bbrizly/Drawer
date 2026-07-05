@@ -201,13 +201,20 @@ public final class TodoStore: ObservableObject {
     /// server uses). Throws PlanWriter's validation errors so the caller can
     /// surface a rejection instead of silently doing nothing.
     public func writeDayPlan(date: String, entries: [PlanEntry], replace: Bool) throws {
-        let data: Data
-        do {
-            data = try readData(fileURL)
-        } catch where Self.isMissingFileError(error) {
-            data = Data()
+        func currentData() throws -> Data {
+            do { return try readData(fileURL) }
+            catch where Self.isMissingFileError(error) { return Data() }
         }
-        let newData = try PlanWriter.write(date: date, entries: entries, replace: replace, in: data)
+        // Content-CAS, matching the MCP mutation path: if the file changed under
+        // us between read and write (an Obsidian/MCP edit), recompute once on the
+        // fresh bytes so that edit isn't clobbered.
+        var data = try currentData()
+        var newData = try PlanWriter.write(date: date, entries: entries, replace: replace, in: data)
+        let fresh = try currentData()
+        if fresh != data {
+            data = fresh
+            newData = try PlanWriter.write(date: date, entries: entries, replace: replace, in: data)
+        }
         lastWrittenData = newData
         try writeData(newData, fileURL)
         apply(newData)
