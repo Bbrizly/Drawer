@@ -19,14 +19,13 @@ final class AttributionController: ObservableObject {
     private let workLog: WorkSessionLog
     private let daySummaries: DaySummaryStore
     private let candidatesProvider: @MainActor () -> [TaskCandidate]
-    private let manualSpansProvider: @MainActor (Date) -> [TimeRange]
+    private let manualSpansProvider: @MainActor (TimeRange) -> [TimeRange]
     private let todayProvider: @MainActor () -> String
     private let rulesURL: URL
 
     private var sampler: ActivitySampler?
     private var buffer: [ActivitySample] = []
     private var boundaries: [SessionBoundary] = []
-    private var lastProcessedEnd = Date.distantPast
     private var processing = false
 
     init(
@@ -36,7 +35,7 @@ final class AttributionController: ObservableObject {
         daySummaries: DaySummaryStore,
         rulesURL: URL,
         candidatesProvider: @escaping @MainActor () -> [TaskCandidate],
-        manualSpansProvider: @escaping @MainActor (Date) -> [TimeRange],
+        manualSpansProvider: @escaping @MainActor (TimeRange) -> [TimeRange],
         todayProvider: @escaping @MainActor () -> String
     ) {
         self.raw = raw
@@ -114,36 +113,33 @@ final class AttributionController: ObservableObject {
         flush(streamEnd: Date())
     }
 
-    /// Fold buffered samples into completed blocks and queue proposals for those
-    /// that ended before now (the tail may still be open).
+    /// Fold buffered samples into blocks and queue proposals. flush fires only on
+    /// session-ending events (idle/sleep/lock/stop), so every block is complete —
+    /// queue them all. The snapshot is taken and the buffer reset synchronously
+    /// so samples arriving during the async classify accumulate for the next
+    /// flush instead of being lost or double-queued.
     private func flush(streamEnd: Date) {
-        guard !processing else { return }
-        let blocks = ActivitySessionizer.sessionize(
-            samples: buffer, boundaries: boundaries, streamEnd: streamEnd)
-        let cutoff = streamEnd.addingTimeInterval(-1)
-        let completed = blocks.filter { $0.end > lastProcessedEnd && $0.end <= cutoff }
-        guard !completed.isEmpty else { return }
-
+        guard !processing, !buffer.isEmpty else { return }
+        let samples = buffer
+        let bounds = boundaries
+        buffer = []
+        boundaries = []
         processing = true
         let candidates = candidatesProvider()
         let rules = ruleStore
         let matcher = makeTaskMatcherIfAvailable()  // read availability fresh
         Task { @MainActor in
-            defer { processing = false }
+            defer { processing = false; refreshPending() }
+            let blocks = ActivitySessionizer.sessionize(
+                samples: samples, boundaries: bounds, streamEnd: streamEnd)
             let classifier = TaskAttributionClassifier(ruleStore: rules, matcher: matcher)
-            for block in completed {
-                let residuals = block.subtracting(manualSpansProvider(block.start))
-                for residual in residuals {
+            for block in blocks {
+                for residual in block.subtracting(manualSpansProvider(block.range)) {
                     let match = await classifier.classify(block: residual, candidates: candidates)
                     try? service.enqueue(AttributionQueueEntry(
                         block: residual, proposed: match, candidates: candidates, createdAt: Date()))
                 }
-                lastProcessedEnd = max(lastProcessedEnd, block.end)
             }
-            // Keep only the still-open tail so the buffer doesn't grow forever.
-            buffer.removeAll { $0.ts <= lastProcessedEnd }
-            boundaries.removeAll { $0.ts <= lastProcessedEnd }
-            refreshPending()
         }
     }
 

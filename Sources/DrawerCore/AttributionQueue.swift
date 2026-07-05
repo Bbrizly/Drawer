@@ -8,18 +8,16 @@ public struct AttributionEvidence: Codable, Equatable, Sendable {
     public var titles: [String]
     public var candidateTaskIDs: [String]
     public var candidateTaskTitles: [String]
-    public var matcherSummary: String?
 
     public init(
         bundleID: String, appName: String, titles: [String],
-        candidateTaskIDs: [String], candidateTaskTitles: [String], matcherSummary: String? = nil
+        candidateTaskIDs: [String], candidateTaskTitles: [String]
     ) {
         self.bundleID = bundleID
         self.appName = appName
         self.titles = titles
         self.candidateTaskIDs = candidateTaskIDs
         self.candidateTaskTitles = candidateTaskTitles
-        self.matcherSummary = matcherSummary
     }
 }
 
@@ -63,67 +61,8 @@ public struct AttributionQueueEntry: Codable, Equatable, Identifiable, Sendable 
 }
 
 /// Append-only JSONL of pending entries. Approving or rejecting removes an entry
-/// (the queue holds only what still needs review). Injectable I/O, like
-/// WorkSessionLog, so it runs in memory for tests.
-public struct AttributionQueueStore: Sendable {
-    public let fileURL: URL
-    private let read: @Sendable (URL) throws -> String
-    private let appendLine: @Sendable (String, URL) throws -> Void
-    private let overwrite: @Sendable (String, URL) throws -> Void
-
-    public init(
-        fileURL: URL,
-        read: @escaping @Sendable (URL) throws -> String = {
-            try String(contentsOf: $0, encoding: .utf8)
-        },
-        appendLine: @escaping @Sendable (String, URL) throws -> Void = { line, url in
-            let fm = FileManager.default
-            try fm.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-            if !fm.fileExists(atPath: url.path) { fm.createFile(atPath: url.path, contents: nil) }
-            let handle = try FileHandle(forWritingTo: url)
-            defer { try? handle.close() }
-            _ = try handle.seekToEnd()
-            try handle.write(contentsOf: Data(line.utf8))
-        },
-        overwrite: @escaping @Sendable (String, URL) throws -> Void = { value, url in
-            try FileManager.default.createDirectory(
-                at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-            try value.write(to: url, atomically: true, encoding: .utf8)
-        }
-    ) {
-        self.fileURL = fileURL
-        self.read = read
-        self.appendLine = appendLine
-        self.overwrite = overwrite
-    }
-
-    private static func coder() -> (JSONEncoder, JSONDecoder) {
-        let e = JSONEncoder(); e.dateEncodingStrategy = .iso8601
-        let d = JSONDecoder(); d.dateDecodingStrategy = .iso8601
-        return (e, d)
-    }
-
-    public func all() -> [AttributionQueueEntry] {
-        guard let text = try? read(fileURL) else { return [] }
-        let (_, dec) = Self.coder()
-        return text.split(separator: "\n").compactMap {
-            try? dec.decode(AttributionQueueEntry.self, from: Data($0.utf8))
-        }
-    }
-
-    public func append(_ entry: AttributionQueueEntry) throws {
-        let (enc, _) = Self.coder()
-        let line = String(decoding: try enc.encode(entry), as: UTF8.self) + "\n"
-        try appendLine(line, fileURL)
-    }
-
-    public func replaceAll(_ entries: [AttributionQueueEntry]) throws {
-        let (enc, _) = Self.coder()
-        let body = try entries.map { String(decoding: try enc.encode($0), as: UTF8.self) }
-            .joined(separator: "\n")
-        try overwrite(body.isEmpty ? "" : body + "\n", fileURL)
-    }
-}
+/// (the queue holds only what still needs review).
+public typealias AttributionQueueStore = JSONLStore<AttributionQueueEntry>
 
 public enum AttributionError: Error, Equatable {
     case entryNotFound
@@ -158,6 +97,12 @@ public struct AttributionService: Sendable {
     ) throws -> WorkSession {
         guard let entry = queue.all().first(where: { $0.id == id }) else {
             throw AttributionError.entryNotFound
+        }
+        // Idempotent: if a prior approve wrote the session but failed to clear the
+        // queue entry, don't write it twice — just finish removing the entry.
+        if let existing = log.all().first(where: { $0.attributionID == entry.id }) {
+            try remove(id)
+            return existing
         }
         let taskID: String
         let title: String

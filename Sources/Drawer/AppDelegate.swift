@@ -212,7 +212,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             daySummaries: DaySummaryStore(fileURL: AppPaths.daySummariesFile),
             rulesURL: AppPaths.attributionRulesFile,
             candidatesProvider: { [weak self] in self?.attributionCandidates() ?? [] },
-            manualSpansProvider: { [weak self] day in self?.manualSpans(on: day, log: workLog) ?? [] },
+            manualSpansProvider: { [weak self] range in self?.manualSpans(overlapping: range, log: workLog) ?? [] },
             todayProvider: { TodoStore.localToday() })
 
         attribution.$isObserving
@@ -242,13 +242,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         return out
     }
 
-    /// Manual stopwatch spans for a day, subtracted from blocks so attribution
-    /// never queues a competing match for time already tracked by hand.
-    private func manualSpans(on day: Date, log: WorkSessionLog) -> [TimeRange] {
-        let calendar = Calendar.current
-        return log.all()
-            .filter { $0.source == nil && calendar.isDate($0.start, inSameDayAs: day) }
+    /// Manual stopwatch spans overlapping a block, subtracted so attribution
+    /// never queues a competing match for time already tracked by hand. Filtered
+    /// by overlap (not by day) so a cross-midnight manual span still counts.
+    private func manualSpans(overlapping range: TimeRange, log: WorkSessionLog) -> [TimeRange] {
+        log.all()
+            .filter { $0.source == nil }
             .map { TimeRange(start: $0.start, end: $0.end) }
+            .filter { $0.overlaps(range) }
     }
 
     @objc private func syncAttribution() {

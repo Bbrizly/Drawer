@@ -119,14 +119,16 @@ public struct WorkSessionLog: Sendable {
     /// One summary per day that has logged time, most recent day first.
     public func allSummaries(calendar: Calendar = .current) -> [WorkSummary] {
         let f = Self.dayFormatter(calendar)
-        let days = Set(all().map { f.string(from: $0.start) })
+        let days = Set(all().filter(\.isAttributable).map { f.string(from: $0.start) })
         return days.sorted(by: >).map { summary(for: $0, calendar: calendar) }
     }
 
-    /// Per-task roll-up for one day, longest first.
+    /// Per-task roll-up for one day, longest first. Approved-but-unattributed
+    /// time is real logged time but not task work, so it is excluded here: it
+    /// never shows as a blank row or inflates a per-task total.
     public func summary(for day: String, calendar: Calendar = .current) -> WorkSummary {
         let f = Self.dayFormatter(calendar)
-        let sameDay = all().filter { f.string(from: $0.start) == day }
+        let sameDay = all().filter { $0.isAttributable && f.string(from: $0.start) == day }
         var byTitle: [String: TimeInterval] = [:]
         for s in sameDay { byTitle[s.taskTitle, default: 0] += s.seconds }
         let rows = byTitle

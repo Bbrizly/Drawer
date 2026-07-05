@@ -100,6 +100,24 @@ final class AttributionQueueTests: XCTestCase {
         XCTAssertEqual(stored.evidence.titles, ["TodoParser.swift"])
     }
 
+    func testWorkLogSummaryExcludesUnattributed() throws {
+        let box = LogBox()
+        let log = makeMemoryLog(box)
+        let s = Date(timeIntervalSince1970: 0)
+        try log.append(WorkSession(taskID: "t", taskTitle: "Ship", start: s, end: s.addingTimeInterval(600)))
+        try log.append(WorkSession(
+            taskID: "", taskTitle: "", start: s.addingTimeInterval(700), end: s.addingTimeInterval(1000),
+            source: "auto", kind: .unattributed))
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd"
+        formatter.timeZone = Calendar.current.timeZone
+        let summary = log.summary(for: formatter.string(from: s))
+        // The unattributed span is real logged time but not a task: it must not
+        // appear as a (blank) row or inflate the per-task total.
+        XCTAssertEqual(summary.rows.map(\.taskTitle), ["Ship"])
+        XCTAssertEqual(summary.total, 600, accuracy: 0.001)
+    }
+
     func testWorkSessionBackCompatWithoutKind() {
         let box = LogBox()
         box.text = """

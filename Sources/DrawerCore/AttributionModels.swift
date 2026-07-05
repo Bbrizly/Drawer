@@ -60,7 +60,7 @@ public struct SessionBoundary: Equatable, Sendable {
 /// Why a block stopped growing. Recorded so sessionizer behavior is testable
 /// from explicit boundary events, not hidden wall-clock timing.
 public enum ActivityBlockCloseReason: String, Codable, Sendable {
-    case idle, sleep, lock, appSwitch, longRun, endOfStream
+    case idle, sleep, lock, appSwitch, endOfStream
 }
 
 /// How a match was produced. Never implies a write — it only labels the source.

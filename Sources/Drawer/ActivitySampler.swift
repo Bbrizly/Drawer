@@ -163,7 +163,14 @@ final class ActivitySampler {
     }
 
     deinit {
+        // Tear down everything even if stop() wasn't called, so the AX callback's
+        // unretained refcon can never fire against a freed sampler.
         NSWorkspace.shared.notificationCenter.removeObserver(self)
         DistributedNotificationCenter.default().removeObserver(self)
+        idleTimer?.invalidate()
+        if let observer = axObserver {
+            CFRunLoopRemoveSource(
+                CFRunLoopGetMain(), AXObserverGetRunLoopSource(observer), .defaultMode)
+        }
     }
 }
