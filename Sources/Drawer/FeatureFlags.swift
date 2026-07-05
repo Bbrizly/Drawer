@@ -23,6 +23,12 @@ enum FeatureFlag: String, CaseIterable, Identifiable {
     case archiveSection
     case workMode
     case ideas
+    /// Exposes Drawer to AI agents over MCP (a separate `drawer-mcp` binary you
+    /// register with `claude mcp add`). The app doesn't run the server, so this
+    /// flag gates nothing in-app in v1; it exists, defaults on, and is kept out
+    /// of `groupsInOrder` so it renders no dead toggle. A Pro tier can read it
+    /// later to wrap the integration.
+    case mcp
 
     var id: String { rawValue }
 
@@ -56,6 +62,7 @@ enum FeatureFlag: String, CaseIterable, Identifiable {
         case .archiveSection: return "Archive section"
         case .workMode: return "Stopwatch"
         case .ideas: return "Idea board"
+        case .mcp: return "MCP server"
         }
     }
 
@@ -79,6 +86,7 @@ enum FeatureFlag: String, CaseIterable, Identifiable {
         case .archiveSection: return "Collapsible Archive at the bottom."
         case .workMode: return "A stopwatch that logs real hours against tasks."
         case .ideas: return "A light bulb to jot ideas, and a board you swipe to."
+        case .mcp: return "Let AI agents read and write your drawer over MCP."
         }
     }
 
@@ -91,6 +99,9 @@ enum FeatureFlag: String, CaseIterable, Identifiable {
         case .taskNotes, .minuteBadges: return "Task rows"
         case .carriedSection, .tomorrowSection, .backlogSection, .archiveSection: return "Sections"
         case .filterMenu, .notes, .ideas: return "Controls"
+        // "Integrations" is intentionally absent from groupsInOrder, so this
+        // flag exists without rendering a toggle (see the case comment).
+        case .mcp: return "Integrations"
         }
     }
 

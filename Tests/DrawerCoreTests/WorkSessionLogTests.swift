@@ -29,6 +29,32 @@ private func session(
 }
 
 final class WorkSessionLogTests: XCTestCase {
+    func testOldLineWithoutSourceStillDecodes() {
+        // Back-compat: every existing log line predates the source field.
+        let box = LogBox()
+        box.text = """
+        {"id":"00000000-0000-0000-0000-000000000001","taskID":"t","taskTitle":"A","start":"2026-07-05T10:00:00Z","end":"2026-07-05T10:10:00Z"}
+        """ + "\n"
+        let log = makeMemoryLog(box)
+        let all = log.all()
+        XCTAssertEqual(all.count, 1)
+        XCTAssertNil(all[0].source)
+    }
+
+    func testSourceRoundTripsAndOmitsWhenNil() throws {
+        let box = LogBox()
+        let log = makeMemoryLog(box)
+        let s = Date(timeIntervalSince1970: 0)
+        try log.append(WorkSession(
+            taskID: "t", taskTitle: "A", start: s, end: s.addingTimeInterval(60), source: "auto"))
+        try log.append(WorkSession(
+            taskID: "t", taskTitle: "B", start: s, end: s.addingTimeInterval(60)))
+        XCTAssertEqual(log.all().map(\.source), ["auto", nil])
+        // A nil source is omitted from JSON, not written as null.
+        XCTAssertFalse(box.text.contains("\"source\":null"))
+        XCTAssertTrue(box.text.contains("\"source\":\"auto\""))
+    }
+
     func testAppendRoundTrips() throws {
         let box = LogBox()
         let log = makeMemoryLog(box)

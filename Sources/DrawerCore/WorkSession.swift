@@ -7,13 +7,21 @@ public struct WorkSession: Codable, Equatable, Identifiable, Sendable {
     public let taskTitle: String   // the durable attribution key
     public let start: Date
     public let end: Date
+    /// How this session was captured: "auto" for an approved attribution match
+    /// (spec 02), nil/absent for manual stopwatch time. Optional so every
+    /// pre-existing log line still decodes; omitted from JSON when nil.
+    public let source: String?
 
-    public init(id: UUID = UUID(), taskID: String, taskTitle: String, start: Date, end: Date) {
+    public init(
+        id: UUID = UUID(), taskID: String, taskTitle: String,
+        start: Date, end: Date, source: String? = nil
+    ) {
         self.id = id
         self.taskID = taskID
         self.taskTitle = taskTitle
         self.start = start
         self.end = end
+        self.source = source
     }
 
     public var seconds: TimeInterval { max(0, end.timeIntervalSince(start)) }

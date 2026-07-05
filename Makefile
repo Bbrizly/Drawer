@@ -1,5 +1,6 @@
 APP = Drawer.app
 BINARY = .build/release/Drawer
+MCP_BINARY = .build/release/drawer-mcp
 
 .PHONY: build test app run clean release
 
@@ -18,6 +19,7 @@ app:
 	cp Resources/Info.plist $(APP)/Contents/Info.plist
 	cp Resources/AppIcon.icns $(APP)/Contents/Resources/AppIcon.icns
 	cp $(BINARY) $(APP)/Contents/MacOS/Drawer
+	cp $(MCP_BINARY) $(APP)/Contents/MacOS/drawer-mcp
 	cp -R .build/release/Drawer_Drawer.bundle $(APP)/Contents/Resources/ 2>/dev/null || true
 	codesign --force --sign - $(APP)
 

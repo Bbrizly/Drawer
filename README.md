@@ -111,6 +111,34 @@ Get the latest build from [Releases](https://github.com/Bbrizly/Drawer/releases/
 - **Timer field and play**: start a focus session
 - **Menu bar icon**: toggle, settings, quit
 
+## MCP server (the API is a markdown file)
+
+Drawer ships a Model Context Protocol server, so any MCP client (Claude Code,
+Claude Desktop) can read and write your drawer. It runs whether or not the app
+is open, and every write goes through the same byte-safe path the app uses.
+
+The server binary lives inside the app bundle. Register it once:
+
+```
+claude mcp add drawer -- /Applications/Drawer.app/Contents/MacOS/drawer-mcp
+```
+
+By default it edits the same `Drawer.md` the app does. Point it elsewhere with
+`--file <path>` or the `DRAWER_FILE` environment variable.
+
+Five tools:
+
+- `list_tasks` — tasks by section (today, carried, upcoming, backlog, archive, all)
+- `add_task` — add to today, a dated section, or the backlog
+- `toggle_task` — check or uncheck a task by id
+- `get_work_summary` — logged hours for a day, per task
+- `write_day_plan` — write or merge a whole day's plan
+
+It doubles as the AI fallback on Macs without Apple Intelligence: your Claude
+reads the file and plans through the same writer the in-app planner uses.
+
+Smoke-test it end to end with `scripts/mcp-smoke.sh`.
+
 ## Build from source
 
 ```
