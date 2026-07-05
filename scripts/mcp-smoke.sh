@@ -1,37 +1,81 @@
 #!/usr/bin/env bash
-# End-to-end smoke test for the drawer-mcp server: spawn the binary, drive an
-# add/list/toggle over stdio, and assert the drawer file changed. Exits non-zero
-# on any failure. Run: scripts/mcp-smoke.sh
+# End-to-end smoke test for drawer-mcp: spawn the binary and drive a real MCP
+# stdio exchange (initialize -> add_task -> list_tasks -> toggle_task), then
+# assert the drawer file changed. Uses the id returned by list_tasks (not a
+# hardcoded format) and fails on any bad response, missing tool, or crash.
+# Requires python3. Run: scripts/mcp-smoke.sh
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
 echo "building drawer-mcp..."
 swift build --product drawer-mcp >/dev/null
 BIN="$(swift build --target drawer-mcp --show-bin-path)/drawer-mcp"
+FILE="$(mktemp -t drawer-mcp-smoke).md"; rm -f "$FILE"
 
-FILE="$(mktemp -t drawer-mcp-smoke).md"
-rm -f "$FILE"
-TODAY="$(date +%Y-%m-%d)"
-LINE="- [ ] smoke task (25m)"
+BIN="$BIN" FILE="$FILE" python3 - <<'PY'
+import json, os, subprocess, sys
 
-# A real MCP client keeps stdin open; feed requests with small gaps so the
-# server stays alive through the exchange (an instant EOF races the read loop).
-drive() {
-  printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"smoke","version":"1"}}}'; sleep 0.4
-  printf '%s\n' '{"jsonrpc":"2.0","method":"notifications/initialized"}'; sleep 0.3
-  printf '%s\n' "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/call\",\"params\":{\"name\":\"add_task\",\"arguments\":{\"title\":\"smoke task\",\"minutes\":25}}}"; sleep 0.5
-  printf '%s\n' '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"list_tasks","arguments":{"section":"today"}}}'; sleep 0.4
-  printf '%s\n' "{\"jsonrpc\":\"2.0\",\"id\":4,\"method\":\"tools/call\",\"params\":{\"name\":\"toggle_task\",\"arguments\":{\"id\":\"${TODAY}|0|${LINE}\"}}}"; sleep 0.5
-}
+bin_path, file_path = os.environ["BIN"], os.environ["FILE"]
+proc = subprocess.Popen(
+    [bin_path, "--file", file_path],
+    stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True,
+)
 
-OUT="$(drive | "${TIMEOUT:-gtimeout}" 8 "$BIN" --file "$FILE" 2>/dev/null || true)"
+def fail(msg):
+    print(f"SMOKE FAIL: {msg}")
+    try: print(open(file_path).read())
+    except FileNotFoundError: print("(no file)")
+    proc.kill(); sys.exit(1)
 
-fail() { echo "SMOKE FAIL: $1"; echo "--- file ---"; cat "$FILE" 2>/dev/null || echo "(no file)"; exit 1; }
+def send(obj):
+    proc.stdin.write(json.dumps(obj) + "\n"); proc.stdin.flush()
 
-grep -qF "smoke task" <<<"$OUT" || fail "list_tasks did not return the added task"
-[ -f "$FILE" ] || fail "server never created the drawer file"
-grep -q "^## ${TODAY}$" "$FILE" || fail "today section not created"
-grep -qF -- "- [x] smoke task (25m)" "$FILE" || fail "task was not added and toggled done"
+def read_result(req_id):
+    # Read newline-delimited JSON-RPC until the matching response arrives.
+    for line in proc.stdout:
+        line = line.strip()
+        if not line: continue
+        msg = json.loads(line)
+        if msg.get("id") == req_id:
+            if "error" in msg: fail(f"request {req_id} errored: {msg['error']}")
+            return msg["result"]
+    fail(f"no response for request {req_id} (server exited early)")
 
-echo "SMOKE PASS: add + list + toggle drove the file to a checked task"
-rm -f "$FILE"
+def call(req_id, name, arguments):
+    send({"jsonrpc": "2.0", "id": req_id, "method": "tools/call",
+          "params": {"name": name, "arguments": arguments}})
+    result = read_result(req_id)
+    if result.get("isError"):
+        fail(f"{name} returned a tool error: {result['content'][0]['text']}")
+    return json.loads(result["content"][0]["text"])
+
+send({"jsonrpc": "2.0", "id": 1, "method": "initialize",
+      "params": {"protocolVersion": "2024-11-05", "capabilities": {},
+                 "clientInfo": {"name": "smoke", "version": "1"}}})
+init = read_result(1)
+if init.get("serverInfo", {}).get("name") != "drawer":
+    fail(f"unexpected serverInfo: {init.get('serverInfo')}")
+send({"jsonrpc": "2.0", "method": "notifications/initialized"})
+
+added = call(2, "add_task", {"title": "smoke task", "minutes": 25})
+if added.get("title") != "smoke task":
+    fail(f"add_task did not echo the task: {added}")
+
+tasks = call(3, "list_tasks", {"section": "today"})
+match = next((t for t in tasks if t["title"] == "smoke task"), None)
+if not match:
+    fail(f"list_tasks did not return the added task: {tasks}")
+
+toggled = call(4, "toggle_task", {"id": match["id"]})
+if not toggled.get("done"):
+    fail(f"toggle_task did not report done: {toggled}")
+
+proc.stdin.close(); proc.wait(timeout=5)
+
+content = open(file_path).read()
+if "- [x] smoke task (25m)" not in content:
+    fail(f"file does not show the checked task:\n{content}")
+
+os.remove(file_path)
+print("SMOKE PASS: initialize + add + list + toggle drove the file to a checked task")
+PY

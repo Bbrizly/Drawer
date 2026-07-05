@@ -44,27 +44,32 @@ public struct DrawerToolService: Sendable {
     public func addTask(
         title: String, section: String?, date: String?, note: String?, minutes: Int?
     ) throws -> TaskDTO {
-        let (data, _) = try load()
         let entry = PlanEntry(title: title, minutes: minutes, note: note)
-        let key: String
-        let out: Data
-        if let date {
-            out = try PlanWriter.write(date: date, entries: [entry], replace: false, in: data)
-            key = date
-        } else if let section, section == TodoParser.backlogKey || section == TodoParser.archiveKey {
-            out = try insertIntoNamedSection(section, title: title, note: note, minutes: minutes, in: data)
-            key = section
-        } else {
-            out = try PlanWriter.write(date: today(), entries: [entry], replace: false, in: data)
-            key = today()
-        }
-        try write(out)
+        // Same content guard on every path (the backlog insert doesn't go
+        // through PlanWriter, so validate here too — no newline/checkbox
+        // injection reaches the shared file).
+        try PlanWriter.checkEntryContent(entry)
 
-        let fresh = buildDTOs(String(decoding: out, as: UTF8.self))
+        let toDate = date
+        let toNamed = (section == TodoParser.backlogKey || section == TodoParser.archiveKey) ? section : nil
+        let key = toDate ?? toNamed ?? today()
+
+        let out = try mutate { data in
+            if let toDate {
+                return try PlanWriter.write(date: toDate, entries: [entry], replace: false, in: data)
+            } else if let toNamed {
+                return try insertIntoNamedSection(
+                    toNamed, title: title, note: note, minutes: minutes, in: data)
+            } else {
+                return try PlanWriter.write(date: today(), entries: [entry], replace: false, in: data)
+            }
+        }
+
         let target = TitleSimilarity.normalize(title)
-        return fresh.last { $0.date == key && TitleSimilarity.normalize($0.title) == target }
+        return buildDTOs(String(decoding: out, as: UTF8.self))
+            .last { $0.date == key && TitleSimilarity.normalize($0.title) == target }
             ?? TaskDTO(
-                id: "", title: title, done: false, inProgress: false,
+                id: "\(key)|0|\(entry.taskID ?? "")", title: title, done: false, inProgress: false,
                 minutes: minutes ?? 25, section: key, date: key, note: note
             )
     }
@@ -91,15 +96,27 @@ public struct DrawerToolService: Sendable {
 
     // MARK: toggle_task
 
+    /// Toggles by `TodoItem.id` (`sectionDate|occurrence|rawLine`). A stale id
+    /// whose exact line no longer exists fails safe (taskNotFound, or
+    /// lineNotFound from the writeback). Known edge of the shared id scheme: two
+    /// *identical* task lines in one section are told apart only by occurrence,
+    /// so if an external edit inserts/removes an identical line, a stale id can
+    /// land on the sibling. This is the same id the in-app UI uses; unique task
+    /// text avoids it, and duplicate identical tasks are already ambiguous.
     public func toggleTask(id: String) throws -> ToggleResult {
-        let (data, text) = try load()
-        guard let item = TodoParser.parse(text).flatMap(\.items).first(where: { $0.id == id }) else {
-            throw DrawerToolError.taskNotFound(id)
+        var captured: ToggleResult?
+        _ = try mutate { data in
+            guard let text = String(data: data, encoding: .utf8) else {
+                throw DrawerToolError.badEncoding
+            }
+            guard let item = TodoParser.parse(text).flatMap(\.items).first(where: { $0.id == id }) else {
+                throw DrawerToolError.taskNotFound(id)
+            }
+            captured = ToggleResult(title: item.title, done: !item.isDone)
+            return try TodoWriteback.toggle(
+                line: item.rawLine, sectionDate: item.sectionDate, occurrence: item.occurrence, in: data)
         }
-        let out = try TodoWriteback.toggle(
-            line: item.rawLine, sectionDate: item.sectionDate, occurrence: item.occurrence, in: data)
-        try write(out)
-        return ToggleResult(title: item.title, done: !item.isDone)
+        return captured!  // mutate ran the transform at least once, or threw
     }
 
     // MARK: get_work_summary
@@ -138,9 +155,9 @@ public struct DrawerToolService: Sendable {
     public func writeDayPlan(
         date: String, entries: [PlanEntry], replace: Bool
     ) throws -> WritePlanResult {
-        let (data, _) = try load()
-        let out = try PlanWriter.write(date: date, entries: entries, replace: replace, in: data)
-        try write(out)
+        let out = try mutate { data in
+            try PlanWriter.write(date: date, entries: entries, replace: replace, in: data)
+        }
         let tasks = buildDTOs(String(decoding: out, as: UTF8.self)).filter { $0.date == date }
         return WritePlanResult(date: date, tasks: tasks)
     }
@@ -150,11 +167,46 @@ public struct DrawerToolService: Sendable {
     /// Current bytes and their UTF-8 text. A missing file reads as empty; a
     /// present-but-non-UTF-8 file errors so no tool ever parses or overwrites it.
     private func load() throws -> (Data, String) {
-        let data = (try? read()) ?? Data()
+        let data = try readOrEmpty()
         guard let text = String(data: data, encoding: .utf8) else {
             throw DrawerToolError.badEncoding
         }
         return (data, text)
+    }
+
+    /// Reads the file, mapping only a genuine "no such file" to empty. A
+    /// permission or I/O failure must surface, never masquerade as an empty
+    /// drawer (which would silently drop the user's tasks on the next write).
+    private func readOrEmpty() throws -> Data {
+        do { return try read() }
+        catch {
+            if isFileNotFound(error) { return Data() }
+            throw error
+        }
+    }
+
+    private func isFileNotFound(_ error: Error) -> Bool {
+        let ns = error as NSError
+        if ns.domain == NSCocoaErrorDomain, ns.code == NSFileReadNoSuchFileError { return true }
+        if ns.domain == NSPOSIXErrorDomain, ns.code == Int(ENOENT) { return true }
+        return false
+    }
+
+    /// Content-based compare-and-swap for whole-file writes: read, compute the
+    /// new bytes, then re-read just before writing. If the file changed under us
+    /// (a concurrent Obsidian/app save), recompute once against the fresh bytes
+    /// so that edit isn't clobbered. Content comparison, not an mtime guard, per
+    /// the spec's write-concurrency model. Returns the bytes written.
+    private func mutate(_ transform: (Data) throws -> Data) throws -> Data {
+        var data = try readOrEmpty()
+        var out = try transform(data)
+        let fresh = try readOrEmpty()
+        if fresh != data {
+            data = fresh
+            out = try transform(data)
+        }
+        try write(out)
+        return out
     }
 
     private func buildDTOs(_ text: String) -> [TaskDTO] {

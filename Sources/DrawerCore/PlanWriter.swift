@@ -104,7 +104,7 @@ public enum PlanWriter {
 
         var newTasks = 0
         for entry in entries {
-            try checkContent(entry)
+            try checkEntryContent(entry)
             let title = TitleSimilarity.normalize(entry.title)
             if let id = entry.taskID {
                 guard let resolved = titleByID[id] else {
@@ -123,7 +123,9 @@ public enum PlanWriter {
     /// Rejects titles and notes that would break the one-task-per-entry model:
     /// a newline (injects tasks or a `##` section), an empty title, or a note
     /// line that TodoParser would read as a checkbox task rather than a note.
-    private static func checkContent(_ entry: PlanEntry) throws {
+    /// Internal so any writer of a single task (e.g. add_task's backlog path)
+    /// can apply the same guard instead of reimplementing it.
+    static func checkEntryContent(_ entry: PlanEntry) throws {
         let title = entry.title
         guard !title.contains("\n"), !title.contains("\r"),
               !title.trimmingCharacters(in: .whitespaces).isEmpty

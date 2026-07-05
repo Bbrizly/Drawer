@@ -103,6 +103,8 @@ func fail(_ message: String) -> CallTool.Result {
 /// Maps a thrown error to a one-line client remedy.
 func remedy(for error: Error) -> String {
     switch error {
+    case let e as ToolArgumentError:
+        return e.message
     case DrawerToolError.taskNotFound:
         return "No task with that id. Call list_tasks again for fresh ids."
     case DrawerToolError.badEncoding, WritebackError.badEncoding, PlanWriterError.badEncoding:
@@ -134,10 +136,26 @@ func string(_ args: [String: Value]?, _ key: String) -> String? { args?[key]?.st
 func int(_ args: [String: Value]?, _ key: String) -> Int? { args?[key]?.intValue }
 func bool(_ args: [String: Value]?, _ key: String) -> Bool? { args?[key]?.boolValue }
 
-func planEntries(_ args: [String: Value]?) -> [PlanEntry] {
-    (args?["entries"]?.arrayValue ?? []).compactMap { value in
-        guard let object = value.objectValue, let title = object["title"]?.stringValue else {
-            return nil
+struct ToolArgumentError: Error {
+    let message: String
+    init(_ message: String) { self.message = message }
+}
+
+/// Strict decode: a malformed entry fails the whole call rather than being
+/// silently dropped into a partial plan mutation.
+func planEntries(_ args: [String: Value]?) throws -> [PlanEntry] {
+    guard let raw = args?["entries"] else {
+        throw ToolArgumentError("write_day_plan requires an entries array.")
+    }
+    guard let array = raw.arrayValue else {
+        throw ToolArgumentError("entries must be an array.")
+    }
+    return try array.enumerated().map { index, value in
+        guard let object = value.objectValue else {
+            throw ToolArgumentError("entry \(index) must be an object.")
+        }
+        guard let title = object["title"]?.stringValue else {
+            throw ToolArgumentError("entry \(index) needs a string title.")
         }
         return PlanEntry(
             title: title,
@@ -226,12 +244,21 @@ await server.withMethodHandler(CallTool.self) { params in
     do {
         switch params.name {
         case "list_tasks":
-            let section = string(args, "section").flatMap(DrawerToolService.TaskSection.init) ?? .all
+            var section = DrawerToolService.TaskSection.all
+            if let raw = string(args, "section") {
+                guard let parsed = DrawerToolService.TaskSection(rawValue: raw) else {
+                    return fail("Unknown section '\(raw)'. Use today, carried, upcoming, backlog, archive, or all.")
+                }
+                section = parsed
+            }
             let includeDone = bool(args, "include_done") ?? true
             return ok(try await gateway.listTasks(section: section, includeDone: includeDone))
 
         case "add_task":
             guard let title = string(args, "title") else { return fail("add_task requires a title.") }
+            if let raw = string(args, "section"), !["today", "backlog", "archive"].contains(raw) {
+                return fail("add_task section must be today, backlog, or archive; pass date for a specific day.")
+            }
             return ok(try await gateway.addTask(
                 title: title, section: string(args, "section"), date: string(args, "date"),
                 note: string(args, "note"), minutes: int(args, "minutes")))
@@ -246,7 +273,7 @@ await server.withMethodHandler(CallTool.self) { params in
         case "write_day_plan":
             guard let date = string(args, "date") else { return fail("write_day_plan requires a date.") }
             return ok(try await gateway.writeDayPlan(
-                date: date, entries: planEntries(args), replace: bool(args, "replace") ?? false))
+                date: date, entries: try planEntries(args), replace: bool(args, "replace") ?? false))
 
         default:
             return fail("Unknown tool: \(params.name)")

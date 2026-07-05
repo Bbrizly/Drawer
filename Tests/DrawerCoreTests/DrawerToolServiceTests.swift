@@ -102,6 +102,89 @@ final class DrawerToolServiceTests: XCTestCase {
         )
     }
 
+    func testAddTaskRejectsCheckboxShapedNote() {
+        let box = FileBox("## 2026-07-06\n- [ ] a\n")
+        let svc = makeService(box)
+        XCTAssertThrowsError(try svc.addTask(
+            title: "real", section: "backlog", date: nil, note: "- [ ] injected", minutes: nil)
+        ) {
+            guard case PlanWriterError.invalidEntry = $0 else {
+                return XCTFail("expected invalidEntry, got \($0)")
+            }
+        }
+        XCTAssertEqual(box.text, "## 2026-07-06\n- [ ] a\n") // unwritten
+    }
+
+    func testAddTaskRejectsNewlineTitle() {
+        let box = FileBox()
+        let svc = makeService(box)
+        XCTAssertThrowsError(try svc.addTask(
+            title: "a\n## 2026-07-07", section: nil, date: nil, note: nil, minutes: nil))
+        XCTAssertEqual(box.text, "")
+    }
+
+    // MARK: read-error handling
+
+    func testNonNotFoundReadErrorPropagates() {
+        struct Denied: Error {}
+        let svc = DrawerToolService(
+            read: { throw Denied() },
+            write: { _ in XCTFail("must not write when the read failed") },
+            workLog: WorkSessionLog(
+                fileURL: URL(fileURLWithPath: "/dev/null"),
+                read: { _ in "" }, appendLine: { _, _ in }, overwrite: { _, _ in }),
+            today: { "2026-07-06" }
+        )
+        // A generic read failure is not "missing file": it must surface, not
+        // masquerade as an empty drawer.
+        XCTAssertThrowsError(try svc.listTasks(section: .all, includeDone: true)) {
+            XCTAssertTrue($0 is Denied)
+        }
+    }
+
+    func testMissingFileReadsEmptyPOSIX() throws {
+        let svc = DrawerToolService(
+            read: { throw CocoaError(.fileReadNoSuchFile) },
+            write: { _ in },
+            workLog: WorkSessionLog(
+                fileURL: URL(fileURLWithPath: "/dev/null"),
+                read: { _ in "" }, appendLine: { _, _ in }, overwrite: { _, _ in }),
+            today: { "2026-07-06" }
+        )
+        XCTAssertEqual(try svc.listTasks(section: .all, includeDone: true).count, 0)
+    }
+
+    // MARK: concurrent-edit compare-and-swap
+
+    func testWriteRecomputesOnConcurrentEdit() throws {
+        // read #1 returns the old file; read #2 (the pre-write re-check) returns
+        // a version an external editor grew. The plan must merge into the fresh
+        // bytes, never clobber the externally-added task.
+        final class Shifting: @unchecked Sendable {
+            let reads = [
+                Data("## 2026-07-06\n- [ ] a\n".utf8),
+                Data("## 2026-07-06\n- [ ] a\n- [ ] b\n".utf8),
+            ]
+            var i = 0
+            var written: Data?
+            func read() -> Data { defer { i += 1 }; return reads[min(i, reads.count - 1)] }
+        }
+        let box = Shifting()
+        let svc = DrawerToolService(
+            read: { box.read() },
+            write: { box.written = $0 },
+            workLog: WorkSessionLog(
+                fileURL: URL(fileURLWithPath: "/dev/null"),
+                read: { _ in "" }, appendLine: { _, _ in }, overwrite: { _, _ in }),
+            today: { "2026-07-06" }
+        )
+        _ = try svc.writeDayPlan(date: "2026-07-06", entries: [PlanEntry(title: "c")], replace: false)
+        XCTAssertEqual(
+            String(data: box.written ?? Data(), encoding: .utf8),
+            "## 2026-07-06\n- [ ] a\n- [ ] b\n- [ ] c\n"
+        )
+    }
+
     // MARK: toggle_task
 
     func testToggleTaskByID() throws {
