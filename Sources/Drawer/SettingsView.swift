@@ -8,6 +8,7 @@ struct SettingsView: View {
     var onChooseFile: (URL) -> Void
     var onHotkeyChange: (HotkeyBinding) -> Bool
     var onLayoutChange: () -> Void
+    var onRightCommandTapChange: (Bool) -> Void
 
     private enum Tab: String, CaseIterable {
         case general = "General"
@@ -61,7 +62,8 @@ struct SettingsView: View {
                 GeneralSettingsView(
                     onChooseFile: onChooseFile,
                     onHotkeyChange: onHotkeyChange,
-                    onLayoutChange: onLayoutChange
+                    onLayoutChange: onLayoutChange,
+                    onRightCommandTapChange: onRightCommandTapChange
                 )
             case .features:
                 FeatureSettingsView()
@@ -145,6 +147,7 @@ private struct GeneralSettingsView: View {
     var onChooseFile: (URL) -> Void
     var onHotkeyChange: (HotkeyBinding) -> Bool
     var onLayoutChange: () -> Void
+    var onRightCommandTapChange: (Bool) -> Void
 
     @AppStorage("drawerFilePath") private var filePath = AppPaths.defaultDrawerFile
     @State private var hotkey = HotkeyBinding.saved
@@ -163,6 +166,7 @@ private struct GeneralSettingsView: View {
         PomodoroTimer.Settings.standard.sessionsUntilLongBreak
     @AppStorage("panelWidth") private var panelWidth = 300.0
     @AppStorage("panelCompactHeight") private var panelHeight = 440.0
+    @AppStorage("panelSlideDuration") private var panelSlideDuration = 0.14
     @AppStorage("drawerTheme") private var themeRaw = DrawerTheme.default.rawValue
     @AppStorage("appFontDesign") private var appFontDesign = "theme"
     @AppStorage("taskFontSize") private var taskFontSize = 13.0
@@ -175,6 +179,8 @@ private struct GeneralSettingsView: View {
     @State private var showHotkeyError = false
     @State private var isRecordingHotkey = false
     @State private var hotkeyRecorder = HotkeyRecorder()
+    @AppStorage("rightCommandTapEnabled") private var rightCommandTapEnabled = false
+    @State private var axTrusted = AccessibilityPermission.isTrusted
 
     private var pomodoroSettings: PomodoroTimer.Settings {
         PomodoroPreferences.settings(
@@ -349,6 +355,38 @@ private struct GeneralSettingsView: View {
                         applyHotkey(new, revertingTo: old)
                     }
                 }
+                Divider()
+                Toggle("Tap right ⌘ to open", isOn: $rightCommandTapEnabled)
+                    .onChange(of: rightCommandTapEnabled) { _, enabled in
+                        onRightCommandTapChange(enabled)
+                        axTrusted = AccessibilityPermission.isTrusted
+                    }
+                if rightCommandTapEnabled {
+                    HStack(spacing: 6) {
+                        Image(systemName: axTrusted ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
+                            .foregroundStyle(axTrusted ? Color.green : Color.orange)
+                        Text(axTrusted
+                             ? "Accessibility granted. Tap the right Command key to open."
+                             : "Waiting for Accessibility access.")
+                        .font(.caption)
+                        Spacer()
+                        Button("Open Settings") { AccessibilityPermission.openSettings() }
+                            .controlSize(.small)
+                    }
+                    if !axTrusted {
+                        SettingsCaption(
+                            "Turn Drawer on under Privacy & Security → Accessibility, then quit and "
+                            + "reopen Drawer. If Drawer is already listed but off, or shows after an "
+                            + "update, remove it with the minus button and add it again."
+                        )
+                        .foregroundStyle(.orange)
+                    }
+                }
+                SettingsCaption(
+                    "A single tap of the right Command key shows or hides the drawer, on top of "
+                    + "the shortcut above. This needs Accessibility access, which the built shortcut "
+                    + "does not."
+                )
             }
             Section("Timers") {
                 TimerFeatureToggleGrid(
@@ -413,6 +451,17 @@ private struct GeneralSettingsView: View {
                     "Compact height is the default slide-out size. Use the expand arrows in the "
                     + "header to grow to full screen height; that toggle is separate from these numbers."
                 )
+                HStack {
+                    Text("Slide speed")
+                    Slider(value: $panelSlideDuration, in: 0...0.35, step: 0.01)
+                    Text(panelSlideDuration == 0 ? "off" : "\(Int(panelSlideDuration * 1000))ms")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .frame(width: 40, alignment: .trailing)
+                }
+                SettingsCaption(
+                    "How long the drawer takes to slide in and out. Lower is snappier; 0 is instant."
+                )
             }
             Section {
                 Toggle("Launch at login", isOn: $launchAtLogin)
@@ -433,6 +482,14 @@ private struct GeneralSettingsView: View {
             launchAtLogin = SMAppService.mainApp.status == .enabled
             checkOffOptions = CheckOffSound.options()
             sanitizePomodoroSettings()
+            axTrusted = AccessibilityPermission.isTrusted
+        }
+        .task {
+            // Keep the status fresh so it flips right after the user grants access.
+            while !Task.isCancelled {
+                axTrusted = AccessibilityPermission.isTrusted
+                try? await Task.sleep(nanoseconds: 1_000_000_000)
+            }
         }
         .onDisappear { stopHotkeyRecording() }
         .onChange(of: panelWidth) { _, _ in onLayoutChange() }

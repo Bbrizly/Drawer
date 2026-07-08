@@ -325,7 +325,8 @@ final class DrawerVisualRenderTests: XCTestCase {
             SettingsView(
                 onChooseFile: { _ in },
                 onHotkeyChange: { _ in true },
-                onLayoutChange: {}
+                onLayoutChange: {},
+                onRightCommandTapChange: { _ in }
             )
         )
         host.frame = NSRect(origin: .zero, size: size)
@@ -374,7 +375,8 @@ final class DrawerVisualRenderTests: XCTestCase {
             SettingsView(
                 onChooseFile: { _ in },
                 onHotkeyChange: { _ in true },
-                onLayoutChange: {}
+                onLayoutChange: {},
+                onRightCommandTapChange: { _ in }
             )
         )
         host.frame = NSRect(origin: .zero, size: size)

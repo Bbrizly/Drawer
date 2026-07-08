@@ -61,6 +61,7 @@ enum AppPaths {
     static var attributionQueueFile: URL { drawerDataDirectory.appendingPathComponent("attribution-queue.jsonl") }
     static var attributionRulesFile: URL { drawerDataDirectory.appendingPathComponent("attribution-rules.json") }
     static var daySummariesFile: URL { drawerDataDirectory.appendingPathComponent("day-summaries.jsonl") }
+    static var daySchedulesFile: URL { drawerDataDirectory.appendingPathComponent("day-schedules.jsonl") }
     static var historyDirectory: URL { drawerDataDirectory.appendingPathComponent("history", isDirectory: true) }
 
     static func storedPath(forKey key: String, default defaultPath: String) -> String {

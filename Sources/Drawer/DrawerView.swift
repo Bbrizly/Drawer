@@ -16,6 +16,16 @@ struct DrawerView: View {
     var ideas: BoardStore? = nil
     /// Resize the panel to the board coverage the swipe dialed in (0...1).
     var onBoardCoverage: (CGFloat) -> Void = { _ in }
+    /// The companion pane's open/closed state. Opened only by the top-bar
+    /// buttons below; drives the pane column and the panel grow-right.
+    var router = PaneRouter()
+    /// Tell the panel to widen (pane open) or collapse (closed).
+    var onPaneWidthChange: (Bool) -> Void = { _ in }
+    /// Drives the Plan pane. Optional so the visual render tests (which never
+    /// open the pane) can construct the drawer without an on-device model.
+    var planner: PlannerController? = nil
+    var attribution: AttributionController? = nil
+    var history: HistoryRecorder? = nil
 
     @State private var showingAdd = false
     @State private var showingNotes = false
@@ -33,6 +43,7 @@ struct DrawerView: View {
     @AppStorage("archiveExpanded") private var archiveExpanded = false
     @AppStorage("drawerExpanded") private var drawerExpanded = false
     @AppStorage("drawerTheme") private var themeRaw = DrawerTheme.default.rawValue
+    @AppStorage("panelWidth") private var panelWidth = 300.0
     // Feature flags (see FeatureFlag). Each gates a slice of the UI so the app
     // can be stripped to the bare task list.
     @AppStorage("feature.focusTimer") private var focusTimerEnabled = true
@@ -150,43 +161,58 @@ struct DrawerView: View {
         }
     }
 
+    /// Opens (or toggles closed) the companion pane. Opening asks the panel for
+    /// the keyboard so the pane's fields are ready to type into.
+    private func openPane() {
+        router.toggleOpen()
+        if router.activePane != nil { onNeedsKeyboard() }
+    }
+
     var body: some View {
-        ZStack {
+        // One continuous panel plate spans the whole (possibly widened) window;
+        // the task column and the companion pane are columns on top of it, so the
+        // pane shares the theme's surface instead of floating over a clear window.
+        // topLeading anchoring keeps the task column pinned to the left while the
+        // pane extends right and the window edge clips it until it is opened.
+        ZStack(alignment: .topLeading) {
             if !(swipe.showingBoard && boardTransparent) {
                 PanelBackground(theme: theme)
                     .environment(\.controlActiveState, .active)
             }
 
-            Group {
-                if theme.usesXPChrome {
-                    // Classic XP window: blue title bar, a beige menu/toolbar
-                    // band, then the white client area.
-                    VStack(spacing: 0) {
-                        XPTitleBar(
-                            onMinimize: onHide,
-                            onMaximize: onToggleSize,
-                            onClose: onHide
-                        )
-                        .padding(.horizontal, 3)
-                        .padding(.top, 3)
-                        headerToolbarRow
-                            .padding(.horizontal, 8)
-                            .padding(.vertical, 5)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .background(XPMenuBand())
-                            .padding(.horizontal, 3)
-                        drawerMainContent
-                            .padding(14)
-                    }
-                } else {
-                    VStack(alignment: .leading, spacing: 13) {
-                        headerToolbarRow
-                        drawerMainContent
-                    }
-                    .padding(14)
+            HStack(spacing: 0) {
+                // Pinned to its set width unless the board takes the whole frame.
+                // Constant width means the window-resize animation is the ONLY
+                // motion when the pane opens: the task list never reflows.
+                taskColumn
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                    .frame(width: swipe.showingBoard ? nil : panelWidth)
+                    .opacity(swipe.showingBoard && boardTransparent ? 0 : 1)
+            }
+            // The pane is laid out full width and pinned just past the task
+            // column's right edge, as an overlay so it never widens the task
+            // row (a widened row would force SwiftUI to center the overflow and
+            // shove the task column off the left). When closed it sits beyond
+            // the window's right edge; the panel's animated resize is the single
+            // motion that reveals or hides it, so the pane edge can never drift
+            // from the window edge. Nothing inside the content moves.
+            .overlay(alignment: .topLeading) {
+                if !swipe.showingBoard {
+                    CompanionPaneView(
+                        pane: router.activePane ?? router.lastOpened,
+                        router: router,
+                        planner: planner,
+                        attribution: attribution,
+                        history: history,
+                        isActive: router.activePane != nil,
+                        onNeedsKeyboard: onNeedsKeyboard
+                    )
+                    .frame(width: PanelController.paneWidth)
+                    .frame(maxHeight: .infinity, alignment: .topLeading)
+                    .offset(x: panelWidth)
+                    .accessibilityHidden(router.activePane == nil)
                 }
             }
-            .opacity(swipe.showingBoard && boardTransparent ? 0 : 1)
 
             ConfettiLayer(center: celebration)
 
@@ -218,7 +244,43 @@ struct DrawerView: View {
         .onChange(of: swipeProgressEnabled) { _, on in swipe.progressEnabled = on }
         .onChange(of: swipe.boardCoverage) { _, c in onBoardCoverage(c) }
         .onChange(of: swipe.showingBoard) { _, shown in handleBoardVisibility(shown) }
+        .onChange(of: router.activePane) { _, pane in onPaneWidthChange(pane != nil) }
         .onDisappear { scrollMonitor.stop() }
+    }
+
+    /// The task list column (header toolbar + content), the drawer's normal
+    /// contents. Split out so the companion pane can sit beside it over the same
+    /// shared panel background.
+    private var taskColumn: some View {
+        Group {
+            if theme.usesXPChrome {
+                // Classic XP window: blue title bar, a beige menu/toolbar band,
+                // then the white client area.
+                VStack(spacing: 0) {
+                    XPTitleBar(
+                        onMinimize: onHide,
+                        onMaximize: onToggleSize,
+                        onClose: onHide
+                    )
+                    .padding(.horizontal, 3)
+                    .padding(.top, 3)
+                    headerToolbarRow
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 5)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(XPMenuBand())
+                        .padding(.horizontal, 3)
+                    drawerMainContent
+                        .padding(14)
+                }
+            } else {
+                VStack(alignment: .leading, spacing: 13) {
+                    headerToolbarRow
+                    drawerMainContent
+                }
+                .padding(14)
+            }
+        }
     }
 
     private var headerToolbarRow: some View {
@@ -296,6 +358,14 @@ struct DrawerView: View {
                             workClock.enter()
                         }
                     }
+                }
+                DrawerIconButton(
+                    systemName: "sidebar.right",
+                    accessibilityLabel: "Companion pane",
+                    helpText: "Open the planning pane: plan, work, history, and settings.",
+                    isSelected: router.activePane != nil
+                ) {
+                    openPane()
                 }
                 DrawerIconButton(
                     systemName: drawerExpanded
@@ -512,6 +582,9 @@ struct DrawerView: View {
 
     private func handleBoardVisibility(_ shown: Bool) {
         if shown {
+            // The board owns the whole frame; close any open pane so nothing
+            // fights it for the width.
+            router.activePane = nil
             NSApp.activate()
             onNeedsKeyboard()
             if swipe.boardCoverage == 0 {

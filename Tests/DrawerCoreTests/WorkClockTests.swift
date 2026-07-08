@@ -164,6 +164,19 @@ final class WorkClockTests: XCTestCase {
         XCTAssertTrue(cleared.rows.isEmpty)
     }
 
+    func testDayKeyFormatterIsPOSIXGregorian() {
+        // WorkSessionLog writes Gregorian POSIX day keys. WorkClock must match, or
+        // total(forTitle:on:) never finds previously logged time on a non-Gregorian
+        // system calendar (a Buddhist locale would otherwise key today as 2569).
+        let box = LogBox(); let clk = FakeClock(); let defaults = makeDefaults()
+        var cal = Calendar(identifier: .buddhist)
+        cal.timeZone = TimeZone(identifier: "UTC")!
+        let wc = WorkClock(
+            log: makeMemoryLog(box), now: { clk.t }, calendar: cal, defaults: defaults)
+        XCTAssertEqual(wc.dayFormatter.locale.identifier, "en_US_POSIX")
+        XCTAssertEqual(wc.dayFormatter.string(from: clk.t), "1970-01-12")   // not 2513
+    }
+
     private func dayStringForTest(_ date: Date) -> String {
         let f = DateFormatter()
         f.dateFormat = "yyyy-MM-dd"

@@ -12,7 +12,17 @@ import Foundation
 final class AttributionController: ObservableObject {
     @Published private(set) var isObserving = false
     @Published private(set) var pendingCount = 0
+    /// Cached queue and today's roll-up, refreshed on every mutation. The Work
+    /// pane's body re-evaluates on every live sample (title flap rate), so it
+    /// must read these instead of hitting the disk per evaluation.
+    @Published private(set) var pendingEntries: [AttributionQueueEntry] = []
+    @Published private(set) var todaySummary = WorkSummary(day: "", rows: [], total: 0, longest: nil)
     @Published private(set) var ruleStore: RuleStore
+    /// The current frontmost observation and its momentary rule-stage guess,
+    /// so the Work pane can show "Watching X → looks like Y" live. Both nil when
+    /// not observing. The guess is the cheap rule stage only (no model call).
+    @Published private(set) var liveSample: ActivitySample?
+    @Published private(set) var liveGuess: ProposedMatch?
 
     private let raw: RawActivityStore
     private let service: AttributionService
@@ -47,6 +57,11 @@ final class AttributionController: ObservableObject {
         self.manualSpansProvider = manualSpansProvider
         self.todayProvider = todayProvider
         self.ruleStore = Self.loadRules(rulesURL)
+        // Retention runs at launch, not only while sampling: the raw trail's
+        // 7-day promise and the queue's stale-entry cap must hold even if the
+        // feature never starts this session.
+        raw.prune(now: Date())
+        try? service.expireStale(now: Date())
         refreshPending()
     }
 
@@ -55,11 +70,35 @@ final class AttributionController: ObservableObject {
 
     // MARK: sampling lifecycle
 
-    func setEnabled(_ enabled: Bool) {
-        enabled ? start() : stop()
+    /// The single entry point: attribution rides Work Mode, so the app hands it a
+    /// pure activation (see `attributionActivation`) whenever the work phase or the
+    /// permission flag changes. Idempotent: a repeat activation is a no-op.
+    func apply(_ activation: AttributionActivation) {
+        switch activation {
+        case .observe:    start()
+        case .suspend:    standDown(summarize: false)
+        case .endSession: standDown(summarize: true)
+        }
     }
 
-    func start() {
+    /// Settings calls this right after an Accessibility grant. A sampler armed
+    /// before trust existed is inert (its start() bailed), and no defaults or
+    /// phase change follows a grant, so nothing else would revive it.
+    func retryIfPermitted() {
+        guard sampler != nil, !isObserving,
+              ActivitySampler.ensureAccessibilityTrust(prompt: false) else { return }
+        sampler?.stop()
+        sampler = nil
+        start()
+    }
+
+    /// Turning the feature off deletes the raw trail immediately: the 7-day
+    /// window is a ceiling, not a license to keep titles after opt-out.
+    func eraseRawTrail() {
+        try? raw.replaceAll([])
+    }
+
+    private func start() {
         guard sampler == nil else { return }
         let sampler = ActivitySampler()
         sampler.onSample = { [weak self] in self?.ingest($0) }
@@ -70,12 +109,20 @@ final class AttributionController: ObservableObject {
         raw.prune(now: Date())
     }
 
-    func stop() {
-        flush(streamEnd: Date())
-        sampler?.stop()
-        sampler = nil
-        isObserving = false
-        Task { await summarizeDay(todayProvider()) }  // end-of-session narrative
+    /// Stop sampling. If we were observing, flush the open block into the review
+    /// queue first so nothing is dropped. `summarize` is true only when Work Mode
+    /// ends (not when a manual task merely pauses the watcher), so the end-of-day
+    /// narrative fires once per work session, not on every task tap.
+    private func standDown(summarize: Bool) {
+        if sampler != nil {
+            flush(streamEnd: Date())
+            sampler?.stop()
+            sampler = nil
+            isObserving = false
+            liveSample = nil
+            liveGuess = nil
+        }
+        if summarize { Task { await summarizeDay(todayProvider()) } }
     }
 
     /// The end-of-day AI summary (spec 02): one Foundation Models call over the
@@ -85,6 +132,9 @@ final class AttributionController: ObservableObject {
         guard let summarizer = makeDaySummarizerIfAvailable() else { return }
         let calendar = Calendar.current
         let formatter = DateFormatter()
+        // POSIX locale: a Buddhist/Japanese system calendar would otherwise
+        // parse "2026-07-06" into the wrong era and the summary would vanish.
+        formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.dateFormat = "yyyy-MM-dd"
         formatter.timeZone = calendar.timeZone
         guard let dayDate = formatter.date(from: day) else { return }
@@ -99,11 +149,13 @@ final class AttributionController: ObservableObject {
     // MARK: sample folding
 
     private func ingest(_ sample: ActivitySample) {
-        // Coalesce a title flap against the previous sample before persisting.
-        if let last = buffer.last, last.bundleID == sample.bundleID,
-           last.normalizedTitle == sample.normalizedTitle {
-            return
-        }
+        // Refresh the live "watching X → looks like Y" hint on every sample,
+        // even a coalesced flap, so the pane always reflects the current focus.
+        liveSample = sample
+        liveGuess = ruleStore.liveGuess(for: sample, candidates: candidatesProvider())
+        // Coalesce a title flap against the previous sample before persisting
+        // (the same predicate the tested batch helper uses).
+        if let last = buffer.last, last.coalesces(with: sample) { return }
         buffer.append(sample)
         try? raw.append(sample)
     }
@@ -129,12 +181,23 @@ final class AttributionController: ObservableObject {
         let rules = ruleStore
         let matcher = makeTaskMatcherIfAvailable()  // read availability fresh
         Task { @MainActor in
-            defer { processing = false; refreshPending() }
+            defer {
+                processing = false
+                refreshPending()
+                // A stand-down that arrived while this classify was in flight
+                // found `processing` set and returned; if the sampler is gone
+                // no future boundary will come, so drain what it left behind.
+                if sampler == nil, !buffer.isEmpty { flush(streamEnd: Date()) }
+            }
+            let config = SessionizerConfig.default
             let blocks = ActivitySessionizer.sessionize(
-                samples: samples, boundaries: bounds, streamEnd: streamEnd)
+                samples: samples, boundaries: bounds, streamEnd: streamEnd, config: config)
             let classifier = TaskAttributionClassifier(ruleStore: rules, matcher: matcher)
             for block in blocks {
-                for residual in block.subtracting(manualSpansProvider(block.range)) {
+                // Subtracting a manual span can leave slivers below the block
+                // floor; they are noise, not reviewable work.
+                for residual in block.subtracting(manualSpansProvider(block.range))
+                where residual.range.duration >= config.minBlock {
                     let match = await classifier.classify(block: residual, candidates: candidates)
                     try? service.enqueue(AttributionQueueEntry(
                         block: residual, proposed: match, candidates: candidates, createdAt: Date()))
@@ -145,7 +208,14 @@ final class AttributionController: ObservableObject {
 
     // MARK: review queue
 
+    /// The tasks eligible for a manual reassign in the Work pane's review.
+    func candidates() -> [TaskCandidate] { candidatesProvider() }
+
     func pending() -> [AttributionQueueEntry] { service.pending() }
+
+    /// Re-reads the cached queue and today's roll-up. Called by panes on open,
+    /// so a day rollover or an external file edit shows without a mutation.
+    func refreshDerived() { refreshPending() }
 
     @discardableResult
     func approve(_ id: UUID, as override: (taskID: String, title: String)?) -> WorkSession? {
@@ -159,11 +229,16 @@ final class AttributionController: ObservableObject {
         refreshPending()
     }
 
-    func undo(_ session: WorkSession) {
-        try? service.undo(session)
+    func undo(_ session: WorkSession, restoring entry: AttributionQueueEntry) {
+        try? service.undo(session, restoring: entry)
+        refreshPending()
     }
 
-    private func refreshPending() { pendingCount = service.pending().count }
+    private func refreshPending() {
+        pendingEntries = service.pending().sorted { $0.blockStart < $1.blockStart }
+        pendingCount = pendingEntries.count
+        todaySummary = workLog.summary(for: todayProvider())
+    }
 
     // MARK: rules
 

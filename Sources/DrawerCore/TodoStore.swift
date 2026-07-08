@@ -69,6 +69,8 @@ public final class TodoStore: ObservableObject {
     /// this picks up the new zone on the next call).
     private static let dayFormatter: DateFormatter = {
         let f = DateFormatter()
+        // POSIX locale so day keys are Gregorian on any system calendar.
+        f.locale = Locale(identifier: "en_US_POSIX")
         f.dateFormat = "yyyy-MM-dd"
         f.timeZone = .current
         return f
@@ -227,8 +229,10 @@ public final class TodoStore: ObservableObject {
             data = fresh
             newData = try PlanWriter.write(date: date, entries: entries, replace: replace, in: data)
         }
-        lastWrittenData = newData
+        // Only after the write succeeds: a thrown write must not leave a stale
+        // suppression value that swallows the next external reload.
         try writeData(newData, fileURL)
+        lastWrittenData = newData
         apply(newData)
     }
 

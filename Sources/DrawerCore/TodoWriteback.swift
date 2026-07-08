@@ -34,15 +34,14 @@ public enum TodoWriteback {
         guard !rawLine.isEmpty else { throw WritebackError.lineNotFound }
 
         var currentDate: String?
-        var inFence = false
         var seen = 0
-        for line in try markdownLines(in: data) {
-            if line.text.trimmingCharacters(in: .whitespaces).hasPrefix("```") {
-                inFence.toggle()
-                continue
-            }
-            if inFence { continue }
-            if line.text.hasPrefix("## ") {
+        let lines = try markdownLines(in: data)
+        // The parser's own per-line classification, so fence and note handling
+        // can never disagree with what the task list displays.
+        let roles = TodoParser.lineRoles(lines.map(\.text))
+        for (i, line) in lines.enumerated() {
+            if roles[i] == .fence || roles[i] == .fenced { continue }
+            if roles[i] == .heading {
                 // Shared with the parser so section boundaries always agree
                 // (dates and the "backlog" key alike).
                 currentDate = TodoParser.sectionKey(fromHeading: line.text)
@@ -84,15 +83,12 @@ public enum TodoWriteback {
         guard !rawLine.isEmpty else { throw WritebackError.lineNotFound }
 
         var currentDate: String?
-        var inFence = false
         var seen = 0
-        for line in try markdownLines(in: data) {
-            if line.text.trimmingCharacters(in: .whitespaces).hasPrefix("```") {
-                inFence.toggle()
-                continue
-            }
-            if inFence { continue }
-            if line.text.hasPrefix("## ") {
+        let lines = try markdownLines(in: data)
+        let roles = TodoParser.lineRoles(lines.map(\.text))
+        for (i, line) in lines.enumerated() {
+            if roles[i] == .fence || roles[i] == .fenced { continue }
+            if roles[i] == .heading {
                 currentDate = TodoParser.sectionKey(fromHeading: line.text)
                 continue
             }
@@ -129,19 +125,14 @@ public enum TodoWriteback {
         guard !rawLine.isEmpty else { throw WritebackError.lineNotFound }
 
         let lines = try markdownLines(in: data)
+        let roles = TodoParser.lineRoles(lines.map(\.text))
         var currentDate: String?
-        var inFence = false
         var seen = 0
         var index = lines.startIndex
         while index < lines.endIndex {
             let line = lines[index]
-            if line.text.trimmingCharacters(in: .whitespaces).hasPrefix("```") {
-                inFence.toggle()
-                index += 1
-                continue
-            }
-            if inFence { index += 1; continue }
-            if line.text.hasPrefix("## ") {
+            if roles[index] == .fence || roles[index] == .fenced { index += 1; continue }
+            if roles[index] == .heading {
                 currentDate = TodoParser.sectionKey(fromHeading: line.text)
                 index += 1
                 continue
@@ -161,7 +152,7 @@ public enum TodoWriteback {
 
             var end = line.fullRange.upperBound
             var k = index + 1
-            while k < lines.endIndex, TodoParser.isDescriptionLine(lines[k].text) {
+            while k < lines.endIndex, roles[k] == .note {
                 end = lines[k].fullRange.upperBound
                 k += 1
             }
@@ -187,20 +178,15 @@ public enum TodoWriteback {
         guard !rawLine.isEmpty else { throw WritebackError.lineNotFound }
 
         let lines = try markdownLines(in: data)
+        let roles = TodoParser.lineRoles(lines.map(\.text))
         let newline = preferredNewline(in: lines, data: data)
         var currentDate: String?
-        var inFence = false
         var seen = 0
         var index = lines.startIndex
         while index < lines.endIndex {
             let line = lines[index]
-            if line.text.trimmingCharacters(in: .whitespaces).hasPrefix("```") {
-                inFence.toggle()
-                index += 1
-                continue
-            }
-            if inFence { index += 1; continue }
-            if line.text.hasPrefix("## ") {
+            if roles[index] == .fence || roles[index] == .fenced { index += 1; continue }
+            if roles[index] == .heading {
                 currentDate = TodoParser.sectionKey(fromHeading: line.text)
                 index += 1
                 continue
@@ -221,7 +207,7 @@ public enum TodoWriteback {
             // Existing description block: indented lines right below the task.
             var blockEnd = line.fullRange.upperBound
             var k = index + 1
-            while k < lines.endIndex, TodoParser.isDescriptionLine(lines[k].text) {
+            while k < lines.endIndex, roles[k] == .note {
                 blockEnd = lines[k].fullRange.upperBound
                 k += 1
             }
@@ -258,15 +244,9 @@ public enum TodoWriteback {
 
         var headingIndex: Int?
         var nextHeadingIndex: Int?
-        var inFence = false
-        for index in lines.indices {
+        let roles = TodoParser.lineRoles(lines.map(\.text))
+        for index in lines.indices where roles[index] == .heading {
             let line = lines[index].text
-            if line.trimmingCharacters(in: .whitespaces).hasPrefix("```") {
-                inFence.toggle()
-                continue
-            }
-            if inFence || !line.hasPrefix("## ") { continue }
-
             if headingIndex != nil {
                 nextHeadingIndex = index
                 break
@@ -323,14 +303,9 @@ public enum TodoWriteback {
 
         var headingIndex: Int?
         var nextHeadingIndex: Int?
-        var inFence = false
-        for index in lines.indices {
+        let roles = TodoParser.lineRoles(lines.map(\.text))
+        for index in lines.indices where roles[index] == .heading {
             let text = lines[index].text
-            if text.trimmingCharacters(in: .whitespaces).hasPrefix("```") {
-                inFence.toggle()
-                continue
-            }
-            if inFence || !text.hasPrefix("## ") { continue }
             if headingIndex != nil { nextHeadingIndex = index; break }
             if TodoParser.sectionKey(fromHeading: text) == sectionKey { headingIndex = index }
         }
@@ -382,16 +357,13 @@ public enum TodoWriteback {
         guard !rawLine.isEmpty else { throw WritebackError.lineNotFound }
 
         var currentDate: String?
-        var inFence = false
         var seen = 0
-        for line in try markdownLines(in: data) {
+        let lines = try markdownLines(in: data)
+        let roles = TodoParser.lineRoles(lines.map(\.text))
+        for (i, line) in lines.enumerated() {
             let text = line.text
-            if text.trimmingCharacters(in: .whitespaces).hasPrefix("```") {
-                inFence.toggle()
-                continue
-            }
-            if inFence { continue }
-            if text.hasPrefix("## ") {
+            if roles[i] == .fence || roles[i] == .fenced { continue }
+            if roles[i] == .heading {
                 currentDate = TodoParser.sectionKey(fromHeading: text)
                 continue
             }

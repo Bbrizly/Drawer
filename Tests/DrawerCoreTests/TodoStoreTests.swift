@@ -154,6 +154,49 @@ final class TodoStoreTests: XCTestCase {
         store.stop()
     }
 
+    func testWriteDayPlanCommitsAndRecomputesOnConcurrentEdit() throws {
+        try "## 2026-06-07\n- [ ] existing\n".write(to: file, atomically: true, encoding: .utf8)
+        var reads = 0
+        let store = TodoStore(
+            fileURL: file,
+            todayProvider: { "2026-06-07" },
+            readData: { url in
+                reads += 1
+                // Simulate an external save landing between the compute read
+                // and the CAS re-read: the recompute must fold it in.
+                if reads == 2 {
+                    try "## 2026-06-07\n- [ ] existing\n- [ ] external\n"
+                        .write(to: url, atomically: true, encoding: .utf8)
+                }
+                return try Data(contentsOf: url)
+            },
+            writeData: { data, url in try data.write(to: url, options: .atomic) }
+        )
+        try store.writeDayPlan(
+            date: "2026-06-07", entries: [PlanEntry(title: "planned")], replace: false)
+        let text = try String(contentsOf: file, encoding: .utf8)
+        XCTAssertTrue(text.contains("- [ ] external"), "concurrent edit must survive: \(text)")
+        XCTAssertTrue(text.contains("- [ ] planned"))
+    }
+
+    func testWriteDayPlanFailedWriteDoesNotSuppressNextReload() throws {
+        try "## 2026-06-07\n- [ ] existing\n".write(to: file, atomically: true, encoding: .utf8)
+        let store = TodoStore(
+            fileURL: file,
+            todayProvider: { "2026-06-07" },
+            readData: { try Data(contentsOf: $0) },
+            writeData: { _, _ in throw CocoaError(.fileWriteNoPermission) }
+        )
+        XCTAssertThrowsError(try store.writeDayPlan(
+            date: "2026-06-07", entries: [PlanEntry(title: "planned")], replace: false))
+        // The failed write must not have armed the reload-suppression value:
+        // an external editor writing those exact bytes must still display.
+        let external = "## 2026-06-07\n- [ ] existing\n- [ ] planned\n"
+        try external.write(to: file, atomically: true, encoding: .utf8)
+        store.reload()
+        XCTAssertEqual(store.todayItems.map(\.title), ["existing", "planned"])
+    }
+
     func testAddDoesNotWriteWhenExistingFileCannotBeRead() {
         var didWrite = false
         let store = TodoStore(

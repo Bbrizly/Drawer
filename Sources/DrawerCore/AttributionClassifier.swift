@@ -39,6 +39,18 @@ public struct RuleStore: Codable, Equatable, Sendable {
         return ProposedMatch(taskID: nil, taskTitle: nil, confidence: best.1, via: .none)
     }
 
+    /// A momentary match for what the user is doing *right now*, from a single
+    /// live sample. Same rules/scoring as a finished block, over a zero-length
+    /// block, so the Work pane can show "looks like Y" as focus changes. Only the
+    /// rule stage runs (no model), so it stays cheap on every focus change.
+    public func liveGuess(for sample: ActivitySample, candidates: [TaskCandidate]) -> ProposedMatch {
+        let block = ActivityBlock(
+            start: sample.ts, end: sample.ts,
+            bundleID: sample.bundleID, appName: sample.appName,
+            titles: sample.windowTitle.map { [$0] } ?? [])
+        return classify(block: block, candidates: candidates)
+    }
+
     private func firstMatchingRule(_ block: ActivityBlock) -> AttributionRule? {
         rules.first { rule in
             let needle = rule.substring.lowercased()

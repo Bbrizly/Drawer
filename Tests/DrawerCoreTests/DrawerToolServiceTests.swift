@@ -102,6 +102,42 @@ final class DrawerToolServiceTests: XCTestCase {
         )
     }
 
+    func testAddTaskDateWinsOverSection() throws {
+        // Both a date and a named section are supplied. The date must win: the
+        // write target has to match the lookup key, so the call returns a DTO
+        // dated to the day and never throws taskNotFound after a stray write.
+        let box = FileBox("## 2026-07-06\n- [ ] today\n")
+        let svc = makeService(box)
+        let added = try svc.addTask(
+            title: "dated", section: "backlog", date: "2026-07-08", note: nil, minutes: nil)
+        XCTAssertEqual(added.date, "2026-07-08")
+        XCTAssertEqual(added.section, "upcoming")
+        // The task must not have landed in the backlog section.
+        XCTAssertFalse(box.text.contains("## Backlog"))
+        XCTAssertTrue(try svc.listTasks(section: .backlog, includeDone: true).isEmpty)
+    }
+
+    func testAddTaskWithDurationLikeSuffixReturnsResolvableID() throws {
+        // The parser strips "(30m)" from the stored title, so the returned DTO
+        // must come from the written line, never a fabricated unresolvable id.
+        let box = FileBox()
+        let svc = makeService(box)
+        let dto = try svc.addTask(
+            title: "Ship it (30m)", section: nil, date: nil, note: nil, minutes: nil)
+        XCTAssertEqual(dto.title, "Ship it")
+        XCTAssertEqual(dto.minutes, 30)
+        // The id round-trips: the client can act on what add_task returned.
+        XCTAssertNoThrow(try svc.toggleTask(id: dto.id))
+    }
+
+    func testAddTaskRejectsOutOfRangeMinutes() {
+        let svc = makeService(FileBox())
+        XCTAssertThrowsError(
+            try svc.addTask(title: "x", section: nil, date: nil, note: nil, minutes: 0))
+        XCTAssertThrowsError(
+            try svc.addTask(title: "x", section: "backlog", date: nil, note: nil, minutes: 999))
+    }
+
     func testAddTaskRejectsCheckboxShapedNote() {
         let box = FileBox("## 2026-07-06\n- [ ] a\n")
         let svc = makeService(box)
@@ -227,6 +263,23 @@ final class DrawerToolServiceTests: XCTestCase {
         XCTAssertEqual(summary.longestTitle, "Ship")
     }
 
+    func testWorkSummaryExcludesUnattributedTime() throws {
+        let logBox = LogBox()
+        let log = makeMemoryLog(logBox)
+        let s = Date(timeIntervalSince1970: 0)
+        let day = dayFor(s)
+        try log.append(WorkSession(taskID: "t", taskTitle: "Ship", start: s, end: s.addingTimeInterval(600)))
+        // Approved auto span that matched no task: must never inflate the summary.
+        try log.append(WorkSession(
+            taskID: "", taskTitle: "Unattributed", start: s.addingTimeInterval(700),
+            end: s.addingTimeInterval(3000), source: "auto", kind: .unattributed))
+        let svc = makeService(FileBox(), log: log)
+        let summary = svc.getWorkSummary(day: day)
+        XCTAssertNil(summary.rows.first { $0.title == "Unattributed" }, "unattributed leaked into summary")
+        XCTAssertEqual(summary.totalSeconds, 600)
+        XCTAssertEqual(summary.longestTitle, "Ship")
+    }
+
     // MARK: write_day_plan
 
     func testWriteDayPlanAppendMergeKeepsChecked() throws {
@@ -273,6 +326,7 @@ final class DrawerToolServiceTests: XCTestCase {
 
 private func dayFor(_ date: Date) -> String {
     let f = DateFormatter()
+    f.locale = Locale(identifier: "en_US_POSIX")
     f.dateFormat = "yyyy-MM-dd"
     f.timeZone = Calendar.current.timeZone
     return f.string(from: date)

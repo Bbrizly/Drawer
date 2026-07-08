@@ -160,6 +160,39 @@ final class PlanWriterTests: XCTestCase {
         }
     }
 
+    func testRejectsUnicodeLineSeparatorInTitle() {
+        // TodoParser splits on Character.isNewline, so U+2028 re-parses as a new
+        // column-0 line. The guard must reject it, not just \n and \r.
+        let title = "one\u{2028}## 2026-12-31\u{2028}- [ ] injected"
+        XCTAssertThrowsError(try write("", date: "2026-07-06", [PlanEntry(title: title)])) {
+            guard case .invalidEntry = ($0 as? PlanWriterError) else {
+                return XCTFail("expected invalidEntry, got \($0)")
+            }
+        }
+    }
+
+    func testRejectsCRLFGraphemeInTitle() {
+        // "\r\n" is a single Swift Character, so contains("\n")/contains("\r")
+        // both miss it; contains(where: \.isNewline) catches it.
+        let title = "one\r\n## 2026-12-31\r\n- [ ] injected"
+        XCTAssertThrowsError(try write("", date: "2026-07-06", [PlanEntry(title: title)])) {
+            guard case .invalidEntry = ($0 as? PlanWriterError) else {
+                return XCTFail("expected invalidEntry, got \($0)")
+            }
+        }
+    }
+
+    func testUnicodeSeparatorInNoteStaysIndentedNotInjected() throws {
+        // A note carrying a U+2028 heading must render as indented note lines, so
+        // it can never de-indent into a real column-0 section on re-parse.
+        let out = try write(
+            "", date: "2026-07-06",
+            [PlanEntry(title: "real task", note: "harmless\u{2028}## 2026-12-31")]
+        )
+        XCTAssertFalse(out.contains("\n## 2026-12-31"), "note injected a real section")
+        XCTAssertEqual(out, "## 2026-07-06\n- [ ] real task\n    harmless\n    ## 2026-12-31\n")
+    }
+
     func testRejectsCheckboxShapedNoteLine() {
         XCTAssertThrowsError(try write(
             "", date: "2026-07-06",
@@ -200,6 +233,72 @@ final class PlanWriterTests: XCTestCase {
         XCTAssertEqual(
             out, "## 2026-07-06\n```\n- [ ] fenced sample\n```\n- [ ] planned\n"
         )
+    }
+
+    // MARK: fence and content safety
+
+    func testIndentedFenceNoteDoesNotWidenReplaceToLaterDays() throws {
+        // An indented ``` line under a task is note text to TodoParser, so the
+        // writer must not treat it as a fence: a replace of day A may never
+        // reach day B's tasks.
+        let file = "## 2026-07-06\n- [ ] a\n    ```\n\n## 2026-07-07\n- [ ] b\n"
+        let out = try write(file, date: "2026-07-06", [PlanEntry(title: "planned")], replace: true)
+        XCTAssertTrue(out.contains("- [ ] b"), "later day's task must survive: \(out)")
+        let planned = out.range(of: "- [ ] planned")
+        let laterDay = out.range(of: "## 2026-07-07")
+        XCTAssertNotNil(planned)
+        XCTAssertNotNil(laterDay)
+        XCTAssertTrue(planned!.lowerBound < laterDay!.lowerBound,
+                      "new entry must land under the edited day: \(out)")
+    }
+
+    func testRejectsFenceLineInNote() {
+        XCTAssertThrowsError(try write(
+            "", date: "2026-07-06",
+            [PlanEntry(title: "x", note: "```swift\nlet x = 1")]
+        )) {
+            XCTAssertEqual($0 as? PlanWriterError, .invalidEntry("x"))
+        }
+    }
+
+    func testRejectsOutOfRangeMinutes() {
+        for m in [0, -5, 481] {
+            XCTAssertThrowsError(
+                try write("", date: "2026-07-06", [PlanEntry(title: "x", minutes: m)]),
+                "minutes \(m) must be rejected"
+            ) {
+                XCTAssertEqual($0 as? PlanWriterError, .invalidEntry("x"))
+            }
+        }
+    }
+
+    func testRejectsOversizedTitleAndNote() {
+        // One MCP call must not be able to balloon the shared, synced file.
+        let bigTitle = String(repeating: "a", count: 501)
+        XCTAssertThrowsError(try write("", date: "2026-07-06", [PlanEntry(title: bigTitle)]))
+        let bigNote = String(repeating: "b", count: 4097)
+        XCTAssertThrowsError(try write("", date: "2026-07-06", [PlanEntry(title: "x", note: bigNote)]))
+        // At the limit is fine.
+        XCTAssertNoThrow(try write(
+            "", date: "2026-07-06",
+            [PlanEntry(title: String(repeating: "a", count: 500),
+                       note: String(repeating: "b", count: 4096))]))
+    }
+
+    func testBlankInteriorNoteLineIsSkipped() throws {
+        // A whitespace-only note line would end the note on re-parse and
+        // orphan the rest, so render drops it.
+        let out = try write("", date: "2026-07-06", [PlanEntry(title: "x", note: "a\n\nb")])
+        XCTAssertEqual(out, "## 2026-07-06\n- [ ] x\n    a\n    b\n")
+    }
+
+    func testReplaceKeepsBareCheckboxPlaceholder() throws {
+        // "- [ ]" with no trailing space is not a task to TodoParser, so
+        // replace must leave it alone while dropping the real unchecked task.
+        let file = "## 2026-07-06\n- [ ]\n- [ ] real\n"
+        let out = try write(file, date: "2026-07-06", [PlanEntry(title: "planned")], replace: true)
+        XCTAssertTrue(out.contains("- [ ]\n"), "placeholder must survive: \(out)")
+        XCTAssertFalse(out.contains("- [ ] real"))
     }
 
     func testRejectsInvalidDate() {

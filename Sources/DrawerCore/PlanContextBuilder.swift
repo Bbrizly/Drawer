@@ -10,6 +10,10 @@ public enum PlanContextBuilder {
     public static let recentWindowDays = 14
     public static let capacityFallbackMinutes = 300
     public static let capacityRange = 60...480
+    // A logged span under 30s is a stray tap, not a real run: it rounds to 0
+    // minutes and would otherwise fake exact history predicting 0m.
+    static let minRunSeconds: TimeInterval = 30
+    static let minPredictedMinutes = 5
 
     public static func build(
         date: String,
@@ -18,7 +22,10 @@ public enum PlanContextBuilder {
         sessions: [WorkSession],
         priorities: String? = nil,
         calendar: Calendar = .current,
-        maxPriorityChars: Int = 4000
+        // ~400 tokens. Priorities are a ranking signal to weigh, not a doc to
+        // read in full, and the model window is only 4096 tokens shared with the
+        // task list and the drafted output, so the whole file must not dominate.
+        maxPriorityChars: Int = 1500
     ) -> PlanContext {
         let openTasks = candidates(sections: sections, today: today, calendar: calendar)
         let actuals = taskActuals(sessions: sessions, calendar: calendar)
@@ -64,7 +71,7 @@ public enum PlanContextBuilder {
         sessions: [WorkSession], calendar: Calendar
     ) -> [String: TaskActual] {
         let usable = sessions
-            .filter { $0.isAttributable && $0.seconds >= 1 }
+            .filter { $0.isAttributable && $0.seconds >= minRunSeconds }
             .sorted { $0.end > $1.end }  // newest first
         var byTitle: [String: [WorkSession]] = [:]
         for session in usable {
@@ -83,15 +90,18 @@ public enum PlanContextBuilder {
     private static func throughputStats(
         sessions: [WorkSession], today: String, calendar: Calendar
     ) -> ThroughputStats {
-        let usable = sessions.filter { $0.isAttributable && $0.seconds >= 1 }
+        let usable = sessions.filter { $0.isAttributable && $0.seconds >= minRunSeconds }
         var minutesByDay: [String: Int] = [:]
+        let f = makeDayFormatter(calendar)  // one formatter, not one per session
         for session in usable {
             // Bucket by start, matching WorkSessionLog.summary, so a session that
             // crosses midnight isn't moved to the next day.
-            let day = dayString(session.start, calendar)
+            let day = f.string(from: session.start)
             minutesByDay[day, default: 0] += Int((session.seconds / 60).rounded())
         }
-        let cutoff = cutoffDay(daysBefore: recentWindowDays, from: today, calendar: calendar)
+        // -1: the window is `recentWindowDays` inclusive of today (today plus the
+        // 13 days before it = 14), not today minus 14.
+        let cutoff = cutoffDay(daysBefore: recentWindowDays - 1, from: today, calendar: calendar)
         var recentDays: [DailyThroughput] = []
         for (day, minutes) in minutesByDay where cutoff == nil || day >= cutoff! {
             recentDays.append(DailyThroughput(day: day, loggedMinutes: minutes))
@@ -115,7 +125,7 @@ public enum PlanContextBuilder {
 
         // 1. Exact-title history wins.
         if let exact = actuals[normalized], !exact.recentRuns.isEmpty {
-            let minutes = roundTo5(exact.average)
+            let minutes = max(minPredictedMinutes, roundTo5(exact.average))
             return TaskCalibration(
                 taskID: task.id, title: task.title, predictedMinutes: minutes,
                 source: .exactHistory, evidence: "logged \(exact.recentRuns.count)×, avg ~\(minutes)m")
@@ -132,7 +142,7 @@ public enum PlanContextBuilder {
         if !top.isEmpty {
             let weightSum = top.reduce(0.0) { $0 + $1.score }
             let weighted = top.reduce(0.0) { $0 + $1.actual.average * $1.score }
-            let minutes = roundTo5(weighted / weightSum)
+            let minutes = max(minPredictedMinutes, roundTo5(weighted / weightSum))
             return TaskCalibration(
                 taskID: task.id, title: task.title, predictedMinutes: minutes,
                 source: .similarHistory, evidence: "similar to \(top.count) past task(s), avg ~\(minutes)m")
@@ -162,18 +172,28 @@ public enum PlanContextBuilder {
 
     // MARK: date + math helpers
 
-    private static func dayString(_ date: Date, _ calendar: Calendar) -> String {
+    /// Day keys are always Gregorian yyyy-MM-dd regardless of the system
+    /// calendar; only the time zone follows the caller. Assigning the injected
+    /// calendar would let a Buddhist or Japanese system calendar override the
+    /// POSIX locale's Gregorian and read year 2569, diverging from today() and
+    /// the section headings, so we force a Gregorian calendar here.
+    private static func makeDayFormatter(_ calendar: Calendar) -> DateFormatter {
         let f = DateFormatter()
+        f.locale = Locale(identifier: "en_US_POSIX")
+        var greg = Calendar(identifier: .gregorian)
+        greg.timeZone = calendar.timeZone
+        f.calendar = greg
         f.dateFormat = "yyyy-MM-dd"
         f.timeZone = calendar.timeZone
-        return f.string(from: date)
+        return f
+    }
+
+    private static func dayString(_ date: Date, _ calendar: Calendar) -> String {
+        makeDayFormatter(calendar).string(from: date)
     }
 
     private static func parseDay(_ string: String, _ calendar: Calendar) -> Date? {
-        let f = DateFormatter()
-        f.dateFormat = "yyyy-MM-dd"
-        f.timeZone = calendar.timeZone
-        return f.date(from: string)
+        makeDayFormatter(calendar).date(from: string)
     }
 
     private static func ageDays(from sectionDate: String, to today: String, calendar: Calendar) -> Int? {

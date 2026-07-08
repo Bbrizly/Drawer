@@ -5,10 +5,15 @@ import XCTest
 private final class MemStore: @unchecked Sendable {
     var indexLines: [String] = []
     var blobs: [String: Data] = [:]
+    /// Simulates a transient disk failure (EPERM/EIO) on the index read.
+    var indexReadFails = false
 
     func io() -> SnapshotStoreIO {
         SnapshotStoreIO(
-            readIndex: { Data((self.indexLines.isEmpty ? "" : self.indexLines.joined(separator: "\n") + "\n").utf8) },
+            readIndex: {
+                if self.indexReadFails { throw CocoaError(.fileReadUnknown) }
+                return Data((self.indexLines.isEmpty ? "" : self.indexLines.joined(separator: "\n") + "\n").utf8)
+            },
             replaceIndex: { data in
                 let text = String(data: data, encoding: .utf8) ?? ""
                 self.indexLines = text.split(separator: "\n").map(String.init)
@@ -52,6 +57,27 @@ final class SnapshotStoreTests: XCTestCase {
         XCTAssertEqual(second, .duplicate)
         XCTAssertEqual(mem.indexLines.count, 1) // no second line
         XCTAssertEqual(mem.blobs.count, 1)
+    }
+
+    func testPruneFailsClosedWhenIndexUnreadable() throws {
+        // A transient index read error must abort prune, not read as "empty
+        // history" and garbage-collect every blob.
+        let mem = MemStore()
+        let store = SnapshotStore(io: mem.io())
+        _ = try store.append(bytes: Data("a".utf8), ts: t0)
+        _ = try store.append(bytes: Data("b".utf8), ts: t(1))
+        mem.indexReadFails = true
+        XCTAssertThrowsError(try store.prune(keepLast: 1))
+        XCTAssertEqual(mem.blobs.count, 2, "no blob may be deleted on a failed read")
+        XCTAssertEqual(mem.indexLines.count, 2, "index must not be rewritten on a failed read")
+    }
+
+    func testAppendFailsClosedWhenIndexUnreadable() throws {
+        let mem = MemStore()
+        let store = SnapshotStore(io: mem.io())
+        _ = try store.append(bytes: Data("a".utf8), ts: t0)
+        mem.indexReadFails = true
+        XCTAssertThrowsError(try store.append(bytes: Data("b".utf8), ts: t(1)))
     }
 
     func testReconstructUnavailableWhenBlobMissing() throws {

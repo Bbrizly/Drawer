@@ -195,7 +195,11 @@ store barely grows. Everything is local, under
 make app && open Drawer.app
 ```
 
-`make install` copies it to /Applications.
+`make install` copies it to /Applications. `make run` reinstalls, resets
+Drawer's Accessibility grant, and relaunches the installed copy; use it when
+testing the right-Command tap or Work Mode, since the ad-hoc signature changes
+each build and macOS ties the grant to the old one. Re-grant Accessibility once
+after it launches.
 
 ## Requirements
 

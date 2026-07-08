@@ -3,7 +3,9 @@ import Foundation
 /// Tunable thresholds for folding samples into blocks. Defaults are the spec's
 /// hardcoded values; they live here so tests can drive short synthetic streams.
 public struct SessionizerConfig: Sendable {
-    /// A gap over this (no samples) ends the block as idle.
+    /// Seconds without input before the user counts as idle. The sessionizer
+    /// itself never infers idle (it arrives as an explicit boundary); the live
+    /// sampler reads this so the one tunable has one home.
     public var idleThreshold: TimeInterval
     /// Blocks shorter than this are dropped (or bridged away).
     public var minBlock: TimeInterval
@@ -37,7 +39,11 @@ public enum ActivitySessionizer {
         var appName: String
         var start: Date
         var titles: [String]
-        var cluster: Set<String>
+        /// The normalized title that opened the block. A sample continues the
+        /// block only when it matches; anything else closes it. (This used to
+        /// be a Set that could never grow, which read as multi-title
+        /// clustering that didn't exist.)
+        var normalizedTitle: String
 
         func finished(end: Date, reason: ActivityBlockCloseReason) -> ActivityBlock {
             ActivityBlock(
@@ -49,7 +55,9 @@ public enum ActivitySessionizer {
     public static func sessionize(
         samples: [ActivitySample],
         boundaries: [SessionBoundary] = [],
-        streamEnd: Date? = nil,
+        // Required, not optional: omitting it would close the final open block at
+        // the last sample's ts, collapsing it to zero duration and dropping it.
+        streamEnd: Date,
         config: SessionizerConfig = .default
     ) -> [ActivityBlock] {
         let samples = samples.sorted { $0.ts < $1.ts }
@@ -74,9 +82,8 @@ public enum ActivitySessionizer {
             applyBoundaries(before: sample.ts)
 
             if var c = current {
-                if sample.bundleID == c.bundleID, c.cluster.contains(sample.normalizedTitle) {
+                if sample.bundleID == c.bundleID, sample.normalizedTitle == c.normalizedTitle {
                     if let title = sample.windowTitle, !c.titles.contains(title) { c.titles.append(title) }
-                    c.cluster.insert(sample.normalizedTitle)
                     current = c
                     continue  // same state: block keeps running, end still open
                 }
@@ -84,15 +91,15 @@ public enum ActivitySessionizer {
             }
             current = Builder(
                 bundleID: sample.bundleID, appName: sample.appName, start: sample.ts,
-                titles: sample.windowTitle.map { [$0] } ?? [], cluster: [sample.normalizedTitle])
+                titles: sample.windowTitle.map { [$0] } ?? [],
+                normalizedTitle: sample.normalizedTitle)
         }
 
         while boundaryIndex < bounds.count {
             close(at: bounds[boundaryIndex].ts, reason: bounds[boundaryIndex].reason)
             boundaryIndex += 1
         }
-        close(at: streamEnd ?? samples.last?.ts ?? current.map(\.start) ?? .distantPast,
-              reason: .endOfStream)
+        close(at: streamEnd, reason: .endOfStream)
 
         return dropShort(bridge(raw, config: config), config: config)
     }

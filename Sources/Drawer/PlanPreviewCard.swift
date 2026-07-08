@@ -59,8 +59,8 @@ struct PlanPreviewCard: View {
             Divider()
 
             List {
-                ForEach(entries.indices, id: \.self) { index in
-                    row(index)
+                ForEach($entries) { $entry in
+                    row($entry)
                 }
                 .onMove { entries.move(fromOffsets: $0, toOffset: $1) }
                 .onDelete { entries.remove(atOffsets: $0) }
@@ -73,18 +73,18 @@ struct PlanPreviewCard: View {
         .frame(width: 440, height: 460)
     }
 
-    private func row(_ index: Int) -> some View {
+    private func row(_ entry: Binding<PlanDraftEntry>) -> some View {
         HStack(alignment: .top) {
             VStack(alignment: .leading, spacing: 2) {
-                Text(entries[index].title).fontWeight(.medium)
-                if let reason = entries[index].reason, !reason.isEmpty {
+                Text(entry.wrappedValue.title).fontWeight(.medium)
+                if let reason = entry.wrappedValue.reason, !reason.isEmpty {
                     Text(reason).font(.caption).foregroundStyle(.secondary)
                 }
             }
             Spacer()
             TextField("min", value: Binding(
-                get: { entries[index].minutes },
-                set: { entries[index].minutes = max(1, $0) }),
+                get: { entry.wrappedValue.minutes },
+                set: { entry.wrappedValue.minutes = max(1, $0) }),
                 format: .number)
                 .frame(width: 44)
                 .multilineTextAlignment(.trailing)
@@ -98,7 +98,7 @@ struct PlanPreviewCard: View {
                 Text(note).font(.caption).foregroundStyle(.secondary)
             }
             if prioritiesMissing {
-                Label("Priorities file not found — planned without it.", systemImage: "info.circle")
+                Label("Priorities file not found, planned without it.", systemImage: "info.circle")
                     .font(.caption).foregroundStyle(.secondary)
             }
             HStack {

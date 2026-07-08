@@ -53,6 +53,22 @@ final class AttributionQueueTests: XCTestCase {
         XCTAssertTrue(svc.pending().isEmpty)          // left the queue
     }
 
+    func testApproveIsIdempotentWhenSessionAlreadyWritten() throws {
+        // A prior approve wrote the session but crashed before clearing the queue.
+        // Re-approving must NOT double-write; it finishes clearing the entry and
+        // returns the session already on disk.
+        let (svc, _, lbox) = service()
+        let e = entry(taskID: "t1", taskTitle: "Fix parser", confidence: 0.9)
+        try svc.enqueue(e)
+        try makeMemoryLog(lbox).append(WorkSession(
+            taskID: "t1", taskTitle: "Fix parser", start: e.blockStart, end: e.blockEnd,
+            source: "auto", kind: .task, attributionID: e.id))
+        let returned = try svc.approve(e.id, as: nil)
+        XCTAssertEqual(makeMemoryLog(lbox).all().count, 1, "must not write a second session")
+        XCTAssertEqual(returned.attributionID, e.id)
+        XCTAssertTrue(svc.pending().isEmpty, "queue entry cleared")
+    }
+
     func testRejectWritesNoSession() throws {
         let (svc, _, lbox) = service()
         let e = entry(taskID: "t1", taskTitle: "Fix parser", confidence: 0.9)
@@ -87,8 +103,62 @@ final class AttributionQueueTests: XCTestCase {
         let e = entry(taskID: "t1", taskTitle: "Fix parser", confidence: 0.9)
         try svc.enqueue(e)
         let session = try svc.approve(e.id, as: nil)
-        try svc.undo(session)
+        try svc.undo(session, restoring: e)
         XCTAssertEqual(makeMemoryLog(lbox).all().count, 0)
+    }
+
+    func testUndoRestoresEntryForReReview() throws {
+        // Approve then undo must round-trip: the block goes back to the queue
+        // (evidence and proposal intact) instead of vanishing from both sides.
+        let (svc, _, lbox) = service()
+        let e = entry(taskID: "t1", taskTitle: "Fix parser", confidence: 0.9)
+        try svc.enqueue(e)
+        let session = try svc.approve(e.id, as: nil)
+        try svc.undo(session, restoring: e)
+        XCTAssertEqual(makeMemoryLog(lbox).all().count, 0, "session deleted")
+        XCTAssertEqual(svc.pending().map(\.id), [e.id], "entry back for re-review")
+        // And the restored entry can be approved again, cleanly.
+        let again = try svc.approve(e.id, as: (taskID: "t2", title: "Write tests"))
+        XCTAssertEqual(again.taskTitle, "Write tests")
+    }
+
+    func testRuleTitleWithoutLiveTaskApprovesAsTask() throws {
+        // A user rule can match a task that has since been checked off:
+        // proposed taskTitle set, taskID nil. The title is the durable key, so
+        // approve must write task time, not silently blank unattributed time.
+        let (svc, _, lbox) = service()
+        let e = entry(taskID: nil, taskTitle: "Design the board", confidence: 0.95)
+        try svc.enqueue(e)
+        let session = try svc.approve(e.id, as: nil)
+        XCTAssertEqual(session.kind, .task)
+        XCTAssertEqual(session.taskTitle, "Design the board")
+        XCTAssertTrue(makeMemoryLog(lbox).all().first!.isAttributable)
+    }
+
+    func testApproveOfSubSecondBlockThrowsAndClearsEntry() throws {
+        // The log drops sub-second sessions; approve must not pretend one was
+        // written (the UI would offer undo for a phantom row).
+        let (svc, _, _) = service()
+        var e = entry(taskID: "t1", taskTitle: "Fix parser", confidence: 0.9)
+        e.blockEnd = e.blockStart
+        try svc.enqueue(e)
+        XCTAssertThrowsError(try svc.approve(e.id, as: nil)) {
+            XCTAssertEqual($0 as? AttributionError, .blockTooShort)
+        }
+        XCTAssertTrue(svc.pending().isEmpty, "noise entry cleared")
+    }
+
+    func testExpireStaleDropsOldEntriesKeepsFresh() throws {
+        // Evidence holds window titles; an abandoned queue must not hoard them
+        // forever. 30 days unreviewed = expired.
+        let (svc, _, _) = service()
+        let old = entry(taskID: "t1", taskTitle: "Fix parser", confidence: 0.9)
+        var fresh = entry(taskID: "t1", taskTitle: "Fix parser", confidence: 0.9)
+        fresh.createdAt = Date(timeIntervalSince1970: 40 * 86_400)
+        try svc.enqueue(old)   // createdAt = epoch
+        try svc.enqueue(fresh)
+        try svc.expireStale(now: Date(timeIntervalSince1970: 45 * 86_400))
+        XCTAssertEqual(svc.pending().map(\.id), [fresh.id])
     }
 
     func testEvidenceSurvivesInQueueEntry() throws {

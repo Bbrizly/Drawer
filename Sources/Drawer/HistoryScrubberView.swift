@@ -7,7 +7,26 @@ import SwiftUI
 struct HistoryScrubberView: View {
     @ObservedObject var recorder: HistoryRecorder
     let today: String
+    /// Standalone window sizes itself (400x540); the inline pane lets its column
+    /// size it instead.
+    var inline: Bool = false
     @State private var position: Double = 0
+    @State private var cache = ParseCache()
+
+    private typealias DisplayBuckets = (
+        today: [TodoItem], carried: [TodoItem],
+        upcoming: [TodoItem], upcomingDate: String?,
+        backlog: [TodoItem], archive: [TodoItem]
+    )
+
+    /// One-entry memo of the reconstructed + parsed snapshot, keyed by hash,
+    /// so repeated body evaluations at the same position don't redo the disk
+    /// read, SHA verify, and full parse. A reference type: filling it during
+    /// body evaluation is legal and doesn't re-invalidate the view.
+    private final class ParseCache {
+        var hash: String?
+        var display: DisplayBuckets? // nil (with hash set) = unavailable
+    }
 
     private var records: [SnapshotRecord] { recorder.records }
     private var index: Int { min(max(0, Int(position.rounded())), max(0, records.count - 1)) }
@@ -22,7 +41,8 @@ struct HistoryScrubberView: View {
                 controls
             }
         }
-        .frame(width: 400, height: 540)
+        .frame(width: inline ? nil : 400, height: inline ? nil : 540)
+        .frame(maxWidth: inline ? .infinity : nil, maxHeight: inline ? .infinity : nil, alignment: .topLeading)
         .onAppear { position = Double(max(0, records.count - 1)) }
         // Jump to newest on any new capture. Observe the newest snapshot's
         // timestamp, not the count, which stays pinned at 500 once retention
@@ -52,26 +72,35 @@ struct HistoryScrubberView: View {
         .padding(12)
     }
 
+    private func parsed(_ record: SnapshotRecord) -> DisplayBuckets? {
+        if cache.hash == record.hash { return cache.display }
+        var display: DisplayBuckets?
+        if case let .available(bytes) = recorder.reconstruct(record) {
+            let text = String(data: bytes, encoding: .utf8) ?? ""
+            display = TodoParser.display(sections: TodoParser.parse(text), today: today)
+        }
+        cache.hash = record.hash
+        cache.display = display
+        return display
+    }
+
     @ViewBuilder
     private func snapshot(_ record: SnapshotRecord) -> some View {
-        switch recorder.reconstruct(record) {
-        case .unavailable:
-            Text("This snapshot is unavailable.").foregroundStyle(.secondary)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-        case let .available(bytes):
-            let text = String(data: bytes, encoding: .utf8) ?? ""
-            let display = TodoParser.display(sections: TodoParser.parse(text), today: today)
+        if let display = parsed(record) {
             ScrollView {
                 VStack(alignment: .leading, spacing: 10) {
                     section("Today", display.today)
                     section("Carried over", display.carried)
-                    section(display.upcomingDate.map { "Upcoming — \($0)" } ?? "Upcoming", display.upcoming)
+                    section(display.upcomingDate.map { "Upcoming \($0)" } ?? "Upcoming", display.upcoming)
                     section("Backlog", display.backlog)
                     section("Archive", display.archive)
                 }
                 .padding(12)
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
+        } else {
+            Text("This snapshot is unavailable.").foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }
 

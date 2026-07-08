@@ -85,7 +85,15 @@ public struct SnapshotStore: Sendable {
         let indexURL = directory.appendingPathComponent("index.jsonl")
         let blobsDir = directory.appendingPathComponent("blobs", isDirectory: true)
         self.init(io: SnapshotStoreIO(
-            readIndex: { (try? Data(contentsOf: indexURL)) ?? Data() },
+            readIndex: {
+                // Missing file = empty history; any OTHER read error must
+                // propagate, or prune reads a transient failure as "no
+                // survivors" and garbage-collects every blob.
+                do { return try Data(contentsOf: indexURL) }
+                catch let error as NSError
+                    where error.domain == NSCocoaErrorDomain
+                    && error.code == NSFileReadNoSuchFileError { return Data() }
+            },
             replaceIndex: { data in
                 try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
                 try data.write(to: indexURL, options: .atomic)
@@ -94,7 +102,9 @@ public struct SnapshotStore: Sendable {
                 let fm = FileManager.default
                 try fm.createDirectory(at: directory, withIntermediateDirectories: true)
                 if !fm.fileExists(atPath: indexURL.path) { fm.createFile(atPath: indexURL.path, contents: nil) }
-                let handle = try FileHandle(forWritingTo: indexURL)
+                // forUpdating (read+write): the torn-line check below reads the
+                // last byte, and a write-only handle throws EBADF on read.
+                let handle = try FileHandle(forUpdating: indexURL)
                 defer { try? handle.close() }
                 // Repair a torn final line (a crash mid-append) by ensuring the
                 // file ends with a newline before appending, so the new record
@@ -132,9 +142,16 @@ public struct SnapshotStore: Sendable {
     }
 
     /// Snapshots in order. A corrupt line (a crash mid-append) is skipped, so a
-    /// torn final line never poisons the whole timeline.
+    /// torn final line never poisons the whole timeline. Read errors show as an
+    /// empty timeline here (display is fail-soft); the mutating paths use the
+    /// throwing `records()` instead, because acting on a misread index loses data.
     public func readRange() -> [SnapshotRecord] {
-        guard let data = try? io.readIndex(), let text = String(data: data, encoding: .utf8) else { return [] }
+        (try? records()) ?? []
+    }
+
+    private func records() throws -> [SnapshotRecord] {
+        let data = try io.readIndex()
+        guard let text = String(data: data, encoding: .utf8) else { return [] }
         let (_, dec) = Self.coder()
         return text.split(separator: "\n").compactMap {
             try? dec.decode(SnapshotRecord.self, from: Data($0.utf8))
@@ -147,7 +164,7 @@ public struct SnapshotStore: Sendable {
     @discardableResult
     public func append(bytes: Data, ts: Date) throws -> SnapshotAppendResult {
         let digest = hash(bytes)
-        if readRange().last?.hash == digest { return .duplicate }
+        if try records().last?.hash == digest { return .duplicate }
         if try !io.blobExists(digest) { try io.writeBlob(digest, bytes) }
         let record = SnapshotRecord(ts: ts, hash: digest, bytes: bytes.count)
         let (enc, _) = Self.coder()
@@ -172,7 +189,7 @@ public struct SnapshotStore: Sendable {
     /// every earlier snapshot sharing it corrupts silently.
     @discardableResult
     public func prune(keepLast limit: Int) throws -> PruneResult {
-        let records = readRange()
+        let records = try records()
         let survivors = limit <= 0 ? [] : Array(records.suffix(limit))
         let reachable = Set(survivors.map(\.hash))
 

@@ -43,6 +43,13 @@ public struct ActivitySample: Codable, Equatable, Sendable {
     public var normalizedTitle: String {
         windowTitle.map(TitleSimilarity.normalize) ?? ""
     }
+
+    /// True when `next` is a title flap of this sample (same app, same
+    /// normalized title): the pair coalesces to one persisted sample. The one
+    /// definition both the batch helper and the live ingest use.
+    public func coalesces(with next: ActivitySample) -> Bool {
+        bundleID == next.bundleID && normalizedTitle == next.normalizedTitle
+    }
 }
 
 /// An out-of-band event that forces the current block closed at `ts`

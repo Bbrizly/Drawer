@@ -32,6 +32,9 @@ let workLogURL = appSupport.appendingPathComponent("Drawer/work-sessions.jsonl")
 
 let todayProvider: @Sendable () -> String = {
     let f = DateFormatter()
+    // POSIX locale: a Buddhist/Japanese system calendar would otherwise
+    // render year 2569 and file tasks under a day no heading matches.
+    f.locale = Locale(identifier: "en_US_POSIX")
     f.dateFormat = "yyyy-MM-dd"
     f.timeZone = Calendar.current.timeZone
     return f.string(from: Date())
@@ -124,9 +127,12 @@ func remedy(for error: Error) -> String {
     case let PlanWriterError.invalidDate(d):
         return "date '\(d)' is not a valid YYYY-MM-DD."
     case let PlanWriterError.invalidEntry(title):
-        return "Entry '\(title)' has an invalid title or note (no newlines; notes can't be checkbox lines)."
+        return "Entry '\(title)' has an invalid title, note, or minutes "
+            + "(no newlines or fences, minutes 1-480, title <= 500 chars, note <= 4096)."
     default:
-        return "Error: \(error)"
+        // The full error already went to stderr; don't leak NSError internals
+        // (absolute paths, userInfo) to the client.
+        return "Unexpected error; see the server log."
     }
 }
 

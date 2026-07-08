@@ -59,6 +59,9 @@ struct AttributionSettingsView: View {
                         "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility")!)
                 }
                 trusted = ActivitySampler.ensureAccessibilityTrust(prompt: false)
+                // A grant changes no defaults and fires no phase change, so
+                // poke the controller or an armed sampler stays dead.
+                controller.retryIfPermitted()
             }
         }
     }

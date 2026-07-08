@@ -10,10 +10,21 @@ cd "$(dirname "$0")/.."
 echo "building drawer-mcp..."
 swift build --product drawer-mcp >/dev/null
 BIN="$(swift build --target drawer-mcp --show-bin-path)/drawer-mcp"
-FILE="$(mktemp -t drawer-mcp-smoke).md"; rm -f "$FILE"
+TMP="$(mktemp -t drawer-mcp-smoke)"
+FILE="$TMP.md"
+# Clean up both temp names on every exit path, not just success.
+trap 'rm -f "$TMP" "$FILE"' EXIT
 
 BIN="$BIN" FILE="$FILE" python3 - <<'PY'
-import json, os, subprocess, sys
+import json, os, signal, subprocess, sys
+
+# A hung server must fail the run, not hang CI: the whole exchange gets one
+# hard deadline.
+def on_timeout(signum, frame):
+    print("SMOKE FAIL: timed out waiting for the server")
+    proc.kill(); sys.exit(1)
+signal.signal(signal.SIGALRM, on_timeout)
+signal.alarm(30)
 
 bin_path, file_path = os.environ["BIN"], os.environ["FILE"]
 proc = subprocess.Popen(
@@ -76,6 +87,5 @@ content = open(file_path).read()
 if "- [x] smoke task (25m)" not in content:
     fail(f"file does not show the checked task:\n{content}")
 
-os.remove(file_path)
 print("SMOKE PASS: initialize + add + list + toggle drove the file to a checked task")
 PY

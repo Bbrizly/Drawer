@@ -10,11 +10,11 @@ struct ReviewCardView: View {
     var onEditRules: () -> Void = {}
 
     @State private var checked: Set<UUID> = []
-    @State private var lastApproved: WorkSession?
+    @State private var lastApproved: (session: WorkSession, entry: AttributionQueueEntry)?
 
-    private var entries: [AttributionQueueEntry] {
-        controller.pending().sorted { $0.blockStart < $1.blockStart }
-    }
+    /// The controller's cached queue (already sorted oldest first), so a body
+    /// re-evaluation never re-reads the disk.
+    private var entries: [AttributionQueueEntry] { controller.pendingEntries }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -25,7 +25,7 @@ struct ReviewCardView: View {
             } else {
                 ScrollView { LazyVStack(spacing: 0) { ForEach(entries) { row($0) } } }
             }
-            if let session = lastApproved { undoBar(session) }
+            if let a = lastApproved { undoBar(a.session, a.entry) }
         }
         .frame(width: 460, height: 520)
         .onAppear { preCheckHighConfidence() }
@@ -52,7 +52,8 @@ struct ReviewCardView: View {
 
     private func row(_ entry: AttributionQueueEntry) -> some View {
         let matched = entry.proposed.taskTitle
-        return VStack(alignment: .leading, spacing: 4) {
+        return VStack(alignment: .leading, spacing: 0) {
+          VStack(alignment: .leading, spacing: 4) {
             HStack {
                 Toggle("", isOn: Binding(
                     get: { checked.contains(entry.id) },
@@ -71,21 +72,18 @@ struct ReviewCardView: View {
             }
             HStack(spacing: 8) {
                 Button("Approve") { approve(entry, as: nil) }
-                Menu("Reassign") {
-                    ForEach(candidates(), id: \.id) { candidate in
-                        Button(candidate.title) {
-                            approve(entry, as: (candidate.id, candidate.title))
-                        }
-                    }
-                }
+                ReassignMenu(
+                    evidence: entry.evidence, candidates: candidates(),
+                    onPick: { approve(entry, as: ($0, $1)) })
                 Button("Reject", role: .destructive) { controller.reject(entry.id) }
             }
             .buttonStyle(.borderless)
             .font(.caption)
             .padding(.leading, 28)
+          }
+          .padding(10)
+          Divider().padding(.leading, 10)
         }
-        .padding(10)
-        Divider().padding(.leading, 10)
     }
 
     private func confidenceDot(_ disposition: QueueDisposition) -> some View {
@@ -97,12 +95,15 @@ struct ReviewCardView: View {
         return Circle().fill(color).frame(width: 8, height: 8)
     }
 
-    private func undoBar(_ session: WorkSession) -> some View {
+    private func undoBar(_ session: WorkSession, _ entry: AttributionQueueEntry) -> some View {
         HStack {
             Text("Logged \(session.taskTitle.isEmpty ? "unattributed time" : session.taskTitle)")
                 .font(.caption)
             Spacer()
-            Button("Undo") { controller.undo(session); lastApproved = nil }
+            Button("Undo") {
+                controller.undo(session, restoring: entry)
+                lastApproved = nil
+            }
         }
         .padding(10)
         .background(.thinMaterial)
@@ -119,7 +120,9 @@ struct ReviewCardView: View {
     }
 
     private func approve(_ entry: AttributionQueueEntry, as override: (taskID: String, title: String)?) {
-        if let session = controller.approve(entry.id, as: override) { lastApproved = session }
+        if let session = controller.approve(entry.id, as: override) {
+            lastApproved = (session, entry)
+        }
         checked.remove(entry.id)
     }
 

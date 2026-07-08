@@ -51,27 +51,36 @@ public struct DrawerToolService: Sendable {
         try PlanWriter.checkEntryContent(entry)
 
         let toDate = date
-        let toNamed = (section == TodoParser.backlogKey || section == TodoParser.archiveKey) ? section : nil
+        // A supplied date wins over a supplied section, so the named-section
+        // branch only fires when no date is given. Otherwise the write target
+        // (named section) and the lookup key (the date) diverge, and the DTO
+        // lookup throws taskNotFound after the file was already mutated.
+        let toNamed = toDate == nil && (section == TodoParser.backlogKey || section == TodoParser.archiveKey)
+            ? section : nil
+        // today() exactly once: a midnight rollover between the key and the
+        // write would otherwise put the task and the lookup on different days.
         let key = toDate ?? toNamed ?? today()
 
         let out = try mutate { data in
-            if let toDate {
-                return try PlanWriter.write(date: toDate, entries: [entry], replace: false, in: data)
-            } else if let toNamed {
+            if let toNamed {
                 return try insertIntoNamedSection(
                     toNamed, title: title, note: note, minutes: minutes, in: data)
-            } else {
-                return try PlanWriter.write(date: today(), entries: [entry], replace: false, in: data)
             }
+            return try PlanWriter.write(date: key, entries: [entry], replace: false, in: data)
         }
 
+        // Resolve the DTO from the file we just wrote. Normalized-title match
+        // covers the dedupe path (an existing equivalent line was kept); the
+        // rawLine match covers titles the parser re-shapes (e.g. a trailing
+        // "(30m)" becomes the minutes field). Never fabricate an id.
+        let dtos = buildDTOs(String(decoding: out, as: UTF8.self))
         let target = TitleSimilarity.normalize(title)
-        return buildDTOs(String(decoding: out, as: UTF8.self))
-            .last { $0.date == key && TitleSimilarity.normalize($0.title) == target }
-            ?? TaskDTO(
-                id: "\(key)|0|\(entry.taskID ?? "")", title: title, done: false, inProgress: false,
-                minutes: minutes ?? 25, section: key, date: key, note: note
-            )
+        var line = "- [ ] " + title
+        if let minutes { line += " (\(minutes)m)" }
+        guard let dto = dtos.last(where: { $0.date == key && TitleSimilarity.normalize($0.title) == target })
+            ?? dtos.last(where: { $0.date == key && $0.id.hasSuffix("|" + line) })
+        else { throw DrawerToolError.taskNotFound(title) }
+        return dto
     }
 
     /// Backlog/Archive aren't date sections, so PlanWriter (date-only) can't
@@ -124,9 +133,16 @@ public struct DrawerToolService: Sendable {
     public func getWorkSummary(day: String?) -> WorkSummaryDTO {
         let target = day ?? today()
         let formatter = DateFormatter()
+        // POSIX locale: a Buddhist/Japanese system calendar would otherwise
+        // render year 2569 and no session would ever match the target day.
+        formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.dateFormat = "yyyy-MM-dd"
         formatter.timeZone = Calendar.current.timeZone
-        let sessions = workLog.all().filter { formatter.string(from: $0.start) == target }
+        // Exclude approved-but-unattributed auto time, matching the in-app
+        // WorkSessionLog.summary: it is real logged time but belongs to no task.
+        let sessions = workLog.all().filter {
+            $0.isAttributable && formatter.string(from: $0.start) == target
+        }
 
         var secondsByTitle: [String: TimeInterval] = [:]
         var sourcesByTitle: [String: Set<String>] = [:]

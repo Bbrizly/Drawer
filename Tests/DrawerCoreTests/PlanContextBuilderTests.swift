@@ -94,6 +94,34 @@ final class PlanContextBuilderTests: XCTestCase {
         XCTAssertEqual(ctx.calibration.first?.predictedMinutes, 25)
     }
 
+    func testSubMinuteSessionsDoNotCalibrateToZero() {
+        // Two ~20s taps are noise, not a real run. They must not masquerade as
+        // exact history predicting 0m; the task falls through to the default.
+        let start = Date(timeIntervalSince1970: 12 * 3600)
+        let noise = [
+            WorkSession(taskID: "Fix parser", taskTitle: "Fix parser", start: start, end: start.addingTimeInterval(20)),
+            WorkSession(taskID: "Fix parser", taskTitle: "Fix parser", start: start.addingTimeInterval(60), end: start.addingTimeInterval(80)),
+        ]
+        let ctx = build("## 2026-07-06\n- [ ] Fix parser\n", sessions: noise)
+        let cal = ctx.calibration.first!
+        XCTAssertEqual(cal.source, .defaultEstimate)
+        XCTAssertEqual(cal.predictedMinutes, 25)
+    }
+
+    func testHistoryNeverPredictsZeroMinutes() {
+        // Real but short runs (~90s) average to 1.5m; roundTo5 would give 0.
+        // A task you have actually logged must never predict 0m.
+        let start = Date(timeIntervalSince1970: 12 * 3600)
+        let short = [
+            WorkSession(taskID: "Quick fix", taskTitle: "Quick fix", start: start, end: start.addingTimeInterval(90)),
+            WorkSession(taskID: "Quick fix", taskTitle: "Quick fix", start: start.addingTimeInterval(200), end: start.addingTimeInterval(290)),
+        ]
+        let ctx = build("## 2026-07-06\n- [ ] Quick fix\n", sessions: short)
+        let cal = ctx.calibration.first!
+        XCTAssertEqual(cal.source, .exactHistory)
+        XCTAssertGreaterThanOrEqual(cal.predictedMinutes, 5)
+    }
+
     func testThroughputBucketsBySessionStart() {
         // 23:30 -> 00:30 crosses midnight; the hour counts on the start day.
         let f = DateFormatter(); f.dateFormat = "yyyy-MM-dd HH:mm"; f.timeZone = TimeZone(identifier: "UTC")
@@ -103,6 +131,19 @@ final class PlanContextBuilderTests: XCTestCase {
         let ctx = build("## 2026-07-06\n- [ ] x\n", sessions: [crossMidnight])
         XCTAssertEqual(ctx.throughput.recentDays.first?.day, "2026-07-05")
         XCTAssertEqual(ctx.throughput.recentDays.first?.loggedMinutes, 60)
+    }
+
+    func testDayKeysStayGregorianOnNonGregorianCalendar() {
+        // A Buddhist system calendar must not push throughput day keys to year
+        // 2569: keys stay Gregorian yyyy-MM-dd so they match today() and the
+        // section headings, which are always Gregorian.
+        var cal = Calendar(identifier: .buddhist)
+        cal.timeZone = TimeZone(identifier: "UTC")!
+        let ctx = PlanContextBuilder.build(
+            date: "2026-07-06", sections: TodoParser.parse("## 2026-07-06\n- [ ] x\n"),
+            today: "2026-07-06", sessions: [session("t", day: "2026-07-05", minutes: 60)],
+            priorities: nil, calendar: cal)
+        XCTAssertEqual(ctx.throughput.recentDays.first?.day, "2026-07-05")
     }
 
     func testWrittenHintWhenNoHistory() {
@@ -145,6 +186,17 @@ final class PlanContextBuilderTests: XCTestCase {
     func testEmptyPrioritiesSkipped() {
         XCTAssertNil(build("## 2026-07-06\n- [ ] x\n", priorities: "   ").priorities)
         XCTAssertNil(build("## 2026-07-06\n- [ ] x\n", priorities: nil).priorities)
+    }
+
+    // The on-device model rejects a prompt over 4096 tokens. A huge priorities
+    // file plus a long backlog must never blow that window: the prompt is capped.
+    func testPromptStaysWithinModelBudget() {
+        var file = "## 2026-07-06\n"
+        for i in 0..<300 { file += "- [ ] Task number \(i) with a fairly wordy title to burn tokens\n" }
+        let ctx = PlanContextBuilder.build(
+            date: "2026-07-06", sections: TodoParser.parse(file), today: "2026-07-06",
+            sessions: [], priorities: String(repeating: "x", count: 5000), calendar: utc)
+        XCTAssertLessThanOrEqual(PlannerPrompt.render(ctx).count, PlannerPrompt.maxPromptChars)
     }
 
     // MARK: end-to-end vertical slice

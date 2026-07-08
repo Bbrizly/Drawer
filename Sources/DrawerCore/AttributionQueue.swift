@@ -66,6 +66,9 @@ public typealias AttributionQueueStore = JSONLStore<AttributionQueueEntry>
 
 public enum AttributionError: Error, Equatable {
     case entryNotFound
+    /// The block is shorter than the log will record; approving it would
+    /// return a session that exists nowhere.
+    case blockTooShort
 }
 
 /// The only path from a proposed match to the work log. Approve writes exactly
@@ -104,13 +107,22 @@ public struct AttributionService: Sendable {
             try remove(id)
             return existing
         }
+        // The log drops sub-second sessions; surface that instead of returning
+        // a session that was never written (the UI would offer a phantom undo).
+        guard entry.blockEnd.timeIntervalSince(entry.blockStart) >= 1 else {
+            try remove(id)
+            throw AttributionError.blockTooShort
+        }
         let taskID: String
         let title: String
         let kind: WorkSessionKind
         if let override {
             taskID = override.taskID; title = override.title; kind = .task
-        } else if let t = entry.proposed.taskID, let tt = entry.proposed.taskTitle {
-            taskID = t; title = tt; kind = .task
+        } else if let tt = entry.proposed.taskTitle {
+            // The title is the durable attribution key; a rule can name a task
+            // that has since left the candidate list (checked off, archived),
+            // so a missing taskID must not downgrade the time to unattributed.
+            taskID = entry.proposed.taskID ?? ""; title = tt; kind = .task
         } else {
             taskID = ""; title = ""; kind = .unattributed
         }
@@ -126,8 +138,23 @@ public struct AttributionService: Sendable {
         try remove(id)
     }
 
-    /// Deletes a just-approved session by id (backs the review card's undo).
-    public func undo(_ session: WorkSession) throws {
+    /// Drops entries that have sat unreviewed for `days`. Evidence holds
+    /// window titles, so an abandoned queue must not hoard them forever; a
+    /// month unreviewed means the review is not happening.
+    public func expireStale(now: Date, days: Int = 30) throws {
+        let cutoff = now.addingTimeInterval(-Double(days) * 86_400)
+        let kept = queue.all().filter { $0.createdAt >= cutoff }
+        if kept.count != queue.all().count { try queue.replaceAll(kept) }
+    }
+
+    /// Backs the review UI's undo: puts the entry back in the queue for
+    /// re-review, then deletes the just-approved session. Restore-first, so a
+    /// failure between the two steps leaves both sides present and the
+    /// idempotent approve path resolves it, never a vanished block.
+    public func undo(_ session: WorkSession, restoring entry: AttributionQueueEntry) throws {
+        if !queue.all().contains(where: { $0.id == entry.id }) {
+            try queue.append(entry)
+        }
         try log.replaceAll(log.all().filter { $0.id != session.id })
     }
 

@@ -48,6 +48,56 @@ public enum TodoParser {
         return text.wholeMatch(of: taskRegex) == nil
     }
 
+    /// Per-line classification, produced with the exact fence and
+    /// note-consumption rules of `parse`. Writers consult this instead of
+    /// tracking fences themselves, so an edit can never disagree with what
+    /// the parser displays (an indented ``` under a task is note text, not a
+    /// fence, for example -- treating it as a fence once let a replace run
+    /// past the next heading and delete another day's tasks).
+    enum LineRole: Equatable {
+        case fence   // a ``` line that toggles fence state
+        case fenced  // inside an open fence
+        case heading // a "## " section heading
+        case task    // a checkbox line in a keyed (date/backlog/archive) section
+        case note    // indented description line consumed by the task above
+        case plain   // anything else
+    }
+
+    static func lineRoles(_ lines: [String]) -> [LineRole] {
+        var roles = [LineRole](repeating: .plain, count: lines.count)
+        var currentKey: String?
+        var inFence = false
+        var i = 0
+        while i < lines.count {
+            let line = lines[i]
+            if line.trimmingCharacters(in: .whitespaces).hasPrefix("```") {
+                roles[i] = .fence
+                inFence.toggle()
+                i += 1
+                continue
+            }
+            if inFence { roles[i] = .fenced; i += 1; continue }
+            if line.hasPrefix("## ") {
+                roles[i] = .heading
+                currentKey = sectionKey(fromHeading: line)
+                i += 1
+                continue
+            }
+            guard currentKey != nil, line.wholeMatch(of: taskRegex) != nil else {
+                i += 1
+                continue
+            }
+            roles[i] = .task
+            var j = i + 1
+            while j < lines.count, isDescriptionLine(lines[j]) {
+                roles[j] = .note
+                j += 1
+            }
+            i = j
+        }
+        return roles
+    }
+
     /// Section key for a "## " heading: its date, "backlog"/"archive" for
     /// headings titled exactly "Backlog"/"Archive" (any case), nil
     /// otherwise. Shared with TodoWriteback so toggle scoping agrees with

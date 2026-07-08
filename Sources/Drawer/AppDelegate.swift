@@ -8,6 +8,7 @@ import UserNotifications
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var panelController: PanelController!
+    private let paneRouter = PaneRouter()
     private var store: TodoStore!
     private var notesStore: NotesStore!
     private var boardStore: BoardStore!
@@ -22,6 +23,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var historyWindow: NSWindow?
     private var historyMenuItem: NSMenuItem?
     private let hotkey = HotkeyManager()
+    private let rightCommandTap = RightCommandTapMonitor()
+    /// Waits for accessibility to be granted after the user opts in, then
+    /// starts the tap monitor without needing a relaunch.
+    private var rightCommandTapPoll: Timer?
     private var statusItem: NSStatusItem!
     private var escMonitor: Any?
     private var settingsWindow: NSWindow?
@@ -31,7 +36,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var reviewMenuItem: NSMenuItem?
     private var plannerMenuItem: NSMenuItem?
     private var cancellables: Set<AnyCancellable> = []
-    private var attributionEnabled = false
+    // Whether the feature is permitted in Settings (the permission gate). The
+    // watcher itself only runs while Work Mode is on (see `syncAttribution`).
+    private var attributionPermitted = false
+    // Last activation actually handed to the controller, so unrelated UserDefaults
+    // writes and repeat phase notifications don't restart the sampler. Seeded to
+    // .endSession so launching with Work Mode already off is a dedup no-op: no
+    // sampler ran, so there is no day to summarize. A launch *into* Work Mode
+    // still applies normally (.observe/.suspend differ from the seed), and a real
+    // running-to-off transition later still summarizes.
+    private var lastAttributionActivation: AttributionActivation? = .endSession
     /// Repeats the time's-up chime while the finished timer waits for dismissal.
     private var alarmTimer: Timer?
 
@@ -41,6 +55,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             "drawerFilePath": AppPaths.defaultDrawerFile,
             "panelWidth": 300.0,
             "panelCompactHeight": 440.0,
+            "panelSlideDuration": 0.14,
             "defaultMinutesText": "25",
             "completionSound": true,
             "showTomorrow": true,
@@ -57,6 +72,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             "teleprompterFontSize": 34.0,
             "notesPaneHeight": 160.0,
             "exportWorkLogMarkdown": true,
+            "rightCommandTapEnabled": false,
         ]
         defaults.merge(PomodoroPreferences.defaults) { current, _ in current }
         UserDefaults.standard.register(defaults: defaults)
@@ -104,7 +120,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             notes: notesStore,
             onToggleTeleprompter: { [weak self] in self?.teleprompter.toggle() },
             ideas: boardStore,
-            onBoardCoverage: { controller?.setBoardCoverage($0) }
+            onBoardCoverage: { controller?.setBoardCoverage($0) },
+            router: paneRouter,
+            onPaneWidthChange: { controller?.setPaneOpen($0) },
+            planner: planner,
+            attribution: attribution,
+            history: historyRecorder
         )
         controller = PanelController(rootView: rootView)
         panelController = controller
@@ -124,10 +145,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             self?.panelController.toggle()
         }
 
+        // Restore the opt-in right-Command tap. Do not prompt on launch; only
+        // start if the user already granted access.
+        applyRightCommandTap(
+            enabled: UserDefaults.standard.bool(forKey: "rightCommandTapEnabled"),
+            prompt: false
+        )
+
         escMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             guard let self else { return event }
-            // Esc belongs to whichever window is key; only the drawer's.
-            if self.settingsWindow?.isKeyWindow == true { return event }
+            // Esc belongs to whichever window is key. Only hide the drawer
+            // when no other app window (settings, review, planner, history,
+            // rules) owns the keyboard.
+            if NSApp.keyWindow != nil, !self.panelController.isPanelKey {
+                return event
+            }
             if event.keyCode == 53, self.panelController.isShown {
                 self.panelController.hide()
                 return nil
@@ -166,7 +198,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     func applicationWillTerminate(_ notification: Notification) {
         notesStore?.saveNow() // flush anything typed in the last moment
         boardStore?.saveNow() // flush the board layout
-        workClock?.pause()    // flush an open work segment to the log
+        workClock?.pause()               // flush an open work segment to the log
+        // Always flush the in-progress block into the review queue, don't drop it;
+        // only summarize the day when attribution is permitted.
+        attribution?.apply(attributionPermitted ? .endSession : .suspend)
     }
 
     private func setupStatusItem() {
@@ -200,7 +235,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let reviewItem = NSMenuItem(
             title: "Review time…", action: #selector(openReview), keyEquivalent: "")
         reviewItem.target = self
-        reviewItem.isHidden = !attributionEnabled
+        reviewItem.isHidden = !attributionPermitted
         menu.addItem(reviewItem)
         reviewMenuItem = reviewItem
         updateReviewMenu()
@@ -233,7 +268,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// Keep the attribution/planner menu items in sync with their feature flags
     /// and Foundation Models availability, which can both change after launch.
     func menuWillOpen(_ menu: NSMenu) {
-        reviewMenuItem?.isHidden = !attributionEnabled
+        reviewMenuItem?.isHidden = !attributionPermitted
         plannerMenuItem?.isHidden = !plannerVisible
         historyMenuItem?.isHidden = !historyEnabled
     }
@@ -266,16 +301,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     @objc private func openHistory() {
         guard historyEnabled else { return }
         if historyWindow == nil {
-            let view = HistoryScrubberView(recorder: historyRecorder, today: TodoStore.localToday())
             let window = NSWindow(
                 contentRect: NSRect(x: 0, y: 0, width: 400, height: 540),
                 styleMask: [.titled, .closable], backing: .buffered, defer: false)
             window.title = "History"
-            window.contentView = NSHostingView(rootView: view)
             window.isReleasedWhenClosed = false
             window.center()
             historyWindow = window
         }
+        // Rebuild the root on every open: `today` is captured by value, so a
+        // cached view would classify Today/Carried against a stale day.
+        historyWindow?.contentView = NSHostingView(
+            rootView: HistoryScrubberView(recorder: historyRecorder, today: TodoStore.localToday()))
         NSApp.activate(ignoringOtherApps: true)
         historyWindow?.makeKeyAndOrderFront(nil)
     }
@@ -286,6 +323,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         planner = PlannerController(
             store: store,
             workLog: WorkSessionLog(fileURL: AppPaths.workLogFile),
+            scheduleStore: DayScheduleStore(fileURL: AppPaths.daySchedulesFile),
             todayProvider: { TodoStore.localToday() },
             prioritiesProvider: {
                 guard let path = AppPaths.plannerPrioritiesFile else { return (nil, false) }
@@ -316,11 +354,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 contentRect: NSRect(x: 0, y: 0, width: 440, height: 460),
                 styleMask: [.titled, .closable], backing: .buffered, defer: false)
             window.title = "Plan Today"
-            window.contentView = NSHostingView(rootView: PlannerPanel(controller: planner, date: today))
             window.isReleasedWhenClosed = false
             window.center()
             plannerWindow = window
         }
+        // Rebuild the root on every open: PlannerPanel captures `date` by
+        // value, so a cached view would accept tomorrow's plan under
+        // yesterday's key after midnight.
+        plannerWindow?.contentView = NSHostingView(
+            rootView: PlannerPanel(controller: planner, date: today))
         planner.plan(date: today)
         NSApp.activate(ignoringOtherApps: true)
         plannerWindow?.makeKeyAndOrderFront(nil)
@@ -347,9 +389,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             .sink { [weak self] _ in self?.updateReviewMenu() }.store(in: &cancellables)
 
         syncAttribution()
+        observeWorkPhase()
         NotificationCenter.default.addObserver(
             self, selector: #selector(syncAttribution),
             name: UserDefaults.didChangeNotification, object: nil)
+    }
+
+    /// Attribution rides Work Mode, so re-sync every time the work phase changes
+    /// (briefcase on/off, a task starting or stopping). `withObservationTracking`
+    /// fires once, so re-arm it each time. The change lands via a hop so the sync
+    /// reads the new phase, not the old one.
+    private func observeWorkPhase() {
+        withObservationTracking { _ = workClock.phase } onChange: { [weak self] in
+            Task { @MainActor in
+                self?.syncAttribution()
+                self?.observeWorkPhase()
+            }
+        }
     }
 
     /// Candidate tasks for matching: today, carried, upcoming, backlog;
@@ -378,12 +434,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             .filter { $0.overlaps(range) }
     }
 
+    /// Map the current (permission, work phase) to an attribution activation and
+    /// apply it. Settings grants permission; the briefcase is the on-switch. Fired
+    /// from both the defaults observer (permission flips) and the work-phase
+    /// observer, deduped so noise doesn't churn the sampler.
     @objc private func syncAttribution() {
-        let on = UserDefaults.standard.object(forKey: FeatureFlag.attribution.key) as? Bool ?? false
-        guard on != attributionEnabled else { return }  // ignore unrelated defaults writes
-        attributionEnabled = on
-        attribution.setEnabled(on)
-        reviewMenuItem?.isHidden = !on
+        let wasPermitted = attributionPermitted
+        attributionPermitted =
+            UserDefaults.standard.object(forKey: FeatureFlag.attribution.key) as? Bool ?? false
+        // Opting out deletes the raw window-title trail right away; the 7-day
+        // retention is a ceiling, not a license to keep titles after opt-out.
+        if wasPermitted, !attributionPermitted { attribution.eraseRawTrail() }
+        reviewMenuItem?.isHidden = !attributionPermitted
+        let activation = attributionActivation(
+            workPhase: workClock.phase, permitted: attributionPermitted)
+        guard activation != lastAttributionActivation else { return }
+        lastAttributionActivation = activation
+        attribution.apply(activation)
         updateStatusDot()
     }
 
@@ -435,9 +502,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             return
         }
         let size = base.size
+        let rect = NSRect(origin: .zero, size: size)
         let composite = NSImage(size: size)
         composite.lockFocus()
-        base.draw(in: NSRect(origin: .zero, size: size))
+        // A non-template composite is required to keep the dot green, but that
+        // makes the template logo draw as its raw (light) pixels. Tint the
+        // silhouette to the menu-bar color so the icon looks unchanged.
+        button.effectiveAppearance.performAsCurrentDrawingAppearance {
+            base.draw(in: rect)
+            NSColor.controlTextColor.set()
+            rect.fill(using: .sourceAtop)
+        }
         NSColor.systemGreen.setFill()
         let dot = NSRect(x: size.width - 5, y: size.height - 5, width: 5, height: 5)
         NSBezierPath(ovalIn: dot).fill()
@@ -454,6 +529,60 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             return logo
         }
         return NSImage(systemSymbolName: "sidebar.left", accessibilityDescription: "Drawer")
+    }
+
+    // MARK: - Right Command tap
+
+    /// Turns the right-Command tap trigger on or off. When turning on without
+    /// accessibility yet, prompts once (if asked) and waits for the grant.
+    func applyRightCommandTap(enabled: Bool, prompt: Bool) {
+        rightCommandTapPoll?.invalidate()
+        rightCommandTapPoll = nil
+
+        rightCommandLog.notice(
+            "apply tap enabled=\(enabled) prompt=\(prompt) trusted=\(AccessibilityPermission.isTrusted)"
+        )
+        guard enabled else {
+            rightCommandTap.stop()
+            return
+        }
+        if AccessibilityPermission.isTrusted {
+            startRightCommandTap()
+            return
+        }
+        if prompt { AccessibilityPermission.prompt() }
+        pollForRightCommandTapPermission()
+    }
+
+    private func startRightCommandTap() {
+        rightCommandTap.start { [weak self] in
+            self?.panelController.toggle()
+        }
+    }
+
+    /// Global key monitors only deliver once the process is trusted, and an
+    /// already-installed monitor may miss a late grant, so restart it the
+    /// moment access appears.
+    private func pollForRightCommandTapPermission() {
+        let timer = Timer(timeInterval: 1.0, repeats: true) { [weak self] timer in
+            Task { @MainActor in
+                guard let self else { timer.invalidate(); return }
+                guard UserDefaults.standard.bool(forKey: "rightCommandTapEnabled") else {
+                    timer.invalidate()
+                    self.rightCommandTapPoll = nil
+                    return
+                }
+                if AccessibilityPermission.isTrusted {
+                    rightCommandLog.notice("accessibility granted, starting tap monitor")
+                    self.rightCommandTap.stop()
+                    self.startRightCommandTap()
+                    timer.invalidate()
+                    self.rightCommandTapPoll = nil
+                }
+            }
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        rightCommandTapPoll = timer
     }
 
     // MARK: - Settings
@@ -478,6 +607,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 },
                 onLayoutChange: { [weak self] in
                     self?.panelController.refreshFrame()
+                },
+                onRightCommandTapChange: { [weak self] enabled in
+                    self?.applyRightCommandTap(enabled: enabled, prompt: true)
                 }
             )
             let window = NSWindow(

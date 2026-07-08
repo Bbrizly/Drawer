@@ -147,6 +147,21 @@ final class WorkSessionLogTests: XCTestCase {
         XCTAssertEqual(summaries.last?.rows.first?.taskTitle, "A")
     }
 
+    func testAllSummariesIncludesUnattributedOnlyDay() throws {
+        // A day approved entirely as unattributed still happened: its heading
+        // (and AI narrative) must render, just with no per-task rows.
+        let box = LogBox()
+        let log = makeMemoryLog(box)
+        let s = Date(timeIntervalSince1970: 0)
+        try log.append(WorkSession(
+            taskID: "", taskTitle: "", start: s, end: s.addingTimeInterval(600),
+            source: "auto", kind: .unattributed))
+        let summaries = log.allSummaries()
+        XCTAssertEqual(summaries.count, 1)
+        XCTAssertTrue(summaries[0].rows.isEmpty, "no blank row for unattributed time")
+        XCTAssertEqual(summaries[0].total, 0, accuracy: 0.001)
+    }
+
     func testCorruptLineIsSkipped() throws {
         let box = LogBox()
         let log = makeMemoryLog(box)

@@ -5,7 +5,8 @@ let package = Package(
     name: "Drawer",
     platforms: [.macOS(.v26)],
     dependencies: [
-        .package(url: "https://github.com/modelcontextprotocol/swift-sdk.git", from: "0.11.0"),
+        // Pre-1.0 SDK: minor bumps are semver-breaking, so pin to the minor.
+        .package(url: "https://github.com/modelcontextprotocol/swift-sdk.git", .upToNextMinor(from: "0.12.1")),
     ],
     targets: [
         .target(

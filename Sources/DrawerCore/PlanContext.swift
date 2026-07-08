@@ -103,7 +103,10 @@ public struct PlanContext: Equatable, Sendable {
 }
 
 /// One drafted plan entry. Maps to PlanWriter.PlanEntry on commit (reason -> note).
-public struct PlanDraftEntry: Equatable, Sendable {
+public struct PlanDraftEntry: Equatable, Sendable, Identifiable {
+    // Stable per-entry identity so the editable list survives reorder/delete
+    // without the index-as-id crash. Assigned at creation, never reused.
+    public var id = UUID()
     public var title: String
     public var taskID: String?
     public var minutes: Int
@@ -140,6 +143,12 @@ public protocol DayPlanner: Sendable {
 /// Renders a PlanContext into the model prompt. Deterministic and pure so the
 /// prompt is testable and the in-app and MCP planners phrase facts identically.
 public enum PlannerPrompt {
+    // The on-device model's window is 4096 tokens, shared by prompt and output.
+    // At ~3.5 chars/token this budgets the prompt to ~2000 tokens, leaving the
+    // rest for the drafted plan. Priorities are capped upstream (build), so the
+    // tail this trims is the least-important backlog tasks.
+    public static let maxPromptChars = 7000
+
     public static func render(_ context: PlanContext) -> String {
         var lines = ["Plan the day \(context.date)."]
         lines.append("Realistic daily capacity: about \(context.throughput.realisticDailyCapacityMinutes) minutes of focused work.")
@@ -164,6 +173,10 @@ public enum PlannerPrompt {
             let tail = flags.isEmpty ? "" : "; " + flags.joined(separator: ", ")
             lines.append("\(index): \(task.title) [\(task.section.rawValue)] — \(minutes)m\(why)\(tail)")
         }
-        return lines.joined(separator: "\n")
+        let prompt = lines.joined(separator: "\n")
+        // ponytail: hard char cap as the backstop against the model's token limit.
+        // Trims the tail (backlog tasks render last); a half-cut final line is
+        // harmless because an unparsable task index is dropped on the way back.
+        return prompt.count <= maxPromptChars ? prompt : String(prompt.prefix(maxPromptChars))
     }
 }

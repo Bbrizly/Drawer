@@ -76,7 +76,9 @@ final class HistoryRecorder: ObservableObject {
     private func capture() {
         guard let bytes = try? Data(contentsOf: fileURL) else { return }
         guard case .appended = (try? store.append(bytes: bytes, ts: Date())) else { return }
-        try? store.prune(keepLast: retention)
+        // Prune rewrites the whole index and lists the blob dir; skip it until
+        // retention actually overflows.
+        if records.count + 1 > retention { _ = try? store.prune(keepLast: retention) }
         records = store.readRange()
     }
 }

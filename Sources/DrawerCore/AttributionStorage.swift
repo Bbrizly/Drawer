@@ -6,11 +6,7 @@ import Foundation
 public func coalesceSamples(_ samples: [ActivitySample]) -> [ActivitySample] {
     var out: [ActivitySample] = []
     for sample in samples {
-        if let last = out.last,
-           last.bundleID == sample.bundleID,
-           last.normalizedTitle == sample.normalizedTitle {
-            continue
-        }
+        if let last = out.last, last.coalesces(with: sample) { continue }
         out.append(sample)
     }
     return out
@@ -45,9 +41,22 @@ public struct JSONLStore<Element: Codable & Sendable>: Sendable {
             let fm = FileManager.default
             try fm.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
             if !fm.fileExists(atPath: url.path) { fm.createFile(atPath: url.path, contents: nil) }
-            let handle = try FileHandle(forWritingTo: url)
+            // forUpdating (read+write): the torn-line check below must read the
+            // last byte, and a write-only handle throws EBADF on read.
+            let handle = try FileHandle(forUpdating: url)
             defer { try? handle.close() }
-            _ = try handle.seekToEnd()
+            // Repair a torn final line (a crash mid-append): ensure the file
+            // ends with a newline first, so the new record never concatenates
+            // onto a partial one and both get skipped as one corrupt line.
+            let end = try handle.seekToEnd()
+            if end > 0 {
+                try handle.seek(toOffset: end - 1)
+                if try handle.read(upToCount: 1) != Data("\n".utf8) {
+                    try handle.seekToEnd()
+                    try handle.write(contentsOf: Data("\n".utf8))
+                }
+                try handle.seekToEnd()
+            }
             try handle.write(contentsOf: Data(line.utf8))
         }
     }

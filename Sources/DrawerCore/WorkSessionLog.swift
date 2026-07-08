@@ -10,28 +10,13 @@ public struct WorkSessionLog: Sendable {
     private let appendLine: @Sendable (String, URL) throws -> Void
     private let overwrite: @Sendable (String, URL) throws -> Void
 
+    // Disk defaults are shared with JSONLStore (one implementation of the
+    // torn-line-healing append, not two that drift).
     public init(
         fileURL: URL,
-        read: @escaping @Sendable (URL) throws -> String = {
-            try String(contentsOf: $0, encoding: .utf8)
-        },
-        appendLine: @escaping @Sendable (String, URL) throws -> Void = { line, url in
-            let fm = FileManager.default
-            try fm.createDirectory(
-                at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-            if !fm.fileExists(atPath: url.path) {
-                fm.createFile(atPath: url.path, contents: nil)
-            }
-            let handle = try FileHandle(forWritingTo: url)
-            defer { try? handle.close() }
-            _ = try handle.seekToEnd()
-            try handle.write(contentsOf: Data(line.utf8))
-        },
-        overwrite: @escaping @Sendable (String, URL) throws -> Void = { value, url in
-            try FileManager.default.createDirectory(
-                at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-            try value.write(to: url, atomically: true, encoding: .utf8)
-        }
+        read: @escaping @Sendable (URL) throws -> String = JSONLStore<WorkSession>.diskRead,
+        appendLine: @escaping @Sendable (String, URL) throws -> Void = JSONLStore<WorkSession>.diskAppend,
+        overwrite: @escaping @Sendable (String, URL) throws -> Void = JSONLStore<WorkSession>.diskOverwrite
     ) {
         self.fileURL = fileURL
         self.read = read
@@ -53,6 +38,9 @@ public struct WorkSessionLog: Sendable {
 
     private static func dayFormatter(_ calendar: Calendar) -> DateFormatter {
         let f = DateFormatter()
+        // POSIX locale so every day key is Gregorian regardless of the
+        // system calendar (a Buddhist locale would write year 2569).
+        f.locale = Locale(identifier: "en_US_POSIX")
         f.dateFormat = "yyyy-MM-dd"
         f.timeZone = calendar.timeZone
         return f
@@ -116,17 +104,18 @@ public struct WorkSessionLog: Sendable {
         try replaceAll(result)
     }
 
-    /// One summary per day that has logged time, most recent day first.
-    /// Decodes the log once and reuses it for every day, so a long history
-    /// costs O(sessions), not O(days x sessions).
+    /// One summary per day that has logged time, most recent day first. Decodes
+    /// the log once, so a long history costs O(sessions), not O(days x sessions).
+    /// Days come from all sessions, so a day whose sessions are all unattributed
+    /// still gets a summary (empty rows): its heading and AI narrative must
+    /// render even though no task row does. The per-day roll-up is attributable-only.
     public func allSummaries(calendar: Calendar = .current) -> [WorkSummary] {
         let f = Self.dayFormatter(calendar)
-        // Attributable-only, decoded once: a long history costs O(sessions),
-        // not O(days x sessions).
-        let sessions = all().filter(\.isAttributable)
+        let sessions = all()
         let days = Set(sessions.map { f.string(from: $0.start) })
+        let attributable = sessions.filter(\.isAttributable)
         return days.sorted(by: >).map {
-            Self.summary(for: $0, sessions: sessions, formatter: f)
+            Self.summary(for: $0, sessions: attributable, formatter: f)
         }
     }
 

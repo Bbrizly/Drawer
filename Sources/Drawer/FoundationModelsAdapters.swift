@@ -110,7 +110,12 @@ struct FoundationModelsDaySummarizer: DaySummarizer {
             Day \(day). Total \(Int(total / 60)) minutes. Per task: \(byTask). \
             Estimate misses: \(misses.isEmpty ? "none" : misses).
             """
-        return try await session.respond(to: prompt, generating: Summary.self).content.summary
+        // The 3-sentence limit is prompt-only and this text merges into the
+        // exported markdown; hard-cap the length so a runaway generation
+        // can't flood the work log.
+        return String(
+            try await session.respond(to: prompt, generating: Summary.self)
+                .content.summary.prefix(600))
     }
 }
 
@@ -148,6 +153,10 @@ struct FoundationModelsDayPlanner: DayPlanner {
         let draft = try await session.respond(
             to: PlannerPrompt.render(context), generating: Draft.self).content
 
+        // Clamp to the parser's round-trippable range: a hallucinated
+        // minutes value must not survive into the draft (PlanWriter would
+        // reject >480 at accept anyway; clamp beats a dead-end error).
+        func clamped(_ minutes: Int) -> Int { min(480, max(1, minutes)) }
         let entries: [PlanDraftEntry] = draft.entries.compactMap { entry in
             if let index = entry.taskIndex {
                 // A provided-but-invalid index is a hallucination: drop it, never
@@ -155,11 +164,11 @@ struct FoundationModelsDayPlanner: DayPlanner {
                 guard context.openTasks.indices.contains(index) else { return nil }
                 let task = context.openTasks[index]
                 return PlanDraftEntry(
-                    title: task.title, taskID: task.id, minutes: max(1, entry.minutes), reason: entry.reason)
+                    title: task.title, taskID: task.id, minutes: clamped(entry.minutes), reason: entry.reason)
             }
             let title = entry.title.trimmingCharacters(in: .whitespaces)
             guard !title.isEmpty else { return nil }
-            return PlanDraftEntry(title: title, taskID: nil, minutes: max(1, entry.minutes), reason: entry.reason)
+            return PlanDraftEntry(title: title, taskID: nil, minutes: clamped(entry.minutes), reason: entry.reason)
         }
         return PlanDraft(entries: entries, capacityNote: draft.capacityNote)
     }

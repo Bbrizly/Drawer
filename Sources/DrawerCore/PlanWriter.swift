@@ -57,6 +57,10 @@ public enum PlanWriter {
         try validate(date: date, entries: entries, text: text)
 
         let sections = TodoParser.parse(text)
+        // parse merges duplicate same-date headings into one section, while the
+        // edit below touches only the first heading's body. keptTitles from the
+        // merged view only ever keeps MORE than the edited body holds, so a
+        // (malformed) duplicate heading can suppress an add but never lose data.
         let target = sections.first { $0.date == date }
         let keptTitles: Set<String> = {
             guard let target else { return [] }
@@ -74,13 +78,17 @@ public enum PlanWriter {
         let newline = text.contains("\r\n") ? "\r\n" : "\n"
         var lines = text.split(omittingEmptySubsequences: false, whereSeparator: \.isNewline)
             .map(String.init)
+        // Classify every line with the parser's own rules, so the edit's idea
+        // of fences, headings, and notes can never diverge from what the
+        // parser (and the user's task list) sees.
+        let roles = TodoParser.lineRoles(lines)
 
-        if let bounds = sectionBounds(for: date, in: lines) {
+        if let bounds = sectionBounds(for: date, in: lines, roles: roles) {
             lines = editExisting(
-                lines: lines, bounds: bounds, blocks: blocks, replace: replace
+                lines: lines, bounds: bounds, blocks: blocks, replace: replace, roles: roles
             )
         } else {
-            lines = insertNewSection(date: date, blocks: blocks, into: lines)
+            lines = insertNewSection(date: date, blocks: blocks, into: lines, roles: roles)
         }
         let out = lines.joined(separator: newline)
         // No net change (e.g. replace removed nothing, all entries deduped):
@@ -121,20 +129,35 @@ public enum PlanWriter {
     }
 
     /// Rejects titles and notes that would break the one-task-per-entry model:
-    /// a newline (injects tasks or a `##` section), an empty title, or a note
-    /// line that TodoParser would read as a checkbox task rather than a note.
-    /// Internal so any writer of a single task (e.g. add_task's backlog path)
-    /// can apply the same guard instead of reimplementing it.
+    /// a newline (injects tasks or a `##` section), an empty title, an
+    /// out-of-range duration (the parser only round-trips 1...480), or a note
+    /// line that TodoParser would read as a checkbox task or a code fence
+    /// rather than plain note text. Internal so any writer of a single task
+    /// (e.g. add_task's backlog path) can apply the same guard instead of
+    /// reimplementing it.
     static func checkEntryContent(_ entry: PlanEntry) throws {
         let title = entry.title
-        guard !title.contains("\n"), !title.contains("\r"),
+        // Any newline (\n, \r, the \r\n grapheme, U+2028/2029/0085/VT/FF) would
+        // re-parse as a column-0 line: TodoParser splits on Character.isNewline,
+        // so the guard must too, or an MCP client injects tasks/sections.
+        guard !title.contains(where: \.isNewline),
               !title.trimmingCharacters(in: .whitespaces).isEmpty
         else { throw PlanWriterError.invalidEntry(title) }
+
+        // Size caps: one MCP call must not balloon the shared, synced file
+        // (every later tool call re-parses the whole thing).
+        guard title.count <= 500, (entry.note?.count ?? 0) <= 4096 else {
+            throw PlanWriterError.invalidEntry(String(title.prefix(80)))
+        }
+
+        if let minutes = entry.minutes, !(1...480).contains(minutes) {
+            throw PlanWriterError.invalidEntry(title)
+        }
 
         if let note = entry.note {
             for line in note.components(separatedBy: .newlines) {
                 let trimmed = line.trimmingCharacters(in: .whitespaces)
-                if trimmed.firstMatch(of: checkboxPrefix) != nil {
+                if trimmed.firstMatch(of: checkboxPrefix) != nil || trimmed.hasPrefix("```") {
                     throw PlanWriterError.invalidEntry(title)
                 }
             }
@@ -152,8 +175,14 @@ public enum PlanWriter {
         if let note = entry.note {
             let trimmed = note.trimmingCharacters(in: .whitespacesAndNewlines)
             if !trimmed.isEmpty {
-                for line in trimmed.components(separatedBy: "\n") {
-                    out.append("    " + line.trimmingCharacters(in: .whitespaces))
+                // Split on the same set TodoParser does, so every newline variant
+                // becomes its own indented line and can't de-indent to column 0.
+                for line in trimmed.split(omittingEmptySubsequences: false, whereSeparator: \.isNewline) {
+                    let clean = line.trimmingCharacters(in: .whitespaces)
+                    // A whitespace-only note line would end the note on
+                    // re-parse and orphan the rest; drop it.
+                    if clean.isEmpty { continue }
+                    out.append("    " + clean)
                 }
             }
         }
@@ -169,27 +198,27 @@ public enum PlanWriter {
         let bodyEnd: Int // first line index past the body (next heading or EOF)
     }
 
-    private static func sectionBounds(for date: String, in lines: [String]) -> SectionBounds? {
-        var inFence = false
+    private static func sectionBounds(
+        for date: String, in lines: [String], roles: [TodoParser.LineRole]
+    ) -> SectionBounds? {
         var heading: Int?
-        for (i, line) in lines.enumerated() {
-            if line.trimmingCharacters(in: .whitespaces).hasPrefix("```") {
-                inFence.toggle(); continue
-            }
-            if inFence || !line.hasPrefix("## ") { continue }
+        for i in lines.indices where roles[i] == .heading {
             if let h = heading {
                 return SectionBounds(heading: h, bodyEnd: i)
             }
-            if TodoParser.sectionKey(fromHeading: line) == date { heading = i }
+            if TodoParser.sectionKey(fromHeading: lines[i]) == date { heading = i }
         }
         return heading.map { SectionBounds(heading: $0, bodyEnd: lines.count) }
     }
 
     private static func editExisting(
-        lines: [String], bounds: SectionBounds, blocks: [String], replace: Bool
+        lines: [String], bounds: SectionBounds, blocks: [String], replace: Bool,
+        roles: [TodoParser.LineRole]
     ) -> [String] {
         var body = Array(lines[(bounds.heading + 1)..<bounds.bodyEnd])
-        if replace { body = dropUncheckedTasks(body) }
+        if replace {
+            body = dropUncheckedTasks(body, roles: Array(roles[(bounds.heading + 1)..<bounds.bodyEnd]))
+        }
 
         // Append new blocks after the last non-blank body line.
         var insertAt = body.count
@@ -204,23 +233,18 @@ public enum PlanWriter {
 
     /// Removes blank-unchecked (`- [ ]`) task lines and their indented note
     /// lines. Checked (`- [x]`) and in-progress (`- [/]`) tasks stay, so done
-    /// and actively-worked items are never erased. Fenced code blocks are
-    /// skipped whole: a `- [ ]` inside ``` fences is sample text, not a task,
-    /// exactly as TodoParser treats it.
-    private static func dropUncheckedTasks(_ body: [String]) -> [String] {
+    /// and actively-worked items are never erased. Only lines the parser
+    /// classified as tasks are dropped, so fenced code samples and lines the
+    /// parser reads as note text survive exactly as displayed.
+    private static func dropUncheckedTasks(
+        _ body: [String], roles: [TodoParser.LineRole]
+    ) -> [String] {
         var out: [String] = []
-        var inFence = false
         var i = 0
         while i < body.count {
-            if body[i].trimmingCharacters(in: .whitespaces).hasPrefix("```") {
-                inFence.toggle()
-                out.append(body[i])
+            if roles[i] == .task, marker(of: body[i]) == " " {
                 i += 1
-                continue
-            }
-            if !inFence, marker(of: body[i]) == " " {
-                i += 1
-                while i < body.count, TodoParser.isDescriptionLine(body[i]) { i += 1 }
+                while i < body.count, roles[i] == .note { i += 1 }
                 continue
             }
             out.append(body[i])
@@ -230,10 +254,11 @@ public enum PlanWriter {
     }
 
     private static func insertNewSection(
-        date: String, blocks: [String], into lines: [String]
+        date: String, blocks: [String], into lines: [String],
+        roles: [TodoParser.LineRole]
     ) -> [String] {
         let section = ["## " + date] + blocks
-        guard let at = insertionHeadingIndex(for: date, in: lines) else {
+        guard let at = insertionHeadingIndex(for: date, in: lines, roles: roles) else {
             // Append after all existing content.
             var trimmed = lines
             while let last = trimmed.last, last.isEmpty { trimmed.removeLast() }
@@ -245,14 +270,11 @@ public enum PlanWriter {
 
     /// Index of the first heading a new `date` section should precede: a later
     /// date, Backlog/Archive, or any non-date section. nil = append at the end.
-    private static func insertionHeadingIndex(for date: String, in lines: [String]) -> Int? {
-        var inFence = false
-        for (i, line) in lines.enumerated() {
-            if line.trimmingCharacters(in: .whitespaces).hasPrefix("```") {
-                inFence.toggle(); continue
-            }
-            if inFence || !line.hasPrefix("## ") { continue }
-            guard let key = TodoParser.sectionKey(fromHeading: line) else { return i }
+    private static func insertionHeadingIndex(
+        for date: String, in lines: [String], roles: [TodoParser.LineRole]
+    ) -> Int? {
+        for i in lines.indices where roles[i] == .heading {
+            guard let key = TodoParser.sectionKey(fromHeading: lines[i]) else { return i }
             if TodoParser.isValidDate(key) {
                 if key > date { return i }
             } else {

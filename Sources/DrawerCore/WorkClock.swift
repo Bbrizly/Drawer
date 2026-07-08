@@ -41,8 +41,11 @@ public final class WorkClock {
     /// Built once from the fixed `calendar` time zone. Day grouping happens on
     /// every segment close, so a fresh DateFormatter per call would be wasteful.
     /// Observation cannot wrap a `lazy` property, so the macro ignores it.
-    @ObservationIgnored private lazy var dayFormatter: DateFormatter = {
+    /// Internal, not private, so `@testable import` can assert its POSIX locale.
+    @ObservationIgnored lazy var dayFormatter: DateFormatter = {
         let f = DateFormatter()
+        // POSIX implies Gregorian, so keys match WorkSessionLog on any system calendar.
+        f.locale = Locale(identifier: "en_US_POSIX")
         f.dateFormat = "yyyy-MM-dd"
         f.timeZone = calendar.timeZone
         return f

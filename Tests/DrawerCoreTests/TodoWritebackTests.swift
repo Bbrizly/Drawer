@@ -11,6 +11,28 @@ final class TodoWritebackTests: XCTestCase {
         )
     }
 
+    func testToggleFindsTaskAfterIndentedFenceNote() throws {
+        // An indented ``` under a task is note text to TodoParser, not a
+        // fence; toggle must still reach the tasks below it.
+        let data = Data("## 2026-06-07\n- [ ] a\n    ```\n- [ ] b\n".utf8)
+        let out = try TodoWriteback.toggle(line: "- [ ] b", sectionDate: "2026-06-07", in: data)
+        XCTAssertEqual(
+            String(data: out, encoding: .utf8),
+            "## 2026-06-07\n- [ ] a\n    ```\n- [x] b\n"
+        )
+    }
+
+    func testSetNoteWorksAfterIndentedFenceNote() throws {
+        let data = Data("## 2026-06-07\n- [ ] a\n    ```\n- [ ] b\n".utf8)
+        let out = try TodoWriteback.setNote(
+            line: "- [ ] b", sectionDate: "2026-06-07", note: "hi", in: data
+        )
+        XCTAssertEqual(
+            String(data: out, encoding: .utf8),
+            "## 2026-06-07\n- [ ] a\n    ```\n- [ ] b\n    hi\n"
+        )
+    }
+
     func testMarksInProgress() throws {
         let data = Data("## 2026-06-07\n- [ ] task one\n- [ ] task two\n".utf8)
         let out = try TodoWriteback.setInProgress(

@@ -17,6 +17,11 @@ final class PanelController {
     /// not fire reliably on orderOut, so this is the authoritative signal).
     var onVisibilityChange: ((Bool) -> Void)?
     private var boardCoverage: CGFloat = 0   // 0 = normal panel, 1 = full screen
+    private var isPaneOpen = false           // companion pane grows the panel right
+
+    /// The companion pane's fixed column width. Kept in sync with
+    /// `CompanionPaneView`'s frame.
+    static let paneWidth: CGFloat = 320
 
     // Defaults are registered at launch, so plain reads are safe.
     private var width: CGFloat {
@@ -28,6 +33,10 @@ final class PanelController {
     private var shouldReduceMotion: Bool {
         NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
     }
+    /// Toggle slide duration, tunable in Settings. Reduce-motion forces instant.
+    private var slideDuration: Double {
+        shouldReduceMotion ? 0 : UserDefaults.standard.double(forKey: "panelSlideDuration")
+    }
 
     init<V: View>(rootView: V) {
         let hosting = NSHostingView(rootView: rootView)
@@ -36,6 +45,8 @@ final class PanelController {
         // pill, say the Work Mode card, must truncate, never push the panel
         // wider than the width set in Settings).
         hosting.sizingOptions = []
+        // The closed companion pane is laid out past the window edge and must not paint outside it.
+        hosting.clipsToBounds = true
         panel.contentView = hosting
     }
 
@@ -72,6 +83,19 @@ final class PanelController {
         }
     }
 
+    /// Opens or closes the companion pane column, animating the panel wider or
+    /// back. Driven by `PaneRouter.activePane` via the drawer view.
+    func setPaneOpen(_ open: Bool) {
+        guard isPaneOpen != open else { return }
+        isPaneOpen = open
+        guard isShown else { return }
+        NSAnimationContext.runAnimationGroup { ctx in
+            ctx.duration = shouldReduceMotion ? 0 : 0.22
+            ctx.timingFunction = CAMediaTimingFunction(name: .easeOut)
+            panel.animator().setFrame(targetFrame(), display: true)
+        }
+    }
+
     /// How much of the screen the board covers: 0 = normal panel, 1 = full
     /// screen. Driven by the swipe amount, so the user dials in the coverage.
     func setBoardCoverage(_ coverage: CGFloat) {
@@ -89,10 +113,15 @@ final class PanelController {
         let vf = screen.visibleFrame
         let inset: CGFloat = 12
         let normalH = isExpanded ? vf.height - inset * 2 : min(compactHeight, vf.height - inset * 2)
+        // Grow rightward for the companion pane, but never off the screen: clamp
+        // the total to the visible width so a narrow display / Stage Manager /
+        // external monitor still fits.
+        let desiredWidth = width + (isPaneOpen ? Self.paneWidth : 0)
+        let maxWidth = vf.width - inset * 2
         let normal = NSRect(
             x: vf.minX + inset,
             y: vf.maxY - inset - normalH, // anchored top-left
-            width: width,
+            width: min(desiredWidth, maxWidth),
             height: normalH
         )
         guard boardCoverage > 0 else { return normal }
@@ -111,11 +140,13 @@ final class PanelController {
         let target = targetFrame()
         guard target != .zero else { return }
         var start = target
-        start.origin.x -= width + 24
+        // Offset by the CURRENT target width (which may include the pane), not
+        // the static base width, or a widened panel starts half on screen.
+        start.origin.x -= target.width + 24
         panel.setFrame(start, display: false)
         panel.orderFrontRegardless()
         NSAnimationContext.runAnimationGroup { ctx in
-            ctx.duration = shouldReduceMotion ? 0 : 0.22
+            ctx.duration = slideDuration
             ctx.timingFunction = CAMediaTimingFunction(name: .easeOut)
             panel.animator().setFrame(target, display: true)
         }
@@ -127,9 +158,12 @@ final class PanelController {
         let hideGeneration = transitionState.beginHide()
         onVisibilityChange?(false)
         var off = panel.frame
-        off.origin.x -= width + 36
+        // Slide fully off the left edge based on the CURRENT width (which may
+        // include the pane), not the static base width, or a widened panel
+        // stays half on screen.
+        off.origin.x -= panel.frame.width + 36
         NSAnimationContext.runAnimationGroup({ ctx in
-            ctx.duration = shouldReduceMotion ? 0 : 0.18
+            ctx.duration = slideDuration
             ctx.timingFunction = CAMediaTimingFunction(name: .easeIn)
             self.panel.animator().setFrame(off, display: true)
         }, completionHandler: { [weak self] in

@@ -23,8 +23,23 @@ app:
 	cp -R .build/release/Drawer_Drawer.bundle $(APP)/Contents/Resources/ 2>/dev/null || true
 	codesign --force --sign - $(APP)
 
-run: app
-	open $(APP)
+# Runs the freshly built copy from /Applications with a clean Accessibility
+# grant. The app is ad-hoc signed, so every build gets a new signature the old
+# grant no longer matches -- macOS keeps showing Drawer as "granted" while
+# AXIsProcessTrusted() stays false. Resetting the grant clears that stale entry
+# so the right-Command tap (and Work Mode) can be re-granted against this build.
+# Re-grant Accessibility once after each run; that is inherent to ad-hoc signing.
+run: install
+	-osascript -e 'quit app "Drawer"' 2>/dev/null
+	sleep 1
+	-pkill -f "Drawer.app/Contents/MacOS/Drawer" 2>/dev/null
+	sleep 1
+	@echo "--- reset accessibility grant for Drawer ---"
+	-tccutil reset Accessibility com.bassam.drawer 2>&1
+	@echo "--- relaunch installed copy ---"
+	open /Applications/Drawer.app
+	sleep 3
+	@ps aux | grep "[D]rawer.app/Contents/MacOS/Drawer" | awk '{print $$2, $$11}'
 
 clean:
 	rm -rf .build $(APP)
