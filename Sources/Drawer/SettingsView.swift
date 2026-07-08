@@ -1002,6 +1002,7 @@ private struct AdvancedSettingsView: View {
     @AppStorage("uncheckedFirst") private var uncheckedFirst = false
     @AppStorage("backlogExpanded") private var backlogExpanded = false
     @AppStorage("archiveExpanded") private var archiveExpanded = false
+    @AppStorage("startExpanded") private var startExpanded = false
     @State private var showResetConfirm = false
 
     var body: some View {
@@ -1095,6 +1096,7 @@ private struct AdvancedSettingsView: View {
                     Toggle("Unchecked first on open", isOn: $uncheckedFirst)
                     Toggle("Expand Backlog on open", isOn: $backlogExpanded)
                     Toggle("Expand Archive on open", isOn: $archiveExpanded)
+                    Toggle("Open drawer at full height", isOn: $startExpanded)
                     SettingsCaption(
                         "Starting state when the drawer opens. The filter menu and section headers "
                         + "still let you change these live."
@@ -1130,6 +1132,7 @@ private struct AdvancedSettingsView: View {
         uncheckedFirst = false
         backlogExpanded = false
         archiveExpanded = false
+        startExpanded = false
     }
 }
 

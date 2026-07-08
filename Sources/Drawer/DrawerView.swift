@@ -31,6 +31,7 @@ struct DrawerView: View {
     @AppStorage("showTomorrow") private var showTomorrow = true
     @AppStorage("backlogExpanded") private var backlogExpanded = false
     @AppStorage("archiveExpanded") private var archiveExpanded = false
+    @AppStorage("drawerExpanded") private var drawerExpanded = false
     @AppStorage("drawerTheme") private var themeRaw = DrawerTheme.default.rawValue
     // Feature flags (see FeatureFlag). Each gates a slice of the UI so the app
     // can be stripped to the bare task list.
@@ -297,9 +298,12 @@ struct DrawerView: View {
                     }
                 }
                 DrawerIconButton(
-                    systemName: "arrow.up.left.and.arrow.down.right",
-                    accessibilityLabel: "Expand or collapse drawer",
-                    helpText: "Expand the drawer to full height or collapse it."
+                    systemName: drawerExpanded
+                        ? "arrow.down.right.and.arrow.up.left"
+                        : "arrow.up.left.and.arrow.down.right",
+                    accessibilityLabel: drawerExpanded ? "Collapse drawer" : "Expand drawer",
+                    helpText: "Expand the drawer to full height or collapse it.",
+                    isSelected: drawerExpanded
                 ) {
                     onToggleSize()
                 }

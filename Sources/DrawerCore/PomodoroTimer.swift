@@ -84,9 +84,22 @@ public final class PomodoroTimer {
     private var endDate: Date?
     @ObservationIgnored private let now: () -> Date
     @ObservationIgnored private var ticker: Timer?
+    /// False while the panel is hidden. See FocusTimer: the display tick is
+    /// swapped for a one-shot at the end date, so completion is never late but
+    /// nothing wakes twice a second for a view no one can see.
+    @ObservationIgnored private var displayActive = true
 
     public init(now: @escaping () -> Date = { Date() }) {
         self.now = now
+    }
+
+    /// Call when the panel shows (true) or hides (false).
+    public func setDisplayActive(_ active: Bool) {
+        guard active != displayActive else { return }
+        displayActive = active
+        guard phase == .running else { return }
+        tick() // refresh `remaining` before the mode switch
+        if phase == .running { startTicker() }
     }
 
     public func start(settings: Settings) {
@@ -189,11 +202,27 @@ public final class PomodoroTimer {
     }
 
     private func startTicker() {
-        let timer = Timer(timeInterval: 0.5, repeats: true) { [weak self] _ in
-            Task { @MainActor in self?.tick() }
+        stopTicker()
+        let timer: Timer
+        if displayActive {
+            timer = Timer(timeInterval: 0.5, repeats: true) { [weak self] _ in
+                Task { @MainActor in self?.tick() }
+            }
+        } else {
+            let remaining = endDate.map { $0.timeIntervalSince(now()) } ?? 0
+            timer = Timer(timeInterval: max(0.05, remaining + 0.05), repeats: false) { [weak self] _ in
+                Task { @MainActor in self?.hiddenFire() }
+            }
         }
         RunLoop.main.add(timer, forMode: .common)
         ticker = timer
+    }
+
+    /// The hidden one-shot landed. Normally the tick finishes the segment; if
+    /// a backward clock jump left time on the clock, re-arm for the new end.
+    private func hiddenFire() {
+        tick()
+        if phase == .running { startTicker() }
     }
 
     private func stopTicker() {

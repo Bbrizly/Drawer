@@ -108,6 +108,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         )
         controller = PanelController(rootView: rootView)
         panelController = controller
+        // Park the 0.5s display tickers whenever the panel is hidden. The
+        // panel starts hidden, so park them now too (restore() may have
+        // started the work clock ticker already).
+        panelController.onVisibilityChange = { [weak self] visible in
+            self?.focusTimer.setDisplayActive(visible)
+            self?.pomodoroTimer.setDisplayActive(visible)
+            self?.workClock.setDisplayActive(visible)
+        }
+        panelController.onVisibilityChange?(false)
         store.start()
 
         let binding = HotkeyBinding.saved
