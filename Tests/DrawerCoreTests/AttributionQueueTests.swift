@@ -150,7 +150,7 @@ final class AttributionQueueTests: XCTestCase {
 
     func testExpireStaleDropsOldEntriesKeepsFresh() throws {
         // Evidence holds window titles; an abandoned queue must not hoard them
-        // forever. 30 days unreviewed = expired.
+        // forever. Past the 7-day retention (here 40 days old at day 45) = expired.
         let (svc, _, _) = service()
         let old = entry(taskID: "t1", taskTitle: "Fix parser", confidence: 0.9)
         var fresh = entry(taskID: "t1", taskTitle: "Fix parser", confidence: 0.9)

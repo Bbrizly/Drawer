@@ -138,10 +138,16 @@ public struct AttributionService: Sendable {
         try remove(id)
     }
 
-    /// Drops entries that have sat unreviewed for `days`. Evidence holds
-    /// window titles, so an abandoned queue must not hoard them forever; a
-    /// month unreviewed means the review is not happening.
-    public func expireStale(now: Date, days: Int = 30) throws {
+    /// Empties the queue outright. Used on opt-out: the entries embed raw window
+    /// titles, so disabling the feature must not leave them sitting on disk.
+    public func clearQueue() throws {
+        if !queue.all().isEmpty { try queue.replaceAll([]) }
+    }
+
+    /// Drops entries that have sat unreviewed for `days`. Evidence holds window
+    /// titles, so the queue's retention matches the raw trail's 7-day ceiling: a
+    /// week unreviewed means the review is not happening, and the titles go.
+    public func expireStale(now: Date, days: Int = 7) throws {
         let cutoff = now.addingTimeInterval(-Double(days) * 86_400)
         let kept = queue.all().filter { $0.createdAt >= cutoff }
         if kept.count != queue.all().count { try queue.replaceAll(kept) }

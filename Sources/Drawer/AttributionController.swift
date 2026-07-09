@@ -37,6 +37,9 @@ final class AttributionController: ObservableObject {
     private var buffer: [ActivitySample] = []
     private var boundaries: [SessionBoundary] = []
     private var processing = false
+    /// Bumped on opt-out so an async classify already in flight cannot enqueue
+    /// window-title evidence back into a queue we just cleared.
+    private var enqueueGeneration = 0
 
     init(
         raw: RawActivityStore,
@@ -92,10 +95,18 @@ final class AttributionController: ObservableObject {
         start()
     }
 
-    /// Turning the feature off deletes the raw trail immediately: the 7-day
-    /// window is a ceiling, not a license to keep titles after opt-out.
+    /// Turning the feature off deletes every store of window titles immediately:
+    /// the raw trail AND the review queue (its evidence embeds the same titles).
+    /// The 7-day window is a ceiling, not a license to keep titles after opt-out.
+    /// Un-flushed buffered samples are dropped, and the generation bump makes any
+    /// classify already in flight discard its results instead of re-queuing them.
     func eraseRawTrail() {
+        buffer = []
+        boundaries = []
+        enqueueGeneration += 1
         try? raw.replaceAll([])
+        try? service.clearQueue()
+        refreshPending()
     }
 
     private func start() {
@@ -149,13 +160,16 @@ final class AttributionController: ObservableObject {
     // MARK: sample folding
 
     private func ingest(_ sample: ActivitySample) {
-        // Refresh the live "watching X → looks like Y" hint on every sample,
-        // even a coalesced flap, so the pane always reflects the current focus.
+        // Keep the "watching X" title current on every sample (a cheap assign),
+        // but only rescore the "→ looks like Y" guess on a real focus change.
+        // A title flap is the same app, so the guess barely moves, and the
+        // candidate rebuild + token scoring is main-thread work not worth doing
+        // at flap rate.
         liveSample = sample
-        liveGuess = ruleStore.liveGuess(for: sample, candidates: candidatesProvider())
         // Coalesce a title flap against the previous sample before persisting
         // (the same predicate the tested batch helper uses).
         if let last = buffer.last, last.coalesces(with: sample) { return }
+        liveGuess = ruleStore.liveGuess(for: sample, candidates: candidatesProvider())
         buffer.append(sample)
         try? raw.append(sample)
     }
@@ -180,6 +194,7 @@ final class AttributionController: ObservableObject {
         let candidates = candidatesProvider()
         let rules = ruleStore
         let matcher = makeTaskMatcherIfAvailable()  // read availability fresh
+        let generation = enqueueGeneration
         Task { @MainActor in
             defer {
                 processing = false
@@ -199,6 +214,8 @@ final class AttributionController: ObservableObject {
                 for residual in block.subtracting(manualSpansProvider(block.range))
                 where residual.range.duration >= config.minBlock {
                     let match = await classifier.classify(block: residual, candidates: candidates)
+                    // Opt-out mid-classify cleared the queue; don't re-add titles.
+                    guard generation == enqueueGeneration else { return }
                     try? service.enqueue(AttributionQueueEntry(
                         block: residual, proposed: match, candidates: candidates, createdAt: Date()))
                 }
