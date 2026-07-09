@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>Drawer</title>
 <meta name="description" content="A macOS menu bar app. Today's tasks slide out from a plain markdown file, with a focus timer. No account, no database. Your tasks stay yours.">
 <meta property="og:title" content="Drawer, your day is a text file">
@@ -34,6 +34,8 @@
     color:var(--ink);
     font-family:'Plus Jakarta Sans',system-ui,sans-serif;
     -webkit-font-smoothing:antialiased;
+    -webkit-text-size-adjust:100%;
+    text-size-adjust:100%;
     line-height:1.5;
     overflow-x:hidden;
   }
@@ -120,8 +122,8 @@
   body.menu-open .overlay a:nth-child(4){transition-delay:.26s}
 
   /* ---------- hero ---------- */
-  header{padding:180px 0 90px}
-  .hero{display:grid;grid-template-columns:1.05fr .95fr;gap:56px;align-items:center}
+  header{padding:180px 0 90px;overflow:visible}
+  .hero{display:grid;grid-template-columns:minmax(0,1.05fr) minmax(0,.95fr);gap:clamp(32px,5vw,56px);align-items:center}
   .hero>*{min-width:0}
   .hero h1{font-size:clamp(46px,6vw,84px);margin:22px 0 0}
   .hero h1 em{font-style:italic;color:var(--sage)}
@@ -144,22 +146,46 @@
   .bezel{background:rgba(28,24,19,.04);border:1px solid var(--hair-2);border-radius:var(--r);padding:8px}
   .bezel>.core{background:var(--cream);border:1px solid var(--hair);border-radius:calc(var(--r) - .5rem);box-shadow:inset 0 1px 1px rgba(255,255,255,.6)}
 
+  /* hero video */
+  .hero-video{min-width:0;width:100%;max-width:420px;justify-self:end}
+  .hero-video .bezel{padding:clamp(6px,1.5vw,10px)}
+  .hero-video .video-frame{
+    position:relative;aspect-ratio:720/796;overflow:hidden;
+    border-radius:calc(var(--r) - .5rem);background:var(--cream-2);
+  }
+  .hero-video video{
+    display:block;width:100%;height:100%;object-fit:contain;
+    border-radius:calc(var(--r) - .5rem);
+    box-shadow:0 40px 80px -30px rgba(28,24,19,.45);
+  }
+
   /* hero visual: markdown -> panel */
-  .stage{position:relative;min-width:0}
+  .stage{
+    position:relative;min-width:0;width:100%;max-width:720px;
+    margin:clamp(40px,8vw,72px) auto 0;
+    padding:0 16px;
+    overflow:visible;
+  }
   .paper{
-    position:absolute;left:-18px;top:-26px;width:63%;z-index:1;
-    background:var(--cream);border:1px solid var(--hair);border-radius:16px;padding:18px 18px 20px;
-    box-shadow:0 30px 60px -30px rgba(28,24,19,.4);transform:rotate(-3deg);
+    position:relative;left:0;top:0;width:100%;z-index:1;
+    background:var(--cream);border:1px solid var(--hair);border-radius:16px;
+    padding:22px 18px 20px;
+    box-shadow:0 30px 60px -30px rgba(28,24,19,.4);
     font-family:'JetBrains Mono',monospace;font-size:11.5px;line-height:1.9;color:var(--ink-2);
+    overflow:visible;
   }
   .paper .h{color:var(--ink);font-weight:500}
   .paper .c{color:var(--gold)}
   .paper .x{color:var(--sage)}
   .paper .ind{color:var(--ink-3);padding-left:16px}
-  .paper .tag{position:absolute;top:-11px;left:14px;font-family:'Plus Jakarta Sans';font-size:9px;letter-spacing:.2em;text-transform:uppercase;background:var(--ink);color:var(--cream);padding:3px 9px;border-radius:999px;font-weight:600}
+  .paper .tag{
+    position:absolute;top:12px;left:14px;transform:none;
+    font-family:'Plus Jakarta Sans';font-size:9px;letter-spacing:.2em;text-transform:uppercase;
+    background:var(--ink);color:var(--cream);padding:3px 9px;border-radius:999px;font-weight:600;
+  }
 
   .panel{
-    position:relative;z-index:2;width:78%;margin-left:auto;
+    position:relative;z-index:2;width:100%;margin:18px 0 0;
     background:rgba(244,238,225,.85);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);
     border:1px solid rgba(255,255,255,.6);border-radius:22px;
     box-shadow:0 40px 80px -30px rgba(28,24,19,.5),inset 0 1px 1px rgba(255,255,255,.7);
@@ -281,9 +307,26 @@
   @keyframes floaty{0%,100%{transform:translateY(0)}50%{transform:translateY(-8px)}}
   .panel{animation:floaty 7s ease-in-out infinite}
 
+  @media (min-width:1025px){
+    .paper{
+      width:min(63%,420px);margin:0 auto 0 0;
+      left:-12px;transform:rotate(-3deg);
+    }
+    .panel{
+      width:min(78%,520px);margin:-52px 0 0 auto;
+    }
+  }
+  @media (max-width:1024px){
+    .hero{grid-template-columns:1fr;gap:clamp(28px,6vw,40px)}
+    .hero-video{max-width:min(420px,100%);justify-self:center;width:100%}
+    .stage{
+      display:flex;flex-direction:column;gap:18px;
+      padding:0;max-width:100%;margin-top:clamp(32px,7vw,48px);
+    }
+    .paper{width:100%;transform:none;margin:0}
+    .panel{width:100%;margin:0;animation:none}
+  }
   @media (max-width:900px){
-    .hero{grid-template-columns:1fr;gap:70px}
-    .stage{margin-top:10px}
     .fmt,.ai{grid-template-columns:1fr;gap:28px}
     .flow{grid-template-columns:1fr 1fr}
     .bento{grid-template-columns:repeat(2,1fr)}
@@ -291,20 +334,32 @@
   }
   @media (max-width:768px){
     .navlinks,.nav-cta{display:none}
-    .burger{display:block}
-    .home{top:24px;left:16px;font-size:14px;padding:8px 13px}
-    header{padding:130px 0 60px}
+    .burger{display:block;width:44px;height:44px}
+    .home{top:max(24px,env(safe-area-inset-top,0px));left:max(16px,env(safe-area-inset-left,0px));font-size:14px;padding:8px 13px}
+    nav{padding-top:max(22px,env(safe-area-inset-top,0px))}
+    header{padding:max(130px,calc(110px + env(safe-area-inset-top,0px))) 0 60px}
     section{padding:64px 0}
-    .wrap{padding:0 18px}
+    .wrap{padding-left:max(18px,env(safe-area-inset-left,0px));padding-right:max(18px,env(safe-area-inset-right,0px))}
     .flow{grid-template-columns:1fr}
     .bento{grid-template-columns:1fr}
     .band-inner{padding:44px 24px}
-    .paper{position:relative;left:0;top:0;width:100%;transform:none;margin-bottom:18px;overflow-x:auto}
-    .panel{width:100%}
-    .stage{display:flex;flex-direction:column;width:100%}
-    .stage>*{max-width:100%}
-    .cta-row{flex-direction:column;align-items:flex-start;gap:16px}
-    .hero h1{font-size:clamp(40px,10vw,60px)}
+    .lede{max-width:none}
+    .cta-row{flex-direction:column;align-items:stretch;gap:16px}
+    .btn{justify-content:center;width:100%}
+    .cta-note{text-align:center}
+    .hero h1{font-size:clamp(36px,9.5vw,56px)}
+    .hero-video .bezel{border-radius:1.25rem}
+    .hero-video .video-frame,.hero-video video{border-radius:calc(1.25rem - .35rem)}
+    .task .dur{margin-left:0;margin-top:6px}
+    .task{flex-wrap:wrap}
+  }
+  @media (max-width:480px){
+    header{padding-top:max(118px,calc(100px + env(safe-area-inset-top,0px)))}
+    .hero h1{font-size:clamp(32px,8.8vw,44px)}
+    .paper{font-size:10.5px;padding:14px 14px 16px;line-height:1.75}
+    .panel{padding:14px;border-radius:18px}
+    .panel .bar .t{font-size:16px}
+    .task .txt{font-size:13px}
   }
   @media (prefers-reduced-motion:reduce){
     *{transition:none!important;animation:none!important}
@@ -353,36 +408,46 @@
       </div>
     </div>
 
-    <div class="stage reveal" data-d="2">
-      <div class="paper">
-        <span class="tag">today.md</span>
-        <div><span class="h">## 2026-07-04</span></div>
-        <div><span class="c">- [ ]</span> Call the landlord <span class="c">(15m)</span></div>
-        <div class="ind">Ask about the lease renewal.</div>
-        <div><span class="x">- [x]</span> Ship the release notes</div>
-        <div><span class="c">- [ ]</span> Review the pull request <span class="c">(25m)</span></div>
+    <div class="hero-video reveal" data-d="2">
+      <div class="bezel">
+        <div class="core">
+          <div class="video-frame">
+            <video src="Docs/media/drawer-demo.mp4" poster="Docs/media/drawer-demo-poster.jpg" width="720" height="796" autoplay loop muted playsinline aria-label="Drawer app demo: panel sliding in from the menu bar"></video>
+          </div>
+        </div>
       </div>
-      <div class="panel">
-        <div class="bar"><span class="t">Today</span><span class="d">JUL 4</span></div>
-        <div class="task">
-          <span class="ck"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3"><path d="M4 12l6 6L20 6"/></svg></span>
-          <div class="txt">Call the landlord<div class="note">Ask about the lease renewal.</div></div>
-          <span class="dur">15m</span>
-        </div>
-        <div class="task done">
-          <span class="ck"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3"><path d="M4 12l6 6L20 6"/></svg></span>
-          <div class="txt">Ship the release notes</div>
-        </div>
-        <div class="task">
-          <span class="ck"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3"><path d="M4 12l6 6L20 6"/></svg></span>
-          <div class="txt">Review the pull request</div>
-          <span class="dur">25m</span>
-        </div>
-        <div class="timer">
-          <span class="num">24:32</span>
-          <div><div class="lab">Focus</div></div>
-          <span class="play"><svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg></span>
-        </div>
+    </div>
+  </div>
+
+  <div class="stage reveal" data-d="3">
+    <div class="paper">
+      <span class="tag">today.md</span>
+      <div><span class="h">## 2026-07-04</span></div>
+      <div><span class="c">- [ ]</span> Call the landlord <span class="c">(15m)</span></div>
+      <div class="ind">Ask about the lease renewal.</div>
+      <div><span class="x">- [x]</span> Ship the release notes</div>
+      <div><span class="c">- [ ]</span> Review the pull request <span class="c">(25m)</span></div>
+    </div>
+    <div class="panel">
+      <div class="bar"><span class="t">Today</span><span class="d">JUL 4</span></div>
+      <div class="task">
+        <span class="ck"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3"><path d="M4 12l6 6L20 6"/></svg></span>
+        <div class="txt">Call the landlord<div class="note">Ask about the lease renewal.</div></div>
+        <span class="dur">15m</span>
+      </div>
+      <div class="task done">
+        <span class="ck"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3"><path d="M4 12l6 6L20 6"/></svg></span>
+        <div class="txt">Ship the release notes</div>
+      </div>
+      <div class="task">
+        <span class="ck"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3"><path d="M4 12l6 6L20 6"/></svg></span>
+        <div class="txt">Review the pull request</div>
+        <span class="dur">25m</span>
+      </div>
+      <div class="timer">
+        <span class="num">24:32</span>
+        <div><div class="lab">Focus</div></div>
+        <span class="play"><svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg></span>
       </div>
     </div>
   </div>
@@ -433,7 +498,7 @@
     <div class="card feature reveal">
       <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M9 18h6M10 21h4M12 3a6 6 0 0 0-4 10.5c.7.7 1 1.3 1 2.5h6c0-1.2.3-1.8 1-2.5A6 6 0 0 0 12 3z"/></svg>
       <h3>Idea board</h3>
-      <p>Jot a thought, swipe to a board. It lives in the same file.</p>
+      <p>Jot a thought, swipe to a board. It stays out of your task list.</p>
     </div>
     <div class="card feature reveal">
       <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M4 5h16v11H8l-4 4z"/><path d="M8 9h8M8 12h5"/></svg>
@@ -585,6 +650,9 @@
   // scroll reveal
   const io=new IntersectionObserver((es)=>es.forEach(e=>{if(e.isIntersecting){e.target.classList.add('in');io.unobserve(e.target)}}),{threshold:.12,rootMargin:'0px 0px -8% 0px'});
   document.querySelectorAll('.reveal').forEach(el=>io.observe(el));
+  // respect reduced motion for hero video
+  const heroVid=document.querySelector('.hero-video video');
+  if(heroVid&&window.matchMedia('(prefers-reduced-motion: reduce)').matches) heroVid.pause();
 </script>
 </body>
 </html>
