@@ -214,6 +214,13 @@ public final class BoardStore: ObservableObject {
         scheduleSave()
     }
 
+    public func setFontSize(_ id: UUID, _ size: Double) {
+        guard let i = index(of: id) else { return }
+        snapshot()
+        document.items[i].fontSize = size
+        scheduleSave()
+    }
+
     public func move(_ id: UUID, to point: CGPoint) {
         guard let i = index(of: id) else { return }
         snapshot()
@@ -222,8 +229,8 @@ public final class BoardStore: ObservableObject {
         scheduleSave()
     }
 
-    /// Move and resize in one undoable step (the grip drag commits here). For
-    /// text, `fontSize` scales with the drag so the text itself resizes.
+    /// Move and resize in one undoable step (the grip drag commits here).
+    /// `fontSize` is optional and normally nil; text wraps to the box instead.
     public func moveAndResize(_ id: UUID, to rect: CGRect, fontSize: Double? = nil) {
         guard let i = index(of: id) else { return }
         snapshot()

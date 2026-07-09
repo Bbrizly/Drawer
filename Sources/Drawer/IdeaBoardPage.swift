@@ -16,7 +16,6 @@ struct IdeaBoardPage: View {
     @State private var showingBoardSelector = false
     // Board settings (see the Board tab in Settings).
     @AppStorage("boardBackground") private var boardBackground = "dark"
-    @AppStorage("boardDefaultColor") private var defaultColor = "yellow"
     @AppStorage("boardZoomStep") private var zoomStep = 1.25
 
     private var transparent: Bool { boardBackground == "transparent" }
@@ -32,8 +31,7 @@ struct IdeaBoardPage: View {
                 transparentBackground: transparent,
                 globalPanEnabled: swipe.showingBoard,
                 paperBackground: paper,
-                xpBackground: xpBoard,
-                defaultCardColor: defaultColor
+                xpBackground: xpBoard
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }

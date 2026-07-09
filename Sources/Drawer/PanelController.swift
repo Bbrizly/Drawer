@@ -1,9 +1,11 @@
 import AppKit
+import QuartzCore
 import SwiftUI
 
 @MainActor
 final class PanelController {
     private let panel = DrawerPanel()
+    private let hosting: NSHostingView<AnyView>
     private var transitionState = PanelTransitionState()
     var isShown: Bool { transitionState.isShown }
     // Backed by UserDefaults so the drawer's expand button can watch the same
@@ -38,8 +40,13 @@ final class PanelController {
         shouldReduceMotion ? 0 : UserDefaults.standard.double(forKey: "panelSlideDuration")
     }
 
+    /// Snappy ease-out for slide-in; tuned for short UI motion.
+    private static let showTiming = CAMediaTimingFunction(controlPoints: 0.16, 1.0, 0.3, 1.0)
+    /// Quick ease-in for slide-out.
+    private static let hideTiming = CAMediaTimingFunction(controlPoints: 0.4, 0.0, 1.0, 1.0)
+
     init<V: View>(rootView: V) {
-        let hosting = NSHostingView(rootView: rootView)
+        let hosting = NSHostingView(rootView: AnyView(rootView))
         // This controller owns the panel's frame. Empty sizing options stop
         // SwiftUI content minimums from resizing the window (a wide header
         // pill, say the Work Mode card, must truncate, never push the panel
@@ -47,6 +54,12 @@ final class PanelController {
         hosting.sizingOptions = []
         // The closed companion pane is laid out past the window edge and must not paint outside it.
         hosting.clipsToBounds = true
+        // Layer-back the content so the show/hide slide (a window-origin move)
+        // composites on the GPU. Keep the default redraw policy (.duringViewResize):
+        // .onSetNeedsDisplay would stretch a stale bitmap during the width-changing
+        // pane-open / expand / board-swipe animations, which resize this view.
+        hosting.wantsLayer = true
+        self.hosting = hosting
         panel.contentView = hosting
     }
 
@@ -135,19 +148,26 @@ final class PanelController {
         )
     }
 
+    /// Park the panel fully off the left edge, ready to slide in.
+    private func offScreenOrigin(for frame: NSRect, hiding: Bool) -> NSPoint {
+        NSPoint(
+            x: frame.origin.x - frame.width - (hiding ? 36 : 24),
+            y: frame.origin.y
+        )
+    }
+
     func show() {
         if UserDefaults.standard.bool(forKey: "startExpanded") { isExpanded = true }
         let target = targetFrame()
         guard target != .zero else { return }
         var start = target
-        // Offset by the CURRENT target width (which may include the pane), not
-        // the static base width, or a widened panel starts half on screen.
-        start.origin.x -= target.width + 24
+        start.origin = offScreenOrigin(for: target, hiding: false)
         panel.setFrame(start, display: false)
         panel.orderFrontRegardless()
+        hosting.layoutSubtreeIfNeeded()
         NSAnimationContext.runAnimationGroup { ctx in
             ctx.duration = slideDuration
-            ctx.timingFunction = CAMediaTimingFunction(name: .easeOut)
+            ctx.timingFunction = Self.showTiming
             panel.animator().setFrame(target, display: true)
         }
         transitionState.beginShow()
@@ -158,14 +178,11 @@ final class PanelController {
         let hideGeneration = transitionState.beginHide()
         onVisibilityChange?(false)
         var off = panel.frame
-        // Slide fully off the left edge based on the CURRENT width (which may
-        // include the pane), not the static base width, or a widened panel
-        // stays half on screen.
-        off.origin.x -= panel.frame.width + 36
+        off.origin = offScreenOrigin(for: panel.frame, hiding: true)
         NSAnimationContext.runAnimationGroup({ ctx in
             ctx.duration = slideDuration
-            ctx.timingFunction = CAMediaTimingFunction(name: .easeIn)
-            self.panel.animator().setFrame(off, display: true)
+            ctx.timingFunction = Self.hideTiming
+            panel.animator().setFrame(off, display: true)
         }, completionHandler: { [weak self] in
             Task { @MainActor in
                 guard let self,

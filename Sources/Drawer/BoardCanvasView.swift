@@ -21,14 +21,13 @@ final class BoardCanvasView: NSView, NSTextViewDelegate {
     var onMoveAndResize: (UUID, CGRect, Double?) -> Void = { _, _, _ in }
     var onCommitText: (UUID, String, String) -> Void = { _, _, _ in }
     var onSetColor: (UUID, String) -> Void = { _, _ in }
+    var onSetFontSize: (UUID, Double) -> Void = { _, _ in }
     /// Double-click on empty canvas: make a new text card here and edit it.
     var onAddText: (CGPoint) -> Void = { _ in }
     var onUndo: () -> Void = {}
     var onRedo: () -> Void = {}
     var canUndo: () -> Bool = { false }
     var canRedo: () -> Bool = { false }
-    /// Color new cards start as (Settings default). nil = yellow.
-    var defaultCardColor: String?
     /// Async thumbnail fetch for an image item.
     var thumbnailProvider: ((BoardItem, @escaping (CGImage?) -> Void) -> Void)?
 
@@ -51,10 +50,6 @@ final class BoardCanvasView: NSView, NSTextViewDelegate {
     private var resizeID: UUID?               // non-nil while dragging the grip
     private var resizeTop: CGFloat = 0        // fixed top edge during a resize
     private var resizeLeft: CGFloat = 0       // fixed left edge during a resize
-    private var resizeStartW: CGFloat = 1     // text: bounds/font at grip-down, to scale uniformly
-    private var resizeStartH: CGFloat = 1
-    private var resizeStartFont: CGFloat = 15
-    private var resizeLiveFont: CGFloat = 15  // text: current scaled font, committed on release
     private let handleSize: CGFloat = 14
 
     private var editingID: UUID?
@@ -209,18 +204,13 @@ final class BoardCanvasView: NSView, NSTextViewDelegate {
             color = Palette.hitClear.ns
         } else if xpBg {
             color = Palette.xpDesktopRGBA.ns
-            layer?.backgroundColor = color.cgColor
-            layer?.contents = nil
         } else if paperBg {
             color = Palette.paperFill.ns
-            layer?.backgroundColor = color.cgColor
-            layer?.contents = nil
         } else {
             color = Palette.boardDark.ns
-            layer?.backgroundColor = color.cgColor
-            layer?.contents = nil
         }
-        if !xpBg { layer?.contents = nil }
+        layer?.backgroundColor = color.cgColor
+        layer?.contents = nil
         paperLayer.isHidden = !showingPaper
         reinkText()
         refreshCardChrome()
@@ -533,10 +523,6 @@ final class BoardCanvasView: NSView, NSTextViewDelegate {
                 resizeID = id
                 resizeTop = layer.position.y + layer.bounds.height
                 resizeLeft = layer.position.x
-                resizeStartW = layer.bounds.width
-                resizeStartH = layer.bounds.height
-                resizeStartFont = CGFloat(items.first { $0.id == id }?.fontSize ?? Double(Self.defaultFontSize))
-                resizeLiveFont = resizeStartFont
                 return
             }
         }
@@ -569,28 +555,19 @@ final class BoardCanvasView: NSView, NSTextViewDelegate {
 
         if let id = resizeID, let layer = itemLayers[id] {
             let it = items.first { $0.id == id }
-            var w = max(80, bp.x - resizeLeft)
+            let w = max(80, bp.x - resizeLeft)
             var h = max(50, resizeTop - bp.y)
             if let it, let aspect = aspect(of: it) {
                 h = w / aspect // images keep their shape; width drives height
-            } else if it?.kind == .text {
-                // Text scales uniformly: the grip drives the font size, and the
-                // box grows with it, so the text itself gets bigger or smaller.
-                let s = min(16, max(0.3, w / resizeStartW))
-                resizeLiveFont = (resizeStartFont * s).rounded()
-                w = resizeStartW * s
-                h = resizeStartH * s
             }
+            // Text: the grip resizes the box freely and the text wraps to fit.
+            // Font size is unchanged here — set it from the right-click menu.
             let y = resizeTop - h
             CATransaction.begin()
             CATransaction.setDisableActions(true)
             layer.bounds = CGRect(x: 0, y: 0, width: w, height: h)
             layer.position = CGPoint(x: resizeLeft, y: y)
             layoutContents(of: layer, size: CGSize(width: w, height: h))
-            if let it, it.kind == .text,
-               let t = layer.sublayers?.first(where: { $0.name == "text" }) as? CATextLayer {
-                t.string = attributedText(for: it, size: resizeLiveFont) // live font
-            }
             CATransaction.commit()
             updateHandle()
             return
@@ -634,12 +611,7 @@ final class BoardCanvasView: NSView, NSTextViewDelegate {
     override func mouseUp(with event: NSEvent) {
         if panning { panning = false; NSCursor.arrow.set(); return }
         if let id = resizeID, let layer = itemLayers[id] {
-            let isText = items.first { $0.id == id }?.kind == .text
-            onMoveAndResize(
-                id,
-                CGRect(origin: layer.position, size: layer.bounds.size),
-                isText ? Double(resizeLiveFont) : nil
-            )
+            onMoveAndResize(id, CGRect(origin: layer.position, size: layer.bounds.size), nil)
             resizeID = nil
             return
         }
@@ -829,6 +801,17 @@ final class BoardCanvasView: NSView, NSTextViewDelegate {
 
         let menu = NSMenu()
         if items.contains(where: { selectedIDs.contains($0.id) && $0.kind == .text }) {
+            let sizeItem = NSMenuItem(title: "Text Size", action: nil, keyEquivalent: "")
+            let sizeMenu = NSMenu()
+            for (name, size) in [("Small", 12.0), ("Medium", 15.0), ("Large", 22.0), ("Huge", 32.0)] {
+                let mi = NSMenuItem(title: name, action: #selector(pickFontSize(_:)), keyEquivalent: "")
+                mi.representedObject = size
+                mi.target = self
+                sizeMenu.addItem(mi)
+            }
+            sizeItem.submenu = sizeMenu
+            menu.addItem(sizeItem)
+            menu.addItem(.separator())
             for key in ["yellow", "pink", "blue", "green", "purple", "gray"] {
                 let mi = NSMenuItem(title: key.capitalized, action: #selector(pickColor(_:)), keyEquivalent: "")
                 mi.representedObject = key
@@ -847,6 +830,13 @@ final class BoardCanvasView: NSView, NSTextViewDelegate {
         guard let key = sender.representedObject as? String else { return }
         for it in items where selectedIDs.contains(it.id) && it.kind == .text {
             onSetColor(it.id, key)
+        }
+    }
+
+    @objc private func pickFontSize(_ sender: NSMenuItem) {
+        guard let size = sender.representedObject as? Double else { return }
+        for it in items where selectedIDs.contains(it.id) && it.kind == .text {
+            onSetFontSize(it.id, size)
         }
     }
 

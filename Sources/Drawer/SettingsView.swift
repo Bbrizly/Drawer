@@ -81,11 +81,8 @@ struct SettingsView: View {
 
 private struct BoardSettingsView: View {
     @AppStorage("boardBackground") private var boardBackground = "dark"
-    @AppStorage("boardDefaultColor") private var defaultColor = "yellow"
     @AppStorage("boardSwipeScale") private var swipeScale = 300.0
     @AppStorage("boardZoomStep") private var zoomStep = 1.25
-
-    private let colors = Palette.cardKeys
 
     var body: some View {
         Form {
@@ -100,24 +97,6 @@ private struct BoardSettingsView: View {
                     "Dark is a solid board. Transparent shows your desktop through the canvas. "
                     + "Paper adds ruled lines. The Notebook theme always uses paper."
                 )
-            }
-            Section("New cards") {
-                HStack(spacing: 10) {
-                    ForEach(colors, id: \.self) { key in
-                        Circle()
-                            .fill(Palette.card(key).color)
-                            .frame(width: 22, height: 22)
-                            .overlay(
-                                Circle().strokeBorder(
-                                    .primary.opacity(defaultColor == key ? 0.9 : 0.15),
-                                    lineWidth: defaultColor == key ? 2.5 : 1)
-                            )
-                            .accessibilityLabel("\(key) card color")
-                            .onTapGesture { defaultColor = key }
-                    }
-                    Spacer()
-                }
-                SettingsCaption("Tap a color. New text cards and sticky notes start in that shade.")
             }
             Section("Gestures") {
                 HStack {
@@ -154,7 +133,7 @@ private struct GeneralSettingsView: View {
     @AppStorage("defaultMinutesText") private var defaultMinutes = "25"
     @AppStorage("feature.focusTimer") private var focusTimerEnabled = true
     @AppStorage("feature.pomodoro") private var pomodoroEnabled = true
-    @AppStorage("feature.workMode") private var stopwatchEnabled = true
+    @AppStorage("feature.workMode") private var stopwatchEnabled = FeatureFlag.workMode.defaultValue
     @AppStorage(PomodoroPreferences.focusMinutesKey) private var pomodoroFocusMinutes =
         PomodoroTimer.Settings.standard.focusMinutes
     @AppStorage(PomodoroPreferences.shortBreakMinutesKey) private var pomodoroShortBreakMinutes =
@@ -166,7 +145,7 @@ private struct GeneralSettingsView: View {
         PomodoroTimer.Settings.standard.sessionsUntilLongBreak
     @AppStorage("panelWidth") private var panelWidth = 300.0
     @AppStorage("panelCompactHeight") private var panelHeight = 440.0
-    @AppStorage("panelSlideDuration") private var panelSlideDuration = 0.14
+    @AppStorage("panelSlideDuration") private var panelSlideDuration = 0.11
     @AppStorage("drawerTheme") private var themeRaw = DrawerTheme.default.rawValue
     @AppStorage("appFontDesign") private var appFontDesign = "theme"
     @AppStorage("taskFontSize") private var taskFontSize = 13.0
@@ -453,7 +432,7 @@ private struct GeneralSettingsView: View {
                 )
                 HStack {
                     Text("Slide speed")
-                    Slider(value: $panelSlideDuration, in: 0...0.35, step: 0.01)
+                    Slider(value: $panelSlideDuration, in: 0...0.25, step: 0.01)
                     Text(panelSlideDuration == 0 ? "off" : "\(Int(panelSlideDuration * 1000))ms")
                         .font(.caption)
                         .foregroundStyle(.secondary)
@@ -1274,7 +1253,7 @@ private struct HelpView: View {
                     "Settings tabs",
                     "General: look, sounds, task file, hotkey, and panel size. "
                     + "Features: turn parts of the app on or off. "
-                    + "Board: canvas background, card color, swipe and zoom. "
+                    + "Board: canvas background, swipe and zoom. "
                     + "Advanced: file paths, teleprompter, and list defaults. "
                     + "Most changes apply immediately; file path changes need a restart."
                 )

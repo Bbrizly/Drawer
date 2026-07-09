@@ -18,8 +18,6 @@ struct BoardCanvas: NSViewRepresentable {
     var paperBackground = false
     /// Bliss-style desktop (Windows XP theme).
     var xpBackground = false
-    /// Color new cards start as (Settings default).
-    var defaultCardColor: String?
 
     func makeCoordinator() -> Coordinator { Coordinator(store: store) }
 
@@ -32,6 +30,7 @@ struct BoardCanvas: NSViewRepresentable {
         view.onMoveAndResize = { id, rect, font in store.moveAndResize(id, to: rect, fontSize: font) }
         view.onCommitText = { id, title, body in store.updateText(id, title: title, body: body) }
         view.onSetColor = { id, key in store.setColor(id, key) }
+        view.onSetFontSize = { id, size in store.setFontSize(id, size) }
         view.onAddText = { [weak coord] p in
             guard let coord, let view = coord.view else { return }
             // Double-click drops plain text (no colored card box). color: nil.
@@ -54,7 +53,6 @@ struct BoardCanvas: NSViewRepresentable {
         view.setPaper(paperBackground)
         view.setXPBackground(xpBackground)
         view.setGlobalPanEnabled(globalPanEnabled)
-        view.defaultCardColor = defaultCardColor
         return view
     }
 
@@ -65,7 +63,6 @@ struct BoardCanvas: NSViewRepresentable {
         view.setPaper(paperBackground)
         view.setXPBackground(xpBackground)
         view.setGlobalPanEnabled(globalPanEnabled)
-        view.defaultCardColor = defaultCardColor
         if recenterRequests != context.coordinator.lastRecenter {
             context.coordinator.lastRecenter = recenterRequests
             view.recenter()
