@@ -194,17 +194,40 @@ public final class TodoStore: ObservableObject {
         }
     }
 
-    /// Reads the file, runs a writeback transform, saves the result, and
-    /// refreshes the view from the bytes just written. On any failure (a stale
-    /// line, a vanished file, a write error) it never guesses: it drops the
-    /// self-write guard and reloads the truth on disk.
+    /// Reads, runs a writeback transform, and writes with a one-shot content-CAS:
+    /// if the file changed between our read and the write (a concurrent
+    /// Obsidian/iCloud/MCP save), the transform is recomputed once against the
+    /// fresh bytes so that edit is not clobbered. The writeback transforms locate
+    /// their target by section + occurrence + exact rawLine, so replaying against
+    /// fresh bytes hits the same logical task. `lastWrittenData` is set only after
+    /// the write succeeds, so a thrown write never leaves a stale suppression
+    /// value that swallows the next external reload.
+    /// ponytail: one re-read, not a loop or a file lock. A single external editor
+    /// is the only other writer in practice; upgrade to NSFileCoordinator if
+    /// cross-process races ever matter.
+    private func commit(readingMissingAsEmpty: Bool = false, _ transform: (Data) throws -> Data) throws {
+        func currentData() throws -> Data {
+            do { return try readData(fileURL) }
+            catch where readingMissingAsEmpty && Self.isMissingFileError(error) { return Data() }
+        }
+        var data = try currentData()
+        var newData = try transform(data)
+        let fresh = try currentData()
+        if fresh != data {
+            data = fresh
+            newData = try transform(data)
+        }
+        try writeData(newData, fileURL)
+        lastWrittenData = newData
+        apply(newData)
+    }
+
+    /// Runs a writeback transform against the file. On any failure (a stale line,
+    /// a vanished file, a write error) it never guesses: it drops the self-write
+    /// guard and reloads the truth on disk.
     private func mutate(_ transform: (Data) throws -> Data) {
         do {
-            let data = try readData(fileURL)
-            let newData = try transform(data)
-            lastWrittenData = newData
-            try writeData(newData, fileURL)
-            apply(newData)
+            try commit(transform)
         } catch {
             lastWrittenData = nil
             reload()
@@ -215,47 +238,21 @@ public final class TodoStore: ObservableObject {
     /// server uses). Throws PlanWriter's validation errors so the caller can
     /// surface a rejection instead of silently doing nothing.
     public func writeDayPlan(date: String, entries: [PlanEntry], replace: Bool) throws {
-        func currentData() throws -> Data {
-            do { return try readData(fileURL) }
-            catch where Self.isMissingFileError(error) { return Data() }
+        try commit(readingMissingAsEmpty: true) { data in
+            try PlanWriter.write(date: date, entries: entries, replace: replace, in: data)
         }
-        // Content-CAS, matching the MCP mutation path: if the file changed under
-        // us between read and write (an Obsidian/MCP edit), recompute once on the
-        // fresh bytes so that edit isn't clobbered.
-        var data = try currentData()
-        var newData = try PlanWriter.write(date: date, entries: entries, replace: replace, in: data)
-        let fresh = try currentData()
-        if fresh != data {
-            data = fresh
-            newData = try PlanWriter.write(date: date, entries: entries, replace: replace, in: data)
-        }
-        // Only after the write succeeds: a thrown write must not leave a stale
-        // suppression value that swallows the next external reload.
-        try writeData(newData, fileURL)
-        lastWrittenData = newData
-        apply(newData)
     }
 
     public func add(_ title: String) {
         let trimmed = title.trimmingCharacters(in: .whitespaces)
         guard !trimmed.isEmpty else { return }
-        let data: Data
+        // Capture today once: the CAS transform may run twice, and it must not
+        // roll to a new day between the two passes.
+        let today = todayProvider()
         do {
-            data = try readData(fileURL)
-        } catch where Self.isMissingFileError(error) {
-            data = Data()
-        } catch {
-            statusMessage = "Could not read drawer file"
-            return
-        }
-
-        do {
-            let newData = try TodoWriteback.append(
-                title: trimmed, today: todayProvider(), in: data
-            )
-            lastWrittenData = newData
-            try writeData(newData, fileURL)
-            apply(newData)
+            try commit(readingMissingAsEmpty: true) { data in
+                try TodoWriteback.append(title: trimmed, today: today, in: data)
+            }
         } catch {
             lastWrittenData = nil
             statusMessage = "Could not save drawer file"
@@ -278,22 +275,11 @@ public final class TodoStore: ObservableObject {
     }
 
     private func insertLine(_ line: String, intoSectionKey key: String, displayHeading: String) {
-        let data: Data
         do {
-            data = try readData(fileURL)
-        } catch where Self.isMissingFileError(error) {
-            data = Data()
-        } catch {
-            statusMessage = "Could not read drawer file"
-            return
-        }
-        do {
-            let newData = try TodoWriteback.insert(
-                line: line, intoSectionKey: key, displayHeading: displayHeading, in: data
-            )
-            lastWrittenData = newData
-            try writeData(newData, fileURL)
-            apply(newData)
+            try commit(readingMissingAsEmpty: true) { data in
+                try TodoWriteback.insert(
+                    line: line, intoSectionKey: key, displayHeading: displayHeading, in: data)
+            }
         } catch {
             lastWrittenData = nil
             statusMessage = "Could not save drawer file"

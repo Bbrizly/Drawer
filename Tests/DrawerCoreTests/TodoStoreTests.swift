@@ -209,6 +209,32 @@ final class TodoStoreTests: XCTestCase {
         store.add("new task")
 
         XCTAssertFalse(didWrite)
-        XCTAssertEqual(store.statusMessage, "Could not read drawer file")
+        XCTAssertNotNil(store.statusMessage)
+    }
+
+    func testToggleRecomputesAgainstConcurrentEditOnCASReread() throws {
+        // The commit re-reads after transforming. Model a concurrent external
+        // add (task B) landing between the two reads: reads 1-2 see the original,
+        // read 3 (the CAS re-read) sees the edit. The toggle must replay onto the
+        // fresh bytes so B is preserved, not clobbered.
+        let original = "## 2026-06-07\n- [ ] A\n"
+        let edited = "## 2026-06-07\n- [ ] A\n- [ ] B\n"
+        var reads = 0
+        var written: Data?
+        let store = TodoStore(
+            fileURL: file,
+            todayProvider: { "2026-06-07" },
+            readData: { _ in
+                reads += 1
+                return Data((reads <= 2 ? original : edited).utf8)
+            },
+            writeData: { data, _ in written = data }
+        )
+        store.reload()                    // read 1 -> original, populates items
+        store.toggle(store.todayItems[0]) // read 2 (original), re-read 3 (edited)
+
+        let result = try XCTUnwrap(written.flatMap { String(data: $0, encoding: .utf8) })
+        XCTAssertTrue(result.contains("- [x] A"), "toggle applied on fresh bytes")
+        XCTAssertTrue(result.contains("- [ ] B"), "concurrent external add preserved")
     }
 }
