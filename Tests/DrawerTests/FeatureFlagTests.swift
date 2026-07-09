@@ -22,4 +22,14 @@ final class FeatureFlagTests: XCTestCase {
         XCTAssertEqual(FeatureFlag.attribution.key, "feature.attribution")
         XCTAssertFalse(FeatureFlag.attribution.defaultValue)
     }
+
+    func testFinickyFeaturesShipOff() {
+        for flag in [FeatureFlag.planner, .history, .workMode, .ideaCapture] {
+            XCTAssertFalse(flag.defaultValue, "\(flag.rawValue) should default off")
+        }
+        // Everyday features stay on.
+        for flag in [FeatureFlag.focusTimer, .ideas, .notes, .swipeDelete] {
+            XCTAssertTrue(flag.defaultValue, "\(flag.rawValue) should default on")
+        }
+    }
 }

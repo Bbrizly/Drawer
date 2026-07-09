@@ -24,17 +24,15 @@ final class CompanionPaneRenderTests: XCTestCase {
 
     // MARK: PaneRouter
 
-    func testRouterToggleReopensLastSection() {
+    func testRouterRemembersLastOpenedSection() {
+        // DrawerView.paneToShow reopens the pane to lastOpened, so it must track
+        // the last section actually shown.
         let router = PaneRouter()
-        XCTAssertNil(router.activePane)
-        router.toggleOpen()
-        XCTAssertEqual(router.activePane, .plan) // default lastOpened
+        XCTAssertEqual(router.lastOpened, .plan) // default
         router.show(.work)
         XCTAssertEqual(router.activePane, .work)
-        router.toggleOpen()
-        XCTAssertNil(router.activePane) // closes
-        router.toggleOpen()
-        XCTAssertEqual(router.activePane, .work) // reopens to last section
+        router.activePane = nil                  // close
+        XCTAssertEqual(router.lastOpened, .work)  // remembers last section
     }
 
     // MARK: pane render smoke

@@ -32,6 +32,9 @@ enum FeatureFlag: String, CaseIterable, Identifiable {
     /// A view-only time-travel scrubber over Drawer.md's recent history.
     case history
     case ideas
+    /// The light-bulb capture bar (jot + Park). Split from `ideas` so the board
+    /// can stay on while the finicky park animation stays off. Off by default.
+    case ideaCapture
     /// Exposes Drawer to AI agents over MCP (a separate `drawer-mcp` binary you
     /// register with `claude mcp add`). The app doesn't run the server, so this
     /// flag gates nothing in-app in v1; it exists, defaults on, and is kept out
@@ -74,6 +77,7 @@ enum FeatureFlag: String, CaseIterable, Identifiable {
         case .planner: return "AI day planner"
         case .history: return "Time-travel history"
         case .ideas: return "Idea board"
+        case .ideaCapture: return "Idea capture bar"
         case .mcp: return "MCP server"
         }
     }
@@ -100,7 +104,8 @@ enum FeatureFlag: String, CaseIterable, Identifiable {
         case .attribution: return "Watch app and window to propose sessions you approve. Off by default."
         case .planner: return "A button that drafts a day plan with calibrated durations. Needs Apple Intelligence."
         case .history: return "Scrub through recent versions of your drawer. View-only."
-        case .ideas: return "A light bulb to jot ideas, and a board you swipe to."
+        case .ideas: return "A board of parked ideas you swipe to."
+        case .ideaCapture: return "A light bulb to jot an idea and park it on the board. Off by default; rough edges."
         case .mcp: return "Let AI agents read and write your drawer over MCP."
         }
     }
@@ -113,7 +118,7 @@ enum FeatureFlag: String, CaseIterable, Identifiable {
         case .swipeDelete, .swipeProgress: return "Swipe gestures"
         case .taskNotes, .minuteBadges: return "Task rows"
         case .carriedSection, .tomorrowSection, .backlogSection, .archiveSection: return "Sections"
-        case .filterMenu, .notes, .ideas: return "Controls"
+        case .filterMenu, .notes, .ideas, .ideaCapture: return "Controls"
         case .history: return "Timers"
         // "Integrations" is intentionally absent from groupsInOrder, so this
         // flag exists without rendering a toggle (see the case comment).
@@ -127,9 +132,16 @@ enum FeatureFlag: String, CaseIterable, Identifiable {
     /// renders, it is not a flag).
     var minimalValue: Bool { self == .carriedSection }
 
-    /// Default when never set: everything on, except attribution which is
-    /// an explicit opt-in (needs Accessibility permission).
-    var defaultValue: Bool { self != .attribution }
+    /// Default when never set. The finicky, watch-heavy features ship off:
+    /// they are explicit opt-ins the user turns on when wanted, and staying off
+    /// keeps launch lightweight (no sampler, no snapshot timer, no on-device
+    /// model). Everything else stays on.
+    var defaultValue: Bool {
+        switch self {
+        case .attribution, .planner, .history, .workMode, .ideaCapture: return false
+        default: return true
+        }
+    }
 
     static let groupsInOrder = [
         "Timers", "Focus", "Feedback", "Swipe gestures", "Task rows", "Sections", "Controls",

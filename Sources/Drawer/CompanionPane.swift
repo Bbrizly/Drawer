@@ -6,6 +6,9 @@ import SwiftUI
 /// History and Settings (upcoming).
 struct CompanionPaneView: View {
     let pane: Pane
+    /// The sections whose feature is enabled, in display order. The switcher
+    /// lists only these, so a disabled feature never shows an empty section.
+    var panes: [Pane] = Pane.allCases
     var router: PaneRouter
     /// Drives the Plan pane. Optional so previews/tests can omit the model.
     var planner: PlannerController? = nil
@@ -38,16 +41,20 @@ struct CompanionPaneView: View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 8) {
                 // Icon segmented switcher: compact enough to sit inside the pane
-                // instead of crowding the drawer's top row.
-                Picker("Section", selection: paneBinding) {
-                    ForEach(Pane.allCases, id: \.self) { pane in
-                        Image(systemName: pane.symbol)
-                            .accessibilityLabel(pane.accessibilityLabel)
-                            .tag(pane)
+                // instead of crowding the drawer's top row. Hidden with a single
+                // section, where there is nothing to switch between.
+                if panes.count > 1 {
+                    Picker("Section", selection: paneBinding) {
+                        ForEach(panes, id: \.self) { pane in
+                            Image(systemName: pane.symbol)
+                                .accessibilityLabel(pane.accessibilityLabel)
+                                .tag(pane)
+                        }
                     }
+                    .pickerStyle(.segmented)
+                    .labelsHidden()
                 }
-                .pickerStyle(.segmented)
-                .labelsHidden()
+                Spacer(minLength: 0)
                 DrawerIconButton(
                     systemName: "xmark",
                     accessibilityLabel: "Close pane",

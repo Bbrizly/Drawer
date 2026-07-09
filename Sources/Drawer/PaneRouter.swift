@@ -43,13 +43,8 @@ final class PaneRouter {
     var activePane: Pane? {
         didSet { if let pane = activePane { lastOpened = pane } }
     }
-    /// The section to reopen to when the single top-bar button re-opens the pane.
+    /// The section to reopen to when the pane re-opens (see DrawerView.paneToShow).
     private(set) var lastOpened: Pane = .plan
-
-    /// The top-bar button opens the pane to its last section, or closes it.
-    func toggleOpen() {
-        activePane = activePane == nil ? lastOpened : nil
-    }
 
     /// Switch which section shows (the in-pane segmented control).
     func show(_ pane: Pane) { activePane = pane }

@@ -55,7 +55,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             "drawerFilePath": AppPaths.defaultDrawerFile,
             "panelWidth": 300.0,
             "panelCompactHeight": 440.0,
-            "panelSlideDuration": 0.14,
+            "panelSlideDuration": 0.11,
             "defaultMinutesText": "25",
             "completionSound": true,
             "showTomorrow": true,
@@ -63,7 +63,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             "focusSoundKind": "pink",
             "focusSoundVolume": 0.5,
             "boardBackground": "dark",
-            "boardDefaultColor": "yellow",
             "boardSwipeScale": 300.0,
             "boardZoomStep": 1.25,
             "taskFontSize": 13.0,
@@ -76,7 +75,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         ]
         defaults.merge(PomodoroPreferences.defaults) { current, _ in current }
         UserDefaults.standard.register(defaults: defaults)
-        // Every feature defaults to on.
+        // Each feature's default comes from FeatureFlag.defaultValue (the
+        // finicky, watch-heavy ones ship off).
         FeatureFlag.registerDefaults()
 
         // SMAppService replaces the manually-added login item; register once.
@@ -286,7 +286,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     private var historyEnabled: Bool {
-        UserDefaults.standard.object(forKey: FeatureFlag.history.key) as? Bool ?? true
+        UserDefaults.standard.object(forKey: FeatureFlag.history.key) as? Bool ?? FeatureFlag.history.defaultValue
     }
 
     @objc private func syncHistory() {
@@ -342,7 +342,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// The planner button is visible only with the flag on AND Foundation Models
     /// available right now (read fresh, never cached).
     private var plannerVisible: Bool {
-        let flagOn = UserDefaults.standard.object(forKey: FeatureFlag.planner.key) as? Bool ?? true
+        let flagOn = UserDefaults.standard.object(forKey: FeatureFlag.planner.key) as? Bool ?? FeatureFlag.planner.defaultValue
         return flagOn && planner?.available == true
     }
 

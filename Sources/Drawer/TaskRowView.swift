@@ -18,7 +18,7 @@ struct TaskRowView: View, Equatable {
     @AppStorage("feature.minuteBadges") private var minuteBadgesEnabled = true
     @AppStorage("feature.swipeDelete") private var swipeDeleteEnabled = true
     @AppStorage("feature.swipeProgress") private var swipeProgressEnabled = true
-    @AppStorage("feature.workMode") private var workModeEnabled = true
+    @AppStorage("feature.workMode") private var workModeEnabled = FeatureFlag.workMode.defaultValue
     /// Settings > Text. Titles use it directly; notes ride two points under.
     @AppStorage("taskFontSize") private var taskFontSize = 13.0
     @Environment(CelebrationCenter.self) private var celebration

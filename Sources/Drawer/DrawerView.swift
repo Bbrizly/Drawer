@@ -54,8 +54,15 @@ struct DrawerView: View {
     @AppStorage("feature.carriedSection") private var carriedSectionEnabled = true
     @AppStorage("feature.backlogSection") private var backlogSectionEnabled = true
     @AppStorage("feature.archiveSection") private var archiveSectionEnabled = true
-    @AppStorage("feature.workMode") private var workModeEnabled = true
+    @AppStorage("feature.workMode") private var workModeEnabled = false
     @AppStorage("feature.ideas") private var ideasEnabled = true
+    @AppStorage("feature.ideaCapture") private var ideaCaptureEnabled = false
+    // Companion-pane sections. The pane and its top-bar button only appear when
+    // at least one of these is on, so the whole extra panel stays out of the way
+    // until a feature that fills it is enabled.
+    @AppStorage("feature.planner") private var plannerEnabled = false
+    @AppStorage("feature.attribution") private var attributionEnabled = false
+    @AppStorage("feature.history") private var historyEnabled = false
     @AppStorage("boardBackground") private var boardBackground = "dark"
     private var boardTransparent: Bool { boardBackground == "transparent" }
     @AppStorage("feature.swipeDelete") private var swipeDeleteEnabled = true
@@ -161,11 +168,32 @@ struct DrawerView: View {
         }
     }
 
-    /// Opens (or toggles closed) the companion pane. Opening asks the panel for
-    /// the keyboard so the pane's fields are ready to type into.
+    /// The companion-pane sections whose feature is enabled, in display order.
+    /// Empty means the pane (and its button) stays hidden.
+    private var availablePanes: [Pane] {
+        var panes: [Pane] = []
+        if plannerEnabled { panes.append(.plan) }
+        if attributionEnabled { panes.append(.work) }
+        if historyEnabled { panes.append(.history) }
+        return panes
+    }
+
+    /// Which section the (possibly-closed, width-0) pane renders. Kept valid as
+    /// flags change so a just-disabled section never leaves a stale pane mounted.
+    private var paneToShow: Pane? {
+        if let active = router.activePane, availablePanes.contains(active) { return active }
+        if availablePanes.contains(router.lastOpened) { return router.lastOpened }
+        return availablePanes.first
+    }
+
+    /// Opens (or toggles closed) the companion pane, landing on the last section
+    /// still enabled (or the first available). Opening asks the panel for the
+    /// keyboard so the pane's fields are ready to type into.
     private func openPane() {
-        router.toggleOpen()
-        if router.activePane != nil { onNeedsKeyboard() }
+        if router.activePane != nil { router.activePane = nil; return }
+        guard let first = availablePanes.first else { return }
+        router.activePane = availablePanes.contains(router.lastOpened) ? router.lastOpened : first
+        onNeedsKeyboard()
     }
 
     var body: some View {
@@ -197,9 +225,10 @@ struct DrawerView: View {
             // motion that reveals or hides it, so the pane edge can never drift
             // from the window edge. Nothing inside the content moves.
             .overlay(alignment: .topLeading) {
-                if !swipe.showingBoard {
+                if !swipe.showingBoard, let shown = paneToShow {
                     CompanionPaneView(
-                        pane: router.activePane ?? router.lastOpened,
+                        pane: shown,
+                        panes: availablePanes,
                         router: router,
                         planner: planner,
                         attribution: attribution,
@@ -245,6 +274,11 @@ struct DrawerView: View {
         .onChange(of: swipe.boardCoverage) { _, c in onBoardCoverage(c) }
         .onChange(of: swipe.showingBoard) { _, shown in handleBoardVisibility(shown) }
         .onChange(of: router.activePane) { _, pane in onPaneWidthChange(pane != nil) }
+        // If the open section's feature is switched off in Settings, close the
+        // pane so it can't strand a widened, empty panel.
+        .onChange(of: availablePanes) { _, panes in
+            if let active = router.activePane, !panes.contains(active) { router.activePane = nil }
+        }
         .onDisappear { scrollMonitor.stop() }
     }
 
@@ -324,23 +358,27 @@ struct DrawerView: View {
                         if showingNotes { onNeedsKeyboard() }
                     }
                 }
-                if ideasEnabled && ideas != nil {
-                    DrawerIconButton(
-                        systemName: "lightbulb",
-                        accessibilityLabel: "Jot an idea",
-                        helpText: "Jot an idea and park it on the board.",
-                        isSelected: showingCapture
-                    ) {
-                        showingCapture.toggle()
-                        if showingCapture { onNeedsKeyboard() }
+                if ideas != nil {
+                    if ideaCaptureEnabled {
+                        DrawerIconButton(
+                            systemName: "lightbulb",
+                            accessibilityLabel: "Jot an idea",
+                            helpText: "Jot an idea and park it on the board.",
+                            isSelected: showingCapture
+                        ) {
+                            showingCapture.toggle()
+                            if showingCapture { onNeedsKeyboard() }
+                        }
                     }
-                    DrawerIconButton(
-                        systemName: "square.grid.2x2",
-                        accessibilityLabel: "Open idea board",
-                        helpText: "Open the board of parked ideas.",
-                        isSelected: swipe.showingBoard
-                    ) {
-                        swipe.showingBoard = true
+                    if ideasEnabled {
+                        DrawerIconButton(
+                            systemName: "square.grid.2x2",
+                            accessibilityLabel: "Open idea board",
+                            helpText: "Open the board of parked ideas.",
+                            isSelected: swipe.showingBoard
+                        ) {
+                            swipe.showingBoard = true
+                        }
                     }
                 }
                 if filterMenuEnabled { filterMenuButton }
@@ -359,13 +397,15 @@ struct DrawerView: View {
                         }
                     }
                 }
-                DrawerIconButton(
-                    systemName: "sidebar.right",
-                    accessibilityLabel: "Companion pane",
-                    helpText: "Open the planning pane: plan, work, history, and settings.",
-                    isSelected: router.activePane != nil
-                ) {
-                    openPane()
+                if !availablePanes.isEmpty {
+                    DrawerIconButton(
+                        systemName: "sidebar.right",
+                        accessibilityLabel: "Companion pane",
+                        helpText: "Open the side pane for the features you have on.",
+                        isSelected: router.activePane != nil
+                    ) {
+                        openPane()
+                    }
                 }
                 DrawerIconButton(
                     systemName: drawerExpanded
@@ -478,7 +518,7 @@ struct DrawerView: View {
                     .transition(.move(edge: .top).combined(with: .opacity))
                 }
 
-                if showingCapture, let ideas {
+                if showingCapture, ideaCaptureEnabled, let ideas {
                     IdeaCaptureBar(store: ideas, reduceMotion: reduceMotion) {
                         showingCapture = false
                     }
@@ -585,7 +625,10 @@ struct DrawerView: View {
             // The board owns the whole frame; close any open pane so nothing
             // fights it for the width.
             router.activePane = nil
-            NSApp.activate()
+            // Pinch-zoom events reach only the key window; the cooperative
+            // no-arg activate doesn't reliably front the app on first open, so
+            // makeKey below wouldn't stick and pinch stayed dead until a click.
+            NSApp.activate(ignoringOtherApps: true)
             onNeedsKeyboard()
             if swipe.boardCoverage == 0 {
                 swipe.boardCoverage = swipe.lastBoardCoverage
