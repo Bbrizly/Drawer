@@ -2,6 +2,11 @@ import AppKit
 import QuartzCore
 import SwiftUI
 
+extension Notification.Name {
+    /// Posted when the drawer panel slides into view (hotkey, tap, or menu).
+    static let drawerDidOpen = Notification.Name("drawerDidOpen")
+}
+
 @MainActor
 final class PanelController {
     private let panel = DrawerPanel()
@@ -172,6 +177,7 @@ final class PanelController {
         }
         transitionState.beginShow()
         onVisibilityChange?(true)
+        NotificationCenter.default.post(name: .drawerDidOpen, object: nil)
     }
 
     func hide() {

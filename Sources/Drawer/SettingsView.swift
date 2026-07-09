@@ -12,6 +12,8 @@ struct SettingsView: View {
 
     private enum Tab: String, CaseIterable {
         case general = "General"
+        case appearance = "Appearance"
+        case timers = "Timers"
         case features = "Features"
         case board = "Board"
         case advanced = "Advanced"
@@ -20,6 +22,8 @@ struct SettingsView: View {
         var icon: String {
             switch self {
             case .general: return "gearshape"
+            case .appearance: return "paintbrush"
+            case .timers: return "timer"
             case .features: return "switch.2"
             case .board: return "square.grid.2x2"
             case .advanced: return "slider.horizontal.3"
@@ -39,7 +43,10 @@ struct SettingsView: View {
                     } label: {
                         VStack(spacing: 3) {
                             Image(systemName: item.icon).font(.system(size: 16))
-                            Text(item.rawValue).font(.caption)
+                            Text(item.rawValue)
+                                .font(.caption)
+                                .lineLimit(1)
+                                .minimumScaleFactor(0.75)
                         }
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 6)
@@ -65,6 +72,10 @@ struct SettingsView: View {
                     onLayoutChange: onLayoutChange,
                     onRightCommandTapChange: onRightCommandTapChange
                 )
+            case .appearance:
+                AppearanceSettingsView()
+            case .timers:
+                TimersSettingsView()
             case .features:
                 FeatureSettingsView()
             case .board:
@@ -75,7 +86,7 @@ struct SettingsView: View {
                 HelpView()
             }
         }
-        .frame(width: 440, height: 580)
+        .frame(width: 540, height: 580)
     }
 }
 
@@ -122,78 +133,34 @@ private struct BoardSettingsView: View {
     }
 }
 
-private struct GeneralSettingsView: View {
-    var onChooseFile: (URL) -> Void
-    var onHotkeyChange: (HotkeyBinding) -> Bool
-    var onLayoutChange: () -> Void
-    var onRightCommandTapChange: (Bool) -> Void
-
-    @AppStorage("drawerFilePath") private var filePath = AppPaths.defaultDrawerFile
-    @State private var hotkey = HotkeyBinding.saved
-    @AppStorage("defaultMinutesText") private var defaultMinutes = "25"
-    @AppStorage("feature.focusTimer") private var focusTimerEnabled = true
-    @AppStorage("feature.pomodoro") private var pomodoroEnabled = true
-    @AppStorage("feature.workMode") private var stopwatchEnabled = FeatureFlag.workMode.defaultValue
-    @AppStorage(PomodoroPreferences.focusMinutesKey) private var pomodoroFocusMinutes =
-        PomodoroTimer.Settings.standard.focusMinutes
-    @AppStorage(PomodoroPreferences.shortBreakMinutesKey) private var pomodoroShortBreakMinutes =
-        PomodoroTimer.Settings.standard.shortBreakMinutes
-    @AppStorage(PomodoroPreferences.longBreakMinutesKey) private var pomodoroLongBreakMinutes =
-        PomodoroTimer.Settings.standard.longBreakMinutes
-    @AppStorage(PomodoroPreferences.sessionsUntilLongBreakKey)
-    private var pomodoroSessionsUntilLongBreak =
-        PomodoroTimer.Settings.standard.sessionsUntilLongBreak
-    @AppStorage("panelWidth") private var panelWidth = 300.0
-    @AppStorage("panelCompactHeight") private var panelHeight = 440.0
-    @AppStorage("panelSlideDuration") private var panelSlideDuration = 0.11
+private struct AppearanceSettingsView: View {
     @AppStorage("drawerTheme") private var themeRaw = DrawerTheme.default.rawValue
     @AppStorage("appFontDesign") private var appFontDesign = "theme"
     @AppStorage("taskFontSize") private var taskFontSize = 13.0
-    @AppStorage("focusSoundKind") private var focusSoundKind = "pink"
-    @AppStorage("focusSoundVolume") private var focusSoundVolume = 0.5
-    @AppStorage("checkOffSound") private var checkOffSound = CheckOffSound.chimeID
-    @AppStorage("checkOffSoundVolume") private var checkOffSoundVolume = 0.8
-    @State private var checkOffOptions = CheckOffSound.options()
-    @State private var launchAtLogin = SMAppService.mainApp.status == .enabled
-    @State private var showHotkeyError = false
-    @State private var isRecordingHotkey = false
-    @State private var hotkeyRecorder = HotkeyRecorder()
-    @AppStorage("rightCommandTapEnabled") private var rightCommandTapEnabled = false
-    @State private var axTrusted = AccessibilityPermission.isTrusted
-
-    private var pomodoroSettings: PomodoroTimer.Settings {
-        PomodoroPreferences.settings(
-            focusMinutes: pomodoroFocusMinutes,
-            shortBreakMinutes: pomodoroShortBreakMinutes,
-            longBreakMinutes: pomodoroLongBreakMinutes,
-            sessionsUntilLongBreak: pomodoroSessionsUntilLongBreak
-        )
-    }
 
     var body: some View {
-        ScrollView {
-            Form {
-                Section("Look") {
-                    LazyVGrid(
-                        columns: [GridItem(.adaptive(minimum: 108), spacing: 10)],
-                        spacing: 10
-                    ) {
-                        ForEach(DrawerTheme.allCases) { theme in
-                            ThemeSwatch(theme: theme, selected: themeRaw == theme.id)
-                                .onTapGesture {
-                                    withAnimation(.snappy(duration: 0.2)) {
-                                        themeRaw = theme.id
-                                    }
+        Form {
+            Section("Theme") {
+                LazyVGrid(
+                    columns: [GridItem(.adaptive(minimum: 108), spacing: 10)],
+                    spacing: 10
+                ) {
+                    ForEach(DrawerTheme.allCases) { theme in
+                        ThemeSwatch(theme: theme, selected: themeRaw == theme.id)
+                            .onTapGesture {
+                                withAnimation(.snappy(duration: 0.2)) {
+                                    themeRaw = theme.id
                                 }
-                        }
+                            }
                     }
-                    .padding(.vertical, 4)
-                    SettingsCaption(
-                        "Each theme changes the panel surface, type, and accent. "
-                        + "Art-directed themes also reshape the chrome."
-                    )
                 }
-                Section("Text") {
+                .padding(.vertical, 4)
+                SettingsCaption(
+                    "Each theme changes the panel surface, type, and accent. "
+                    + "Art-directed themes also reshape the chrome."
+                )
+            }
+            Section("Text") {
                 Picker("Font", selection: $appFontDesign) {
                     Text("Theme default").tag("theme")
                     Text("System").tag("system")
@@ -220,56 +187,169 @@ private struct GeneralSettingsView: View {
                     + "(Medieval serif, Pixel bitmap). Size drives task titles; notes sit two points under."
                 )
             }
-            Section("Focus sound") {
-                Picker("Sound", selection: $focusSoundKind) {
-                    ForEach(FocusSoundPlayer.options, id: \.id) { opt in
-                        Text(opt.label).tag(opt.id)
+        }
+        .formStyle(.grouped)
+    }
+}
+
+private struct TimersSettingsView: View {
+    @AppStorage("defaultMinutesText") private var defaultMinutes = "25"
+    @AppStorage("feature.focusTimer") private var focusTimerEnabled = true
+    @AppStorage("feature.pomodoro") private var pomodoroEnabled = true
+    @AppStorage("feature.workMode") private var stopwatchEnabled = FeatureFlag.workMode.defaultValue
+    @AppStorage("feature.focusSound") private var focusSoundEnabled = true
+    @AppStorage("completionSound") private var timerEndSoundEnabled = true
+    @AppStorage(PomodoroPreferences.focusMinutesKey) private var pomodoroFocusMinutes =
+        PomodoroTimer.Settings.standard.focusMinutes
+    @AppStorage(PomodoroPreferences.shortBreakMinutesKey) private var pomodoroShortBreakMinutes =
+        PomodoroTimer.Settings.standard.shortBreakMinutes
+    @AppStorage(PomodoroPreferences.longBreakMinutesKey) private var pomodoroLongBreakMinutes =
+        PomodoroTimer.Settings.standard.longBreakMinutes
+    @AppStorage(PomodoroPreferences.sessionsUntilLongBreakKey)
+    private var pomodoroSessionsUntilLongBreak =
+        PomodoroTimer.Settings.standard.sessionsUntilLongBreak
+    @AppStorage("focusSoundKind") private var focusSoundKind = "pink"
+    @AppStorage("focusSoundVolume") private var focusSoundVolume = 0.5
+
+    private var pomodoroSettings: PomodoroTimer.Settings {
+        PomodoroPreferences.settings(
+            focusMinutes: pomodoroFocusMinutes,
+            shortBreakMinutes: pomodoroShortBreakMinutes,
+            longBreakMinutes: pomodoroLongBreakMinutes,
+            sessionsUntilLongBreak: pomodoroSessionsUntilLongBreak
+        )
+    }
+
+    var body: some View {
+        ScrollView {
+            Form {
+                Section("Timer pills") {
+                    TimerFeatureToggleGrid(
+                        focusTimerEnabled: $focusTimerEnabled,
+                        pomodoroEnabled: $pomodoroEnabled,
+                        stopwatchEnabled: $stopwatchEnabled,
+                        palette: .standard
+                    )
+                    SettingsCaption(
+                        "Choose which timer pills appear at the top. Stopwatch is the task time "
+                        + "tracker formerly shown as Work Mode."
+                    )
+                    Divider()
+                    HStack {
+                        Text("Focus timer default")
+                        Spacer()
+                        TextField("", text: $defaultMinutes)
+                            .textFieldStyle(.roundedBorder)
+                            .multilineTextAlignment(.center)
+                            .frame(width: 56)
+                            .accessibilityLabel("Focus timer default minutes")
+                            .onChange(of: defaultMinutes) { _, newValue in
+                                let digits = String(newValue.filter(\.isNumber).prefix(3))
+                                if digits != newValue { defaultMinutes = digits }
+                            }
                     }
+                    SettingsCaption(
+                        "Pre-fills the focus timer when you tap play. A task can override this "
+                        + "with a duration like (15m) in the markdown file."
+                    )
                 }
-                .pickerStyle(.segmented)
-                HStack {
-                    Image(systemName: "speaker.fill").foregroundStyle(.secondary)
-                    Slider(value: $focusSoundVolume, in: 0...1)
-                    Image(systemName: "speaker.wave.3.fill").foregroundStyle(.secondary)
+                Section("Pomodoro") {
+                    PomodoroCadenceSettings(
+                        focusMinutes: $pomodoroFocusMinutes,
+                        shortBreakMinutes: $pomodoroShortBreakMinutes,
+                        longBreakMinutes: $pomodoroLongBreakMinutes,
+                        sessionsUntilLongBreak: $pomodoroSessionsUntilLongBreak,
+                        palette: .standard,
+                        applyPreset: applyPomodoroPreset
+                    )
+                    SettingsCaption(
+                        "The tuned default is 25 minutes of focus, 5 minutes off, and a "
+                        + "15-minute reset after four focus rounds."
+                    )
                 }
-                SettingsCaption(
-                    "Play from the speaker button in the header too. Pink masks chatter, "
-                    + "brown is deeper, ocean swells like surf. Turn the feature off under Features."
-                )
-            }
-            Section("Check-off sound") {
-                HStack {
-                    Picker("Sound", selection: $checkOffSound) {
-                        ForEach(checkOffOptions) { opt in
+                Section("Sounds") {
+                    Toggle("Focus sound", isOn: $focusSoundEnabled)
+                    Picker("Sound", selection: $focusSoundKind) {
+                        ForEach(FocusSoundPlayer.options, id: \.id) { opt in
                             Text(opt.label).tag(opt.id)
                         }
                     }
-                    .onChange(of: checkOffSound) { _, id in
-                        // Play it as you browse so the choice is audible.
-                        CheckOffSoundPlayer.shared.play(id: id, volume: checkOffSoundVolume)
+                    .pickerStyle(.segmented)
+                    .disabled(!focusSoundEnabled)
+                    HStack {
+                        Image(systemName: "speaker.fill").foregroundStyle(.secondary)
+                        Slider(value: $focusSoundVolume, in: 0...1)
+                        Image(systemName: "speaker.wave.3.fill").foregroundStyle(.secondary)
                     }
-                    Slider(value: $checkOffSoundVolume, in: 0...1)
-                        .frame(width: 90)
-                    Button {
-                        CheckOffSoundPlayer.shared.play(
-                            id: checkOffSound, volume: checkOffSoundVolume
-                        )
-                    } label: {
-                        Image(systemName: "play.circle")
-                    }
-                    .buttonStyle(.borderless)
-                    .help("Preview")
+                    .disabled(!focusSoundEnabled)
+                    SettingsCaption(
+                        "The speaker button in the header plays this. Pink masks chatter, "
+                        + "brown is deeper, ocean swells like surf."
+                    )
+                    Divider()
+                    Toggle("Sound when timer ends", isOn: $timerEndSoundEnabled)
+                    SettingsCaption("A chime and notification when a focus or Pomodoro session finishes.")
                 }
-                HStack {
-                    Button("Add custom…") { importCheckOffSound() }
-                    Button("Open Sounds folder") { openSoundsFolder() }
-                    Spacer()
-                }
-                SettingsCaption(
-                    "Built-in chime, a macOS system sound, or your own file "
-                    + "(wav, aiff, caf, mp3, m4a). Plays only when Sound on check-off is on under Features."
-                )
             }
+            .formStyle(.grouped)
+        }
+        .onAppear { sanitizePomodoroSettings() }
+        .onChange(of: pomodoroFocusMinutes) { _, _ in sanitizePomodoroSettings() }
+        .onChange(of: pomodoroShortBreakMinutes) { _, _ in sanitizePomodoroSettings() }
+        .onChange(of: pomodoroLongBreakMinutes) { _, _ in sanitizePomodoroSettings() }
+        .onChange(of: pomodoroSessionsUntilLongBreak) { _, _ in sanitizePomodoroSettings() }
+    }
+
+    private func sanitizePomodoroSettings() {
+        let clean = pomodoroSettings
+        if pomodoroFocusMinutes != clean.focusMinutes {
+            pomodoroFocusMinutes = clean.focusMinutes
+        }
+        if pomodoroShortBreakMinutes != clean.shortBreakMinutes {
+            pomodoroShortBreakMinutes = clean.shortBreakMinutes
+        }
+        if pomodoroLongBreakMinutes != clean.longBreakMinutes {
+            pomodoroLongBreakMinutes = clean.longBreakMinutes
+        }
+        if pomodoroSessionsUntilLongBreak != clean.sessionsUntilLongBreak {
+            pomodoroSessionsUntilLongBreak = clean.sessionsUntilLongBreak
+        }
+    }
+
+    private func applyPomodoroPreset(_ preset: PomodoroPreferences.Preset) {
+        let settings = preset.settings
+        withAnimation(.snappy(duration: 0.22)) {
+            pomodoroFocusMinutes = settings.focusMinutes
+            pomodoroShortBreakMinutes = settings.shortBreakMinutes
+            pomodoroLongBreakMinutes = settings.longBreakMinutes
+            pomodoroSessionsUntilLongBreak = settings.sessionsUntilLongBreak
+        }
+    }
+}
+
+private struct GeneralSettingsView: View {
+    var onChooseFile: (URL) -> Void
+    var onHotkeyChange: (HotkeyBinding) -> Bool
+    var onLayoutChange: () -> Void
+    var onRightCommandTapChange: (Bool) -> Void
+
+    @AppStorage("drawerFilePath") private var filePath = AppPaths.defaultDrawerFile
+    @State private var hotkey = HotkeyBinding.saved
+    @AppStorage("panelWidth") private var panelWidth = 300.0
+    @AppStorage("panelCompactHeight") private var panelHeight = 440.0
+    @AppStorage("panelSlideDuration") private var panelSlideDuration = 0.11
+    @AppStorage("startExpanded") private var startExpanded = false
+    @State private var launchAtLogin = SMAppService.mainApp.status == .enabled
+    @State private var showHotkeyError = false
+    @State private var isRecordingHotkey = false
+    @State private var hotkeyRecorder = HotkeyRecorder()
+    @AppStorage("rightCommandTapEnabled") private var rightCommandTapEnabled = false
+    @AppStorage("typeOnOpen") private var typeOnOpen = false
+    @State private var axTrusted = AccessibilityPermission.isTrusted
+
+    var body: some View {
+        ScrollView {
+            Form {
             Section("Tasks file") {
                 HStack(alignment: .firstTextBaseline) {
                     Text(filePath)
@@ -366,50 +446,11 @@ private struct GeneralSettingsView: View {
                     + "the shortcut above. This needs Accessibility access, which the built shortcut "
                     + "does not."
                 )
-            }
-            Section("Timers") {
-                TimerFeatureToggleGrid(
-                    focusTimerEnabled: $focusTimerEnabled,
-                    pomodoroEnabled: $pomodoroEnabled,
-                    stopwatchEnabled: $stopwatchEnabled,
-                    palette: .standard
-                )
-                SettingsCaption(
-                    "Choose which timer pills appear at the top. Stopwatch is the task time "
-                    + "tracker formerly shown as Work Mode."
-                )
                 Divider()
-                HStack {
-                    Text("Focus timer default")
-                    Spacer()
-                    TextField("", text: $defaultMinutes)
-                        .textFieldStyle(.roundedBorder)
-                        .multilineTextAlignment(.center)
-                        .frame(width: 56)
-                        .accessibilityLabel("Focus timer default minutes")
-                        .onChange(of: defaultMinutes) { _, newValue in
-                            let digits = String(newValue.filter(\.isNumber).prefix(3))
-                            if digits != newValue { defaultMinutes = digits }
-                        }
-                }
-                SettingsCaption(
-                    "Pre-fills the focus timer when you tap play. A task can override this "
-                    + "with a duration like (15m) in the markdown file."
-                )
-                PomodoroCadenceSettings(
-                    focusMinutes: $pomodoroFocusMinutes,
-                    shortBreakMinutes: $pomodoroShortBreakMinutes,
-                    longBreakMinutes: $pomodoroLongBreakMinutes,
-                    sessionsUntilLongBreak: $pomodoroSessionsUntilLongBreak,
-                    palette: .standard,
-                    applyPreset: applyPomodoroPreset
-                )
-                SettingsCaption(
-                    "The tuned default is 25 minutes of focus, 5 minutes off, and a "
-                    + "15-minute reset after four focus rounds."
-                )
+                Toggle("Start typing a new task on open", isOn: $typeOnOpen)
+                SettingsCaption("Opening the drawer drops the cursor into a new task, ready to type.")
             }
-            Section("Panel size") {
+            Section("Panel") {
                 HStack {
                     Text("Width")
                     Slider(value: $panelWidth, in: 260...820, step: 10)
@@ -427,8 +468,8 @@ private struct GeneralSettingsView: View {
                         .frame(width: 32, alignment: .trailing)
                 }
                 SettingsCaption(
-                    "Compact height is the default slide-out size. Use the expand arrows in the "
-                    + "header to grow to full screen height; that toggle is separate from these numbers."
+                    "Compact height is the default slide-out size. The expand arrows in the header, "
+                    + "and the toggle below, grow it to full screen height."
                 )
                 HStack {
                     Text("Slide speed")
@@ -441,6 +482,9 @@ private struct GeneralSettingsView: View {
                 SettingsCaption(
                     "How long the drawer takes to slide in and out. Lower is snappier; 0 is instant."
                 )
+                Divider()
+                Toggle("Open at full height", isOn: $startExpanded)
+                SettingsCaption("Start the drawer expanded to full screen height instead of the compact size.")
             }
             Section {
                 Toggle("Launch at login", isOn: $launchAtLogin)
@@ -459,8 +503,6 @@ private struct GeneralSettingsView: View {
         .onAppear {
             hotkey = HotkeyBinding.saved
             launchAtLogin = SMAppService.mainApp.status == .enabled
-            checkOffOptions = CheckOffSound.options()
-            sanitizePomodoroSettings()
             axTrusted = AccessibilityPermission.isTrusted
         }
         .task {
@@ -473,10 +515,6 @@ private struct GeneralSettingsView: View {
         .onDisappear { stopHotkeyRecording() }
         .onChange(of: panelWidth) { _, _ in onLayoutChange() }
         .onChange(of: panelHeight) { _, _ in onLayoutChange() }
-        .onChange(of: pomodoroFocusMinutes) { _, _ in sanitizePomodoroSettings() }
-        .onChange(of: pomodoroShortBreakMinutes) { _, _ in sanitizePomodoroSettings() }
-        .onChange(of: pomodoroLongBreakMinutes) { _, _ in sanitizePomodoroSettings() }
-        .onChange(of: pomodoroSessionsUntilLongBreak) { _, _ in sanitizePomodoroSettings() }
         .alert("Shortcut unavailable", isPresented: $showHotkeyError) {
             Button("OK", role: .cancel) {}
         } message: {
@@ -513,65 +551,6 @@ private struct GeneralSettingsView: View {
         guard let path = SettingsPickers.run(.markdownFile, startingAt: filePath) else { return }
         filePath = path
         onChooseFile(URL(fileURLWithPath: path))
-    }
-
-    /// Copy a chosen audio file into the Sounds folder and select it.
-    private func importCheckOffSound() {
-        let panel = NSOpenPanel()
-        panel.canChooseFiles = true
-        panel.canChooseDirectories = false
-        panel.allowsMultipleSelection = false
-        panel.allowedContentTypes = [.audio]
-        guard panel.runModal() == .OK, let src = panel.url else { return }
-        let dir = CheckOffSound.soundsDir
-        do {
-            try FileManager.default.createDirectory(
-                at: dir, withIntermediateDirectories: true
-            )
-            let dest = dir.appendingPathComponent(src.lastPathComponent)
-            if FileManager.default.fileExists(atPath: dest.path) {
-                try FileManager.default.removeItem(at: dest)
-            }
-            try FileManager.default.copyItem(at: src, to: dest)
-            checkOffOptions = CheckOffSound.options()
-            checkOffSound = "custom:\(src.lastPathComponent)"
-        } catch {
-            NSSound.beep()
-        }
-    }
-
-    private func openSoundsFolder() {
-        let dir = CheckOffSound.soundsDir
-        try? FileManager.default.createDirectory(
-            at: dir, withIntermediateDirectories: true
-        )
-        NSWorkspace.shared.open(dir)
-    }
-
-    private func sanitizePomodoroSettings() {
-        let clean = pomodoroSettings
-        if pomodoroFocusMinutes != clean.focusMinutes {
-            pomodoroFocusMinutes = clean.focusMinutes
-        }
-        if pomodoroShortBreakMinutes != clean.shortBreakMinutes {
-            pomodoroShortBreakMinutes = clean.shortBreakMinutes
-        }
-        if pomodoroLongBreakMinutes != clean.longBreakMinutes {
-            pomodoroLongBreakMinutes = clean.longBreakMinutes
-        }
-        if pomodoroSessionsUntilLongBreak != clean.sessionsUntilLongBreak {
-            pomodoroSessionsUntilLongBreak = clean.sessionsUntilLongBreak
-        }
-    }
-
-    private func applyPomodoroPreset(_ preset: PomodoroPreferences.Preset) {
-        let settings = preset.settings
-        withAnimation(.snappy(duration: 0.22)) {
-            pomodoroFocusMinutes = settings.focusMinutes
-            pomodoroShortBreakMinutes = settings.shortBreakMinutes
-            pomodoroLongBreakMinutes = settings.longBreakMinutes
-            pomodoroSessionsUntilLongBreak = settings.sessionsUntilLongBreak
-        }
     }
 }
 
@@ -991,6 +970,13 @@ private struct PomodoroPressStyle: ButtonStyle {
 
 private struct FeatureSettingsView: View {
     @StateObject private var model = FeatureFlagsModel()
+    @AppStorage("checkOffSound") private var checkOffSound = CheckOffSound.chimeID
+    @AppStorage("checkOffSoundVolume") private var checkOffSoundVolume = 0.8
+    @State private var checkOffOptions = CheckOffSound.options()
+    @AppStorage("hideCompleted") private var hideCompleted = false
+    @AppStorage("uncheckedFirst") private var uncheckedFirst = false
+    @AppStorage("backlogExpanded") private var backlogExpanded = false
+    @AppStorage("archiveExpanded") private var archiveExpanded = false
 
     var body: some View {
         Form {
@@ -1004,6 +990,7 @@ private struct FeatureSettingsView: View {
                     Button("Everything") { model.applyEverything() }
                     Spacer()
                 }
+                SettingsCaption("These presets also switch the timer pills on the Timers tab.")
             }
             ForEach(FeatureFlag.groupsInOrder, id: \.self) { group in
                 Section(group) {
@@ -1017,10 +1004,92 @@ private struct FeatureSettingsView: View {
                             }
                         }
                     }
+                    if group == "Feedback" { checkOffSoundPicker }
+                    if group == "Controls" {
+                        Divider()
+                        Toggle("Hide completed on open", isOn: $hideCompleted)
+                        Toggle("Unchecked first on open", isOn: $uncheckedFirst)
+                        SettingsCaption("Starting state for the filter menu when the drawer opens.")
+                    }
+                    if group == "Sections" {
+                        Divider()
+                        Toggle("Expand Backlog on open", isOn: $backlogExpanded)
+                        Toggle("Expand Archive on open", isOn: $archiveExpanded)
+                        SettingsCaption("Whether these sections start expanded. Headers still collapse them live.")
+                    }
                 }
             }
         }
         .formStyle(.grouped)
+        .onAppear { checkOffOptions = CheckOffSound.options() }
+    }
+
+    /// The check-off sound picker, shown under its "Sound on check-off" toggle.
+    private var checkOffSoundPicker: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                Picker("Check-off sound", selection: $checkOffSound) {
+                    ForEach(checkOffOptions) { opt in
+                        Text(opt.label).tag(opt.id)
+                    }
+                }
+                .onChange(of: checkOffSound) { _, id in
+                    // Play it as you browse so the choice is audible.
+                    CheckOffSoundPlayer.shared.play(id: id, volume: checkOffSoundVolume)
+                }
+                Slider(value: $checkOffSoundVolume, in: 0...1)
+                    .frame(width: 90)
+                Button {
+                    CheckOffSoundPlayer.shared.play(id: checkOffSound, volume: checkOffSoundVolume)
+                } label: {
+                    Image(systemName: "play.circle")
+                }
+                .buttonStyle(.borderless)
+                .help("Preview")
+            }
+            HStack {
+                Button("Add custom…") { importCheckOffSound() }
+                Button("Open Sounds folder") { openSoundsFolder() }
+                Spacer()
+            }
+            SettingsCaption(
+                "Built-in chime, a macOS system sound, or your own file "
+                + "(wav, aiff, caf, mp3, m4a). Plays only when Sound on check-off is on."
+            )
+        }
+    }
+
+    /// Copy a chosen audio file into the Sounds folder and select it.
+    private func importCheckOffSound() {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = false
+        panel.allowedContentTypes = [.audio]
+        guard panel.runModal() == .OK, let src = panel.url else { return }
+        let dir = CheckOffSound.soundsDir
+        do {
+            try FileManager.default.createDirectory(
+                at: dir, withIntermediateDirectories: true
+            )
+            let dest = dir.appendingPathComponent(src.lastPathComponent)
+            if FileManager.default.fileExists(atPath: dest.path) {
+                try FileManager.default.removeItem(at: dest)
+            }
+            try FileManager.default.copyItem(at: src, to: dest)
+            checkOffOptions = CheckOffSound.options()
+            checkOffSound = "custom:\(src.lastPathComponent)"
+        } catch {
+            NSSound.beep()
+        }
+    }
+
+    private func openSoundsFolder() {
+        let dir = CheckOffSound.soundsDir
+        try? FileManager.default.createDirectory(
+            at: dir, withIntermediateDirectories: true
+        )
+        NSWorkspace.shared.open(dir)
     }
 }
 
@@ -1034,11 +1103,6 @@ private struct AdvancedSettingsView: View {
     @AppStorage("teleprompterSpeed") private var teleprompterSpeed = 45.0
     @AppStorage("teleprompterFontSize") private var teleprompterFontSize = 34.0
     @AppStorage("notesPaneHeight") private var notesPaneHeight = 160.0
-    @AppStorage("hideCompleted") private var hideCompleted = false
-    @AppStorage("uncheckedFirst") private var uncheckedFirst = false
-    @AppStorage("backlogExpanded") private var backlogExpanded = false
-    @AppStorage("archiveExpanded") private var archiveExpanded = false
-    @AppStorage("startExpanded") private var startExpanded = false
     @State private var showResetConfirm = false
 
     var body: some View {
@@ -1127,17 +1191,6 @@ private struct AdvancedSettingsView: View {
                     }
                     SettingsCaption("How tall the notes pane opens inside the drawer. You can still drag to resize.")
                 }
-                Section("Task list defaults") {
-                    Toggle("Hide completed on open", isOn: $hideCompleted)
-                    Toggle("Unchecked first on open", isOn: $uncheckedFirst)
-                    Toggle("Expand Backlog on open", isOn: $backlogExpanded)
-                    Toggle("Expand Archive on open", isOn: $archiveExpanded)
-                    Toggle("Open drawer at full height", isOn: $startExpanded)
-                    SettingsCaption(
-                        "Starting state when the drawer opens. The filter menu and section headers "
-                        + "still let you change these live."
-                    )
-                }
                 Section {
                     Button("Reset advanced settings…", role: .destructive) {
                         showResetConfirm = true
@@ -1151,7 +1204,7 @@ private struct AdvancedSettingsView: View {
             Button("Cancel", role: .cancel) {}
             Button("Reset", role: .destructive) { resetAdvanced() }
         } message: {
-            Text("Custom file paths, teleprompter tuning, and list defaults go back to built-in values. Quit and reopen Drawer if you changed a file path.")
+            Text("Custom file paths and teleprompter tuning go back to built-in values. Quit and reopen Drawer if you changed a file path.")
         }
     }
 
@@ -1164,11 +1217,6 @@ private struct AdvancedSettingsView: View {
         teleprompterSpeed = 45.0
         teleprompterFontSize = 34.0
         notesPaneHeight = 160.0
-        hideCompleted = false
-        uncheckedFirst = false
-        backlogExpanded = false
-        archiveExpanded = false
-        startExpanded = false
     }
 }
 
@@ -1251,10 +1299,12 @@ private struct HelpView: View {
 
                 helpBlock(
                     "Settings tabs",
-                    "General: look, sounds, task file, hotkey, and panel size. "
+                    "General: hotkey, task file, and panel size. "
+                    + "Appearance: theme and fonts. "
+                    + "Timers: timer pills, Pomodoro, and focus sound. "
                     + "Features: turn parts of the app on or off. "
                     + "Board: canvas background, swipe and zoom. "
-                    + "Advanced: file paths, teleprompter, and list defaults. "
+                    + "Advanced: file paths and teleprompter. "
                     + "Most changes apply immediately; file path changes need a restart."
                 )
 

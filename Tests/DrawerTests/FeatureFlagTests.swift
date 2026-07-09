@@ -3,14 +3,20 @@ import XCTest
 
 final class FeatureFlagTests: XCTestCase {
     func testTimerFeatureGroupContainsFocusPomodoroAndStopwatch() {
+        // The Timers group holds only the three timer pills; they render as cards
+        // on the Settings Timers tab, not as toggles in the Features list.
         let timerTitles = FeatureFlag.allCases
             .filter { $0.group == "Timers" }
             .map(\.title)
 
-        XCTAssertEqual(
-            timerTitles,
-            ["Focus timer", "Pomodoro", "Stopwatch", "Automatic attribution",
-             "AI day planner", "Time-travel history"])
+        XCTAssertEqual(timerTitles, ["Focus timer", "Pomodoro", "Stopwatch"])
+    }
+
+    func testTimerAndFocusGroupsAreHiddenFromFeaturesList() {
+        // These flags live on the Timers tab, so their groups must stay out of
+        // the generic Features list. Presets still reach them via allCases.
+        XCTAssertFalse(FeatureFlag.groupsInOrder.contains("Timers"))
+        XCTAssertFalse(FeatureFlag.groupsInOrder.contains("Focus"))
     }
 
     func testPomodoroFeatureDefaultsOnWithStableKey() {

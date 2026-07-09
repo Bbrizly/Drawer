@@ -57,6 +57,12 @@ off-screen change.
 ## Files touched
 
 - `Sources/Drawer/SettingsView.swift` — the tab bar, new `AppearanceSettingsView`
-  and `TimersSettingsView`, slimmed `GeneralSettingsView`, regrouped
-  `FeatureSettingsView`, window frame width.
-- No model changes; all bindings are existing `@AppStorage` keys.
+  and `TimersSettingsView`, slimmed `GeneralSettingsView`, `FeatureSettingsView`
+  gains the check-off sound picker and open-state defaults, window frame width.
+- `Sources/Drawer/FeatureFlags.swift` — presentation-only regrouping so the
+  Features list stays coherent once timer/sound controls move to the Timers tab:
+  the `Timers` and `Focus` groups drop out of `groupsInOrder` (their flags render
+  as cards/toggles on the Timers tab instead); `attribution`/`planner` move to a
+  new `Automation` group; `history` moves to `Controls`. No key or default
+  changes, so saved preferences and presets are unaffected.
+- All bindings are existing `@AppStorage` keys.

@@ -46,6 +46,7 @@ struct DrawerView: View {
     @AppStorage("panelWidth") private var panelWidth = 300.0
     // Feature flags (see FeatureFlag). Each gates a slice of the UI so the app
     // can be stripped to the bare task list.
+    @AppStorage("typeOnOpen") private var typeOnOpen = false
     @AppStorage("feature.focusTimer") private var focusTimerEnabled = true
     @AppStorage("feature.pomodoro") private var pomodoroEnabled = true
     @AppStorage("feature.focusSound") private var focusSoundEnabled = true
@@ -269,6 +270,13 @@ struct DrawerView: View {
         .animation(reduceMotion ? nil : .easeOut(duration: 0.5), value: swipe.showingBoard)
         .animation(reduceMotion ? nil : .easeOut(duration: 0.18), value: sound.isPlaying)
         .onAppear { configureSwipeCoordinator() }
+        .onReceive(NotificationCenter.default.publisher(for: .drawerDidOpen)) { _ in
+            guard typeOnOpen else { return }
+            addIsHeader = false
+            showingAdd = true
+            onNeedsKeyboard()
+            addFieldFocused = true
+        }
         .onChange(of: swipeDeleteEnabled) { _, on in swipe.deleteEnabled = on }
         .onChange(of: swipeProgressEnabled) { _, on in swipe.progressEnabled = on }
         .onChange(of: swipe.boardCoverage) { _, c in onBoardCoverage(c) }

@@ -112,14 +112,17 @@ enum FeatureFlag: String, CaseIterable, Identifiable {
 
     var group: String {
         switch self {
-        case .focusTimer, .pomodoro, .workMode, .attribution, .planner: return "Timers"
+        // "Timers" and "Focus" are absent from groupsInOrder: these flags are
+        // presented as dedicated controls on the Settings Timers tab, not as
+        // generic toggles in the Features list. Presets still reach them.
+        case .focusTimer, .pomodoro, .workMode: return "Timers"
         case .focusSound, .timerEndSound: return "Focus"
         case .confetti, .checkOffPop: return "Feedback"
         case .swipeDelete, .swipeProgress: return "Swipe gestures"
         case .taskNotes, .minuteBadges: return "Task rows"
         case .carriedSection, .tomorrowSection, .backlogSection, .archiveSection: return "Sections"
-        case .filterMenu, .notes, .ideas, .ideaCapture: return "Controls"
-        case .history: return "Timers"
+        case .filterMenu, .notes, .ideas, .ideaCapture, .history: return "Controls"
+        case .attribution, .planner: return "Automation"
         // "Integrations" is intentionally absent from groupsInOrder, so this
         // flag exists without rendering a toggle (see the case comment).
         case .mcp: return "Integrations"
@@ -144,7 +147,7 @@ enum FeatureFlag: String, CaseIterable, Identifiable {
     }
 
     static let groupsInOrder = [
-        "Timers", "Focus", "Feedback", "Swipe gestures", "Task rows", "Sections", "Controls",
+        "Feedback", "Swipe gestures", "Task rows", "Sections", "Controls", "Automation",
     ]
 
     static func registerDefaults() {
