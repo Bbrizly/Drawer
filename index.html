@@ -123,7 +123,7 @@
 
   /* ---------- hero ---------- */
   header{padding:180px 0 90px;overflow:visible}
-  .hero{display:grid;grid-template-columns:minmax(0,1.05fr) minmax(0,.95fr);gap:clamp(32px,5vw,56px);align-items:center}
+  .hero{display:grid;grid-template-columns:minmax(0,.92fr) minmax(0,1.08fr);gap:clamp(32px,5vw,56px);align-items:center}
   .hero>*{min-width:0}
   .hero h1{font-size:clamp(46px,6vw,84px);margin:22px 0 0}
   .hero h1 em{font-style:italic;color:var(--sage)}
@@ -147,7 +147,7 @@
   .bezel>.core{background:var(--cream);border:1px solid var(--hair);border-radius:calc(var(--r) - .5rem);box-shadow:inset 0 1px 1px rgba(255,255,255,.6)}
 
   /* hero video */
-  .hero-video{min-width:0;width:100%;max-width:420px;justify-self:end}
+  .hero-video{min-width:0;width:100%;max-width:640px;justify-self:end}
   .hero-video .bezel{padding:clamp(6px,1.5vw,10px)}
   .hero-video .video-frame{
     position:relative;aspect-ratio:720/796;overflow:hidden;
@@ -318,7 +318,7 @@
   }
   @media (max-width:1024px){
     .hero{grid-template-columns:1fr;gap:clamp(28px,6vw,40px)}
-    .hero-video{max-width:min(420px,100%);justify-self:center;width:100%}
+    .hero-video{max-width:min(640px,100%);justify-self:center;width:100%}
     .stage{
       display:flex;flex-direction:column;gap:18px;
       padding:0;max-width:100%;margin-top:clamp(32px,7vw,48px);
