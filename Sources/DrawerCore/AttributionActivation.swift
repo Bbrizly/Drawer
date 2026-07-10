@@ -27,3 +27,32 @@ public func attributionActivation(
     case .paused:  return permitted ? .observe : .suspend
     }
 }
+
+/// What the Work Mode header pill should read. The pill used to derive its state
+/// from the clock phase alone, so a paused clock always said "Paused", even when
+/// automatic detection was actively watching the frontmost app (no task
+/// hand-tracked). That reads as "nothing is happening" while the sampler runs.
+public enum WorkHeaderState: Equatable, Sendable {
+    /// A task is being hand-tracked: show its running total, offer pause.
+    case working
+    /// A hand-tracked task was paused by hand: show its total, offer resume.
+    case paused
+    /// No task hand-tracked and automatic detection is watching the frontmost
+    /// app: show what is being watched, not a stalled "Paused".
+    case watching
+    /// No task and nothing watching: prompt to tap a task to start.
+    case idle
+}
+
+/// Pure so the pill's state is unit-testable with no SwiftUI. `hasTask` is true
+/// once a task has been hand-tracked this session (its id is still the live
+/// pointer); `observing` is the sampler's live state.
+public func workHeaderState(
+    phase: WorkClock.Phase, hasTask: Bool, observing: Bool
+) -> WorkHeaderState {
+    switch phase {
+    case .running: return .working
+    case .paused:  return hasTask ? .paused : (observing ? .watching : .idle)
+    case .off:     return .idle   // header is hidden while off; total for the switch
+    }
+}

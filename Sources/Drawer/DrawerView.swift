@@ -118,7 +118,7 @@ struct DrawerView: View {
             PomodoroHeaderView(timer: pomodoroTimer)
         }
         if workModeEnabled && workClock.isOn {
-            WorkModeHeaderView(clock: workClock)
+            WorkModeHeaderView(clock: workClock, attribution: attribution)
         }
     }
 
