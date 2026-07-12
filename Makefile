@@ -2,9 +2,17 @@ APP = Drawer.app
 BINARY = .build/release/Drawer
 MCP_BINARY = .build/release/drawer-mcp
 
-.PHONY: build test app run clean release
+.PHONY: build test app run clean release dist
 
 RELEASE_TAG ?=
+
+# Developer ID signing for distribution outside the Mac App Store.
+# DEV_ID resolves to your one "Developer ID Application" cert by name.
+# NOTARY_PROFILE is the keychain profile made once with:
+#   xcrun notarytool store-credentials drawer-notary \
+#     --apple-id <you> --team-id 8S2SR5UZ54 --password <app-specific-pw>
+DEV_ID ?= Developer ID Application
+NOTARY_PROFILE ?= drawer-notary
 
 build:
 	swift build
@@ -40,6 +48,19 @@ run: install
 	open /Applications/Drawer.app
 	sleep 3
 	@ps aux | grep "[D]rawer.app/Contents/MacOS/Drawer" | awk '{print $$2, $$11}'
+
+# Sign with Developer ID + hardened runtime, notarize, and staple.
+# Produces Drawer.zip that any Mac opens with no Gatekeeper warning.
+# Needs the Developer ID cert and the drawer-notary keychain profile (see top).
+dist: app
+	codesign --force --options runtime --timestamp -s "$(DEV_ID)" $(APP)/Contents/MacOS/drawer-mcp
+	codesign --force --options runtime --timestamp -s "$(DEV_ID)" $(APP)
+	ditto -c -k --keepParent $(APP) Drawer.zip
+	xcrun notarytool submit Drawer.zip --keychain-profile "$(NOTARY_PROFILE)" --wait
+	xcrun stapler staple $(APP)
+	rm -f Drawer.zip
+	ditto -c -k --keepParent $(APP) Drawer.zip
+	@echo "Notarized Drawer.zip is ready to ship."
 
 clean:
 	rm -rf .build $(APP)
