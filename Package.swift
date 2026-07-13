@@ -45,7 +45,7 @@ let package = Package(
         ),
         .testTarget(
             name: "DrawerTests",
-            dependencies: ["Drawer"],
+            dependencies: ["Drawer", "DrawerBureau"],
             swiftSettings: [.swiftLanguageMode(.v5)]
         ),
     ]
