@@ -10,6 +10,16 @@ struct TaskRowView: View, Equatable {
     /// Makes the panel key so the note editor actually receives typing. The
     /// panel is non-activating, so a focused field alone is not enough.
     var requestKeyboard: () -> Void = {}
+    #if canImport(DrawerBureau)
+    /// Whether this task already has a queued Bureau receipt (spec flow a).
+    /// Drives the small slip icon and which context-menu item shows. Defaults
+    /// off, so with the module gone the row is exactly as it is today.
+    var bureauQueued = false
+    /// Queue / un-queue this task for the Bureau. Nil (and unused) unless the
+    /// facade is wired in from DrawerView with the flag on.
+    var onQueueBureau: (() -> Void)?
+    var onUnqueueBureau: (() -> Void)?
+    #endif
     @Environment(\.drawerTheme) private var theme
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @AppStorage("taskCelebration") private var taskCelebration = true
@@ -19,6 +29,9 @@ struct TaskRowView: View, Equatable {
     @AppStorage("feature.swipeDelete") private var swipeDeleteEnabled = true
     @AppStorage("feature.swipeProgress") private var swipeProgressEnabled = true
     @AppStorage("feature.workMode") private var workModeEnabled = FeatureFlag.workMode.defaultValue
+    #if canImport(DrawerBureau)
+    @AppStorage("feature.bureau") private var bureauEnabled = false
+    #endif
     /// Settings > Text. Titles use it directly; notes ride two points under.
     @AppStorage("taskFontSize") private var taskFontSize = 13.0
     @Environment(CelebrationCenter.self) private var celebration
@@ -46,7 +59,11 @@ struct TaskRowView: View, Equatable {
     /// own channels: the theme and Reduce Motion (environment), the feature
     /// flags (AppStorage), the work clock (Observation), and the swipe offset.
     static func == (lhs: TaskRowView, rhs: TaskRowView) -> Bool {
-        lhs.item == rhs.item
+        guard lhs.item == rhs.item else { return false }
+        #if canImport(DrawerBureau)
+        if lhs.bureauQueued != rhs.bureauQueued { return false }
+        #endif
+        return true
     }
 
     var body: some View {
@@ -118,6 +135,15 @@ struct TaskRowView: View, Equatable {
                         .foregroundStyle(.tertiary)
                         .help("Has a description")
                 }
+
+                #if canImport(DrawerBureau)
+                if bureauEnabled && bureauQueued {
+                    Image(systemName: "doc.plaintext")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(theme.accent)
+                        .help("Queued for the Bureau")
+                }
+                #endif
 
                 if minuteBadgesEnabled && item.minutes != 25 && !item.isDone {
                     Text("\(item.minutes)m")
@@ -192,6 +218,37 @@ struct TaskRowView: View, Equatable {
                 swipe.hoveredID = nil
             }
         }
+        .modifier(BureauRowMenu(
+            queued: bureauQueuedFlag,
+            onQueue: bureauQueueAction,
+            onUnqueue: bureauUnqueueAction
+        ))
+    }
+
+    /// The Bureau context menu, factored into a modifier so the row body stays
+    /// unchanged when the module is absent (the modifier is a no-op then).
+    private var bureauQueuedFlag: Bool {
+        #if canImport(DrawerBureau)
+        return bureauEnabled && onQueueBureau != nil ? bureauQueued : false
+        #else
+        return false
+        #endif
+    }
+
+    private var bureauQueueAction: (() -> Void)? {
+        #if canImport(DrawerBureau)
+        return bureauEnabled ? onQueueBureau : nil
+        #else
+        return nil
+        #endif
+    }
+
+    private var bureauUnqueueAction: (() -> Void)? {
+        #if canImport(DrawerBureau)
+        return bureauEnabled ? onUnqueueBureau : nil
+        #else
+        return nil
+        #endif
     }
 
     private var checkboxSymbol: String {
@@ -471,3 +528,43 @@ struct TaskRowView: View, Equatable {
         }
     }
 }
+
+#if canImport(DrawerBureau)
+import DrawerBureau
+
+/// Adds the "Queue for Bureau" / "Remove from Bureau" right-click item (spec
+/// Decision 1, copy from `BureauCopy`). A no-op when no action is wired in, so
+/// a row with the flag off keeps its exact current behavior (no context menu).
+private struct BureauRowMenu: ViewModifier {
+    let queued: Bool
+    let onQueue: (() -> Void)?
+    let onUnqueue: (() -> Void)?
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if onQueue == nil, onUnqueue == nil {
+            content
+        } else {
+            content.contextMenu {
+                if queued {
+                    Button(BureauCopy.unqueueMenuItem, systemImage: "xmark.bin") {
+                        onUnqueue?()
+                    }
+                } else {
+                    Button(BureauCopy.queueMenuItem, systemImage: "tray.and.arrow.down") {
+                        onQueue?()
+                    }
+                }
+            }
+        }
+    }
+}
+#else
+/// The module is gone: the row menu is nothing at all.
+private struct BureauRowMenu: ViewModifier {
+    let queued: Bool
+    let onQueue: (() -> Void)?
+    let onUnqueue: (() -> Void)?
+    func body(content: Content) -> some View { content }
+}
+#endif
