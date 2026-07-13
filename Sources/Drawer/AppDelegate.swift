@@ -4,6 +4,9 @@ import DrawerCore
 import ServiceManagement
 import SwiftUI
 import UserNotifications
+#if canImport(DrawerBureau)
+import DrawerBureau
+#endif
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
@@ -21,6 +24,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var plannerWindow: NSWindow?
     private var historyRecorder: HistoryRecorder!
     private var historyWindow: NSWindow?
+    #if canImport(DrawerBureau)
+    // The Bureau facade, built only so the panel-visibility hook can pause its
+    // scene. Deleting the DrawerBureau target compiles this away (spec 1).
+    private var bureau: BureauFeature?
+    #endif
     private var historyMenuItem: NSMenuItem?
     private let hotkey = HotkeyManager()
     private let rightCommandTap = RightCommandTapMonitor()
@@ -109,7 +117,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         setupHistory()
 
         var controller: PanelController!
-        let rootView = DrawerView(
+        var rootView = DrawerView(
             store: store,
             timer: focusTimer,
             pomodoroTimer: pomodoroTimer,
@@ -127,6 +135,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             attribution: attribution,
             history: historyRecorder
         )
+        #if canImport(DrawerBureau)
+        // Build the facade and hand it to the drawer. The scene stays paused
+        // until the flag is on and the mode is entered, so this costs nothing
+        // when the feature is off.
+        let bureauFeature = BureauFeature(store: store, directory: AppPaths.drawerDataDirectory)
+        rootView.bureau = bureauFeature
+        bureau = bureauFeature
+        #endif
         controller = PanelController(rootView: rootView)
         panelController = controller
         // Park the 0.5s display tickers whenever the panel is hidden. The
@@ -136,6 +152,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             self?.focusTimer.setDisplayActive(visible)
             self?.pomodoroTimer.setDisplayActive(visible)
             self?.workClock.setDisplayActive(visible)
+            #if canImport(DrawerBureau)
+            // Pause the drawer scene and its view when the panel hides, so a
+            // settled Bureau costs 0.0% idle CPU (spec risk 3).
+            self?.bureau?.setPanelVisible(visible)
+            #endif
         }
         panelController.onVisibilityChange?(false)
         store.start()
