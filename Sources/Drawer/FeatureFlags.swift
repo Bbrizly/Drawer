@@ -41,6 +41,12 @@ enum FeatureFlag: String, CaseIterable, Identifiable {
     /// of `groupsInOrder` so it renders no dead toggle. A Pro tier can read it
     /// later to wrap the integration.
     case mcp
+    /// The Papers-Please rummage drawer (see Docs/bureau-spec.md). Off by
+    /// default and kept out of `groupsInOrder`: it is mid-build (R1) and has
+    /// no settings toggle yet. The raw `feature.bureau` key works even
+    /// without one, and deleting the `DrawerBureau` target leaves the app
+    /// exactly as it is today.
+    case bureau
 
     var id: String { rawValue }
 
@@ -79,6 +85,7 @@ enum FeatureFlag: String, CaseIterable, Identifiable {
         case .ideas: return "Idea board"
         case .ideaCapture: return "Idea capture bar"
         case .mcp: return "MCP server"
+        case .bureau: return "The Bureau"
         }
     }
 
@@ -107,6 +114,7 @@ enum FeatureFlag: String, CaseIterable, Identifiable {
         case .ideas: return "A board of parked ideas you swipe to."
         case .ideaCapture: return "A light bulb to jot an idea and park it on the board. Off by default; rough edges."
         case .mcp: return "Let AI agents read and write your drawer over MCP."
+        case .bureau: return "A rummage drawer of receipt-notes for the week's tasks. Off by default; mid-build."
         }
     }
 
@@ -126,6 +134,10 @@ enum FeatureFlag: String, CaseIterable, Identifiable {
         // "Integrations" is intentionally absent from groupsInOrder, so this
         // flag exists without rendering a toggle (see the case comment).
         case .mcp: return "Integrations"
+        // "Bureau" is intentionally absent from groupsInOrder too: no
+        // settings toggle until the feature is further along (see the case
+        // comment above).
+        case .bureau: return "Bureau"
         }
     }
 
@@ -141,7 +153,7 @@ enum FeatureFlag: String, CaseIterable, Identifiable {
     /// model). Everything else stays on.
     var defaultValue: Bool {
         switch self {
-        case .attribution, .planner, .history, .workMode, .ideaCapture: return false
+        case .attribution, .planner, .history, .workMode, .ideaCapture, .bureau: return false
         default: return true
         }
     }
