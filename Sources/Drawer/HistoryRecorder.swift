@@ -74,11 +74,27 @@ final class HistoryRecorder: ObservableObject {
     }
 
     private func capture() {
-        guard let bytes = try? Data(contentsOf: fileURL) else { return }
-        guard case .appended = (try? store.append(bytes: bytes, ts: Date())) else { return }
-        // Prune rewrites the whole index and lists the blob dir; skip it until
-        // retention actually overflows.
-        if records.count + 1 > retention { _ = try? store.prune(keepLast: retention) }
-        records = store.readRange()
+        // Disk read, SHA-256, and the blob/index writes all run off the main
+        // actor so a capture never touches the frame the hotkey slide needs.
+        // SnapshotStore is a Sendable value type, so it hands across cleanly.
+        let url = fileURL
+        let store = store
+        let retention = retention
+        Task.detached(priority: .utility) { [weak self] in
+            guard let bytes = try? Data(contentsOf: url) else { return }
+            guard case .appended = (try? store.append(bytes: bytes, ts: Date())) else { return }
+            var range = store.readRange()
+            // Prune rewrites the whole index and lists the blob dir; skip it
+            // until retention actually overflows.
+            if range.count > retention, (try? store.prune(keepLast: retention)) != nil {
+                range = store.readRange()
+            }
+            let snapshot = range
+            await self?.publish(snapshot)
+        }
+    }
+
+    private func publish(_ snapshot: [SnapshotRecord]) {
+        records = snapshot
     }
 }

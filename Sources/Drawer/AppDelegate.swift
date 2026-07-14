@@ -139,6 +139,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         panelController.onVisibilityChange?(false)
         store.start()
+        // Render the drawer once off-screen now so the first hotkey press only
+        // has to slide an already-built window in, not build the view graph.
+        panelController.prewarm()
 
         let binding = HotkeyBinding.saved
         hotkey.register(keyCode: binding.keyCode, modifiers: binding.modifiers) { [weak self] in

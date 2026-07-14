@@ -72,6 +72,23 @@ final class PanelController {
         isShown ? hide() : show()
     }
 
+    /// Builds and rasterizes the SwiftUI graph once at launch, parked past the
+    /// left edge where it is never visible, so the first real show does not pay
+    /// the first-layout and first-render cost on the hotkey frame. Without this
+    /// the window is created but never displayed until the first hotkey, so
+    /// that first toggle stutters while SwiftUI builds the whole tree.
+    func prewarm() {
+        let target = targetFrame()
+        guard target != .zero else { return }
+        var parked = target
+        parked.origin = offScreenOrigin(for: target, hiding: true)
+        panel.setFrame(parked, display: false)
+        panel.orderFrontRegardless()
+        hosting.layoutSubtreeIfNeeded()
+        panel.displayIfNeeded()
+        panel.orderOut(nil)
+    }
+
     /// Makes the panel the key window so text fields actually receive
     /// keystrokes. Without this, programmatically-focused fields can leave
     /// typing going to the previously active app (the panel is
