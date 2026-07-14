@@ -78,6 +78,15 @@ public struct ReceiptLink: Codable, Equatable, Identifiable, Sendable {
 }
 
 extension ReceiptLink {
+    /// How aged this slip's paper looks (R5): 0 fresh off the printer, 1
+    /// after two weeks in the drawer. Reads `printedAt` (falling back to
+    /// `createdAt`) so old business visibly yellows in the pile.
+    public func ageFactor(now: Date = Date()) -> Double {
+        let born = printedAt ?? createdAt
+        let days = now.timeIntervalSince(born) / 86_400
+        return min(1, max(0, days / 14))
+    }
+
     /// Overlap score below which a title "match" is coincidence, not
     /// confidence the same task moved. Set higher than the 0.5 bar the
     /// attribution classifier uses for its own TitleSimilarity match (spec

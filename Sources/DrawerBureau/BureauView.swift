@@ -86,7 +86,7 @@ struct BureauView: View {
         let width = max(120, scene.size.width)
         let height = max(160, scene.size.height)
         for link in receipts.document.receipts where link.state == .inDrawer {
-            let sprite = makeSprite(receiptID: link.id, title: link.textSnapshot)
+            let sprite = makeSprite(receiptID: link.id, title: link.textSnapshot, age: link.ageFactor())
             let saved = CGPoint(x: link.position.x, y: link.position.y)
             let point: CGPoint
             if saved.x != 0 || saved.y != 0 {
@@ -170,8 +170,8 @@ struct BureauView: View {
 
     // MARK: sprites
 
-    private func makeSprite(receiptID: UUID, title: String) -> ReceiptSprite {
-        let texture = textures.texture(title: title, size: slipSize, scale: scale)
+    private func makeSprite(receiptID: UUID, title: String, age: Double = 0) -> ReceiptSprite {
+        let texture = textures.texture(title: title, size: slipSize, scale: scale, age: age)
         return ReceiptSprite(receiptID: receiptID, texture: texture, size: slipSize)
     }
 

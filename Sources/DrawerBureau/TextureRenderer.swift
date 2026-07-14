@@ -49,19 +49,25 @@ final class TextureRenderer {
         let w: Int
         let h: Int
         let scale: Int
+        let ageBucket: Int
     }
 
     private var cache: [Key: NSImage] = [:]
 
-    /// The slip image at `size` points, backed by a `size * scale` pixel buffer.
-    func image(title: String, details: String = "", size: CGSize, scale: CGFloat) -> NSImage {
+    /// The slip image at `size` points, backed by a `size * scale` pixel
+    /// buffer. `age` is 0 (fresh off the printer) to 1 (weeks in the drawer);
+    /// older paper yellows and foxes (R5 aging). Bucketed in the cache key so
+    /// a slip re-renders a handful of times over its life, not per read.
+    func image(title: String, details: String = "", size: CGSize, scale: CGFloat, age: Double = 0) -> NSImage {
+        let bucket = Int((min(1, max(0, age)) * 4).rounded())
         let key = Key(
             title: title, details: details,
             w: Int(size.width.rounded()), h: Int(size.height.rounded()),
-            scale: Int((scale * 100).rounded())
+            scale: Int((scale * 100).rounded()),
+            ageBucket: bucket
         )
         if let hit = cache[key] { return hit }
-        let img = render(title: title, details: details, size: size, scale: scale)
+        let img = render(title: title, details: details, size: size, scale: scale, age: Double(bucket) / 4)
         cache[key] = img
         return img
     }
@@ -69,8 +75,8 @@ final class TextureRenderer {
     /// A nearest-filtered `SKTexture` for a `ReceiptSprite`. The chunky pixel
     /// read comes from `.nearest` filtering when the physics world scales the
     /// sprite, so the slip never smears.
-    func texture(title: String, details: String = "", size: CGSize, scale: CGFloat) -> SKTexture {
-        let texture = SKTexture(image: image(title: title, details: details, size: size, scale: scale))
+    func texture(title: String, details: String = "", size: CGSize, scale: CGFloat, age: Double = 0) -> SKTexture {
+        let texture = SKTexture(image: image(title: title, details: details, size: size, scale: scale, age: age))
         texture.filteringMode = .nearest
         return texture
     }
@@ -80,7 +86,7 @@ final class TextureRenderer {
     /// scale. Called from `viewDidChangeBackingProperties` upstream.
     func invalidate() { cache.removeAll() }
 
-    private func render(title: String, details: String, size: CGSize, scale: CGFloat) -> NSImage {
+    private func render(title: String, details: String, size: CGSize, scale: CGFloat, age: Double = 0) -> NSImage {
         let pxW = max(1, Int((size.width * scale).rounded()))
         let pxH = max(1, Int((size.height * scale).rounded()))
         guard let rep = NSBitmapImageRep(
@@ -99,7 +105,7 @@ final class TextureRenderer {
         }
         NSGraphicsContext.saveGraphicsState()
         NSGraphicsContext.current = ctx
-        draw(title: title, details: details, in: size)
+        draw(title: title, details: details, in: size, age: age)
         NSGraphicsContext.restoreGraphicsState()
 
         let img = NSImage(size: size)
@@ -107,13 +113,27 @@ final class TextureRenderer {
         return img
     }
 
-    private func draw(title: String, details: String, in size: CGSize) {
+    private func draw(title: String, details: String, in size: CGSize, age: Double = 0) {
         // Deterministic tears so the same task always looks the same slip.
         var rng = SeededRNG(seed: UInt64(bitPattern: Int64(title.hashValue)))
         let slip = slipPath(in: size, rng: &rng)
 
         BureauPalette.cream.setFill()
         slip.fill()
+
+        // Aging (R5): older paper yellows toward the shade tone and picks up
+        // foxing specks, so a slip that sat in the drawer for weeks looks it.
+        if age > 0 {
+            BureauPalette.creamShade.withAlphaComponent(0.45 * age).setFill()
+            slip.fill()
+            BureauPalette.ink.withAlphaComponent(0.10).setFill()
+            for _ in 0..<Int(age * 26) {
+                let x = rng.next() * size.width
+                let y = rng.next() * size.height
+                let r = 0.5 + rng.next() * 1.2
+                NSBezierPath(ovalIn: CGRect(x: x, y: y, width: r, height: r)).fill()
+            }
+        }
 
         // A soft bottom band shade so the paper reads as a physical object,
         // not a flat rectangle. Clipped inside a save/restore so it never
