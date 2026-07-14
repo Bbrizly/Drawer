@@ -36,9 +36,10 @@ public final class BureauFeature: ObservableObject {
     let sounds = BureauSounds()
     /// The stamp mechanism (R4): summon zone watch, arm, consequences.
     let stamps = StampController()
-    /// The drawer slip size, shared so the drag handoff spawns a sticky that
-    /// matches the sprite exactly (single source: `StickyMetrics.fullSlip`).
-    let slipSize = StickyMetrics.fullSlip
+    /// The portrait drawer slip size, shared by the sprites and the printer
+    /// (single source: `StickyMetrics.drawerSlip`). The pulled-out sticky is
+    /// bigger than this by `sticky.pullOutScale`.
+    let slipSize = StickyMetrics.drawerSlip
 
     private var scale: CGFloat { NSScreen.main?.backingScaleFactor ?? 2 }
 

@@ -98,7 +98,7 @@ final class TextureRenderer {
         }
         // rep.size in points against a larger pixel buffer is the standard
         // Retina bitmap pattern: drawing in point space fills the pixel buffer
-        // at `scale`, so a 150x84 slip at scale 2 is a 300x168 px image.
+        // at `scale`, so a 96x144 slip at scale 2 is a 192x288 px image.
         rep.size = size
         guard let ctx = NSGraphicsContext(bitmapImageRep: rep) else {
             return NSImage(size: size)
@@ -147,11 +147,12 @@ final class TextureRenderer {
         let inset: CGFloat = 10
         let contentWidth = size.width - inset * 2
 
-        // BIG readable title (legibility beats flavor at drawer scale).
+        // BIG readable title (legibility beats flavor at drawer scale). 15pt
+        // reads big but still wraps cleanly on the narrow 96pt portrait slip.
         let titleStyle = NSMutableParagraphStyle()
         titleStyle.lineBreakMode = .byWordWrapping
         let titleAttrs: [NSAttributedString.Key: Any] = [
-            .font: BureauPalette.titleFont(17),
+            .font: BureauPalette.titleFont(15),
             .foregroundColor: BureauPalette.ink,
             .paragraphStyle: titleStyle,
         ]
