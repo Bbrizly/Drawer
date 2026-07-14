@@ -66,7 +66,14 @@ final class BureauScene: SKScene {
         backgroundColor = BureauPalette.drawerFloor
         physicsWorld.gravity = CGVector(dx: 0, dy: tuning.physics.gravity)
         rebuildBoundary()
-        buildDrawerFurniture()
+        // The scene is owned by the facade and re-presented on every re-entry
+        // into Bureau mode, so didMove runs again. Add the furniture only once:
+        // adding trayNode a second time throws (node already has a parent) and
+        // crashes the app. The tray and lip persist because the scene is
+        // retained; re-laying them out is left to didChangeSize.
+        if trayNode.parent == nil {
+            buildDrawerFurniture()
+        }
         // Mouse-moved events only arrive if the window opts in and the view has
         // a tracking area; without both the rummage never sees the cursor.
         view.window?.acceptsMouseMovedEvents = true
