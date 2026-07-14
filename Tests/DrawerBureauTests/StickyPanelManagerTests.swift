@@ -131,6 +131,41 @@ final class StickyPanelManagerTests: XCTestCase {
         XCTAssertEqual(store.document.receipts.first { $0.id == id }?.position.x, 50)
     }
 
+    /// A settle whose center lands inside the drawer frame sends the sticky
+    /// home; anywhere else does not. Tested through the pure decision function
+    /// so no real window is needed (the fakes have no host window).
+    func testSettleInsideDrawerFrameReturnsHome() throws {
+        let (manager, _, _) = try makeManager(cap: 12)
+        manager.drawerFrame = { NSRect(x: 0, y: 0, width: 300, height: 400) }
+        XCTAssertTrue(manager.shouldReturnHome(center: CGPoint(x: 150, y: 200)))
+        XCTAssertFalse(manager.shouldReturnHome(center: CGPoint(x: 500, y: 500)))
+        // No drawer on screen: nothing drops back.
+        manager.drawerFrame = nil
+        XCTAssertFalse(manager.shouldReturnHome(center: CGPoint(x: 150, y: 200)))
+    }
+
+    /// A window proposed fully off-screen is pulled back so at least 40pt shows
+    /// on both axes; one already on-screen is left exactly where it is.
+    func testClampOnScreenRescuesAnOffscreenWindow() {
+        let screen = NSRect(x: 0, y: 0, width: 1440, height: 900)
+        let size = CGSize(width: 200, height: 140)
+
+        let clamped = StickyPanelManager.clampOnScreen(
+            origin: CGPoint(x: 5000, y: -3000), size: size, screens: [screen], minVisible: 40
+        )
+        let rect = CGRect(origin: clamped, size: size)
+        let visibleX = min(rect.maxX, screen.maxX) - max(rect.minX, screen.minX)
+        let visibleY = min(rect.maxY, screen.maxY) - max(rect.minY, screen.minY)
+        XCTAssertGreaterThanOrEqual(visibleX, 40)
+        XCTAssertGreaterThanOrEqual(visibleY, 40)
+
+        let onScreen = CGPoint(x: 300, y: 300)
+        XCTAssertEqual(
+            StickyPanelManager.clampOnScreen(origin: onScreen, size: size, screens: [screen], minVisible: 40),
+            onScreen
+        )
+    }
+
     /// Restoring reopens exactly the receipts persisted as sticky, once each.
     func testRestoreReopensStickyReceipts() throws {
         let (manager, store, fakes) = try makeManager(cap: 12)

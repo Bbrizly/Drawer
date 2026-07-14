@@ -29,6 +29,9 @@ final class HoverScrollMover {
     /// Called when a move gesture settles, so the manager can persist the note's
     /// resting position.
     var onSettled: ((NSWindow) -> Void)?
+    /// Keeps a moved note from gliding fully off-screen. Identity by default so
+    /// the mover stays testable; the manager injects the real on-screen clamp.
+    var clampOnScreen: (CGPoint, CGSize) -> CGPoint = { origin, _ in origin }
 
     private var inertiaTimer: Timer?
     private weak var glideWindow: NSWindow?
@@ -91,7 +94,7 @@ final class HoverScrollMover {
         var o = window.frame.origin
         o.x += dx
         o.y += dy
-        window.setFrameOrigin(o)
+        window.setFrameOrigin(clampOnScreen(o, window.frame.size))
     }
 
     private func startInertia() {

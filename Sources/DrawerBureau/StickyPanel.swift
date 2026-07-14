@@ -55,9 +55,10 @@ final class StickyPanel: StickyPanelHosting {
         panel.hasShadow = true
         panel.hidesOnDeactivate = false
         panel.becomesKeyOnlyIfNeeded = true
-        // Movement is the hover-scroll gesture and the drag handoff, not a window
-        // drag, so the body does not also move on a stray click-drag.
-        panel.isMovableByWindowBackground = false
+        // The body drags the note (alongside the hover-scroll gesture and the
+        // drag handoff), so you can grab a sticky and drop it back into the
+        // drawer. The manager watches didMove to settle it.
+        panel.isMovableByWindowBackground = true
 
         let host = NSHostingView(rootView: StickyView(model: model))
         host.frame = NSRect(origin: .zero, size: size)
