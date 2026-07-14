@@ -58,6 +58,9 @@ private struct BureauTuningView: View {
                     slider("Gravity", \.physics.gravity, -12...0)
                     slider("Push scale", \.physics.pushScale, 0...0.1)
                     slider("Torque scale", \.physics.torqueScale, 0...0.01)
+                    toggle("Rotation", \.physics.rotationEnabled)
+                    slider("Max tilt deg", \.physics.maxTiltDeg, 0...180)
+                    toggle("Papers collide", \.physics.papersCollide)
                 }
                 section("Rustle") {
                     slider("Gain", \.rustle.gain, 0...1)

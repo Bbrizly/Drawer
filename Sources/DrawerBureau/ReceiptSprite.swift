@@ -5,6 +5,10 @@ import SpriteKit
 /// text itself (that is baked into the texture by `TextureRenderer`); it only
 /// displays the texture and holds a physics body so it can tumble and settle.
 final class ReceiptSprite: SKSpriteNode {
+    /// Physics categories: a slip is 1, the drawer wall (scene edge loop) is 2.
+    static let slipCategory: UInt32 = 1
+    static let wallCategory: UInt32 = 2
+
     let receiptID: UUID
 
     init(receiptID: UUID, texture: SKTexture, size: CGSize) {
@@ -27,7 +31,15 @@ final class ReceiptSprite: SKSpriteNode {
         body.restitution = CGFloat(p.restitution)
         body.linearDamping = CGFloat(p.linearDamping)
         body.angularDamping = CGFloat(p.angularDamping)
-        body.allowsRotation = true
+        body.allowsRotation = p.rotationEnabled
+        // Category 1 is a slip, category 2 is the drawer wall (the scene edge
+        // loop). A slip always collides with the wall; paper-on-paper collision
+        // is optional. The scene re-applies these per frame so a slider toggle
+        // takes effect live.
+        body.categoryBitMask = ReceiptSprite.slipCategory
+        body.collisionBitMask = p.papersCollide
+            ? (ReceiptSprite.slipCategory | ReceiptSprite.wallCategory)
+            : ReceiptSprite.wallCategory
         // ponytail: fixed light mass. Fine for uniform slips; if receipts ever
         // vary in size enough to want different heft, derive mass from area.
         body.mass = 0.05

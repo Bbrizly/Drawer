@@ -117,6 +117,9 @@ final class BureauScene: SKScene {
         )
         physicsBody = SKPhysicsBody(edgeLoopFrom: floor)
         physicsBody?.friction = CGFloat(tuning.physics.friction)
+        // The wall category, so a slip's collisionBitMask can keep colliding
+        // with the drawer even when paper-on-paper collision is turned off.
+        physicsBody?.categoryBitMask = ReceiptSprite.wallCategory
     }
 
     private func buildDrawerFurniture() {
@@ -241,7 +244,8 @@ final class BureauScene: SKScene {
     func addExisting(_ sprite: ReceiptSprite, at point: CGPoint, rotation: CGFloat? = nil) {
         sprite.position = point
         let spawnTilt = CGFloat(tuning.drawer.spawnRotationRange)
-        sprite.zRotation = rotation ?? CGFloat.random(in: -spawnTilt...spawnTilt)
+        let raw = rotation ?? CGFloat.random(in: -spawnTilt...spawnTilt)
+        sprite.zRotation = Self.clampTilt(raw, maxDeg: tuning.physics.maxTiltDeg)
         sprite.applyPhysics(tuning.physics)
         sprite.zPosition = nextZ()
         addChild(sprite)
@@ -296,7 +300,9 @@ final class BureauScene: SKScene {
         }
         sprite.position = target
         let spawnTilt = CGFloat(tuning.drawer.spawnRotationRange)
-        sprite.zRotation = CGFloat.random(in: -spawnTilt...spawnTilt)
+        sprite.zRotation = Self.clampTilt(
+            CGFloat.random(in: -spawnTilt...spawnTilt), maxDeg: tuning.physics.maxTiltDeg
+        )
         sprite.applyPhysics(tuning.physics)
         sprite.zPosition = nextZ()
         if sprite.parent == nil { addChild(sprite) }
@@ -494,6 +500,7 @@ final class BureauScene: SKScene {
 
     override func update(_ currentTime: TimeInterval) {
         detectSettle(currentTime)
+        enforceRotationRules()
         guard let mouse = lastMouse else { return }
         // Manual force loop, active ONLY while the cursor is moving. Once it
         // stops the window goes quiet and bodies settle back to sleep, holding
@@ -528,6 +535,46 @@ final class BureauScene: SKScene {
             settleDirty = true
         }
         if maxRustle > 0 { onRustle?(maxRustle) }
+    }
+
+    /// Applies the live rotation/collision tuning to every slip each frame, so a
+    /// slider toggle in the tuning panel takes effect on bodies already in the
+    /// drawer. Writes only on change so a resting body is not woken needlessly.
+    /// When a tilt limit is set, a slip that has spun past it is clamped back and
+    /// its spin dampened so it reads as bumping a rotational stop.
+    private func enforceRotationRules() {
+        let p = tuning.physics
+        let rot = p.rotationEnabled
+        let collide = p.papersCollide
+        let target: UInt32 = collide
+            ? (ReceiptSprite.slipCategory | ReceiptSprite.wallCategory)
+            : ReceiptSprite.wallCategory
+        for sprite in receiptSprites {
+            guard let body = sprite.physicsBody else { continue }
+            if body.allowsRotation != rot { body.allowsRotation = rot }
+            if body.categoryBitMask != ReceiptSprite.slipCategory {
+                body.categoryBitMask = ReceiptSprite.slipCategory
+            }
+            if body.collisionBitMask != target { body.collisionBitMask = target }
+            guard p.maxTiltDeg < 180 else { continue }
+            let clamped = Self.clampTilt(sprite.zRotation, maxDeg: p.maxTiltDeg)
+            if clamped != sprite.zRotation {
+                sprite.zRotation = clamped
+                // A small negative multiplier so it bounces off the stop rather
+                // than freezing dead.
+                body.angularVelocity *= -0.2
+            }
+        }
+    }
+
+    /// Normalizes an angle to [-pi, pi] and clamps it to `maxDeg` from upright.
+    /// `maxDeg >= 180` means unlimited, so the angle passes through untouched.
+    /// Pure and static so it is tested without a scene.
+    static func clampTilt(_ angle: CGFloat, maxDeg: Double) -> CGFloat {
+        guard maxDeg < 180 else { return angle }
+        let normalized = atan2(sin(angle), cos(angle))
+        let limit = CGFloat(maxDeg) * .pi / 180
+        return min(max(normalized, -limit), limit)
     }
 
     /// Debounced layout save: whenever any body is moving, mark the drawer dirty
