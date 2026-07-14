@@ -22,7 +22,7 @@ final class StickyPanelManager {
 
     typealias PanelFactory = @MainActor (Spawn) -> StickyPanelHosting
 
-    static let realPanelFactory: PanelFactory = { spawn in
+    nonisolated static let realPanelFactory: PanelFactory = { spawn in
         StickyPanel(
             receiptID: spawn.receiptID,
             model: spawn.model,
@@ -83,6 +83,7 @@ final class StickyPanelManager {
             existing.frameOrigin = origin
             existing.present()
             roster.insert(receiptID, cap: cap) // move to newest
+            persist(receiptID, state: .sticky, origin: origin, size: models[receiptID]?.size ?? size)
             return existing
         }
 
