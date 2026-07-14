@@ -3,28 +3,30 @@ import DrawerCore
 import SwiftUI
 
 /// Point sizes for each sticky size (spec "Pull-out": full / title-only / chip).
-/// `full` matches the drawer slip exactly so the drag handoff (flow c) reads as
-/// one object: the panel spawns at the same size the sprite showed.
+/// The drawer slip is portrait; the pulled-out `.full` sticky is that slip
+/// scaled up by `sticky.pullOutScale`, so the pull-out reads as the same paper
+/// grown in the hand (flow c).
 enum StickyMetrics {
-    static let fullSlip = CGSize(width: 150, height: 84)
+    /// The portrait slip drawn in the drawer scene and printed at the seam.
+    static let drawerSlip = CGSize(width: 96, height: 144)
     static let subtaskRowHeight: CGFloat = 16
 
-    static func size(_ s: StickySize) -> CGSize {
+    static func size(_ s: StickySize, pullOutScale: CGFloat = 1) -> CGSize {
         switch s {
-        case .full: return fullSlip
-        case .title: return CGSize(width: 150, height: 46)
-        case .chip: return CGSize(width: 112, height: 34)
+        case .full:
+            return CGSize(width: drawerSlip.width * pullOutScale, height: drawerSlip.height * pullOutScale)
+        case .title: return CGSize(width: 96, height: 46)
+        case .chip: return CGSize(width: 96, height: 34)
         }
     }
 
-    /// The panel size a model needs right now: the base slip plus one row per
-    /// visible subtask line (R3) and the "+N more" row. The add row lives in
-    /// the base slip's slack so a no-subtask sticky stays exactly the drawer
-    /// slip size and the drag handoff reads as the same object. Only the
-    /// `.full` size shows subtasks, so the others stay fixed.
+    /// The panel size a model needs right now: the base slip (scaled for a
+    /// `.full` pull-out) plus one row per visible subtask line (R3) and the
+    /// "+N more" row. Only the `.full` size shows subtasks, so the others stay
+    /// fixed.
     @MainActor
     static func size(for model: StickyModel) -> CGSize {
-        var s = size(model.size)
+        var s = size(model.size, pullOutScale: CGFloat(model.pullOutScale))
         if model.size == .full {
             let rows = model.visibleSubtaskCount + (model.overflowCount > 0 ? 1 : 0)
             s.height += CGFloat(rows) * subtaskRowHeight
@@ -62,6 +64,12 @@ final class StickyModel: ObservableObject {
     /// scrolling (spec Decision 2). Reset by a size cycle.
     @Published var isExpanded = false
     var subtaskVisibleCap = 6
+    /// How much bigger the `.full` pull-out is than the drawer slip, set at
+    /// spawn from `sticky.pullOutScale`. Drives the panel size and the grow-in.
+    var pullOutScale: Double = 1.5
+    /// True only for a sticky just pulled out of the drawer, so `StickyView`
+    /// plays the grow-from-slip animation once. A restored sticky opens at size.
+    var growsIn = false
 
     /// Ink landed by the stamp arm (R4): the label, its baked rotation, and
     /// the double-strike ghost offset, chosen once at slam time.
@@ -155,10 +163,17 @@ struct StickyView: View {
 
     @State private var isEditingTitle = false
     @State private var newSubtask = ""
+    @State private var grown = false
     @FocusState private var titleFocused: Bool
 
     private var metrics: CGSize { StickyMetrics.size(for: model) }
     private var titleFontSize: CGFloat { model.size == .chip ? 11 : 15 }
+    /// The scale a freshly pulled-out sticky starts at: the drawer slip relative
+    /// to the grown pull-out, so it appears to swell up out of the drawer.
+    private var growStart: CGFloat {
+        guard model.growsIn, model.size == .full else { return 1 }
+        return 1 / CGFloat(model.pullOutScale)
+    }
 
     var body: some View {
         ZStack(alignment: .topTrailing) {
@@ -174,10 +189,20 @@ struct StickyView: View {
         }
         .frame(width: metrics.width, height: metrics.height)
         .contentShape(Rectangle())
+        .scaleEffect(grown ? 1 : growStart)
         // Double-click cycles the size (spec "Pull-out"); a single click on the
         // title starts editing instead (R3).
         .onTapGesture(count: 2) { model.cycleSize() }
         .help(BureauCopy.stickySizeCycleHint)
+        .onAppear {
+            // A pulled-out sticky swells from the drawer-slip scale up to full;
+            // any other spawn (restore at launch) just opens at size.
+            if model.growsIn, model.size == .full {
+                withAnimation(.spring(response: 0.28, dampingFraction: 0.72)) { grown = true }
+            } else {
+                grown = true
+            }
+        }
     }
 
     // MARK: paper

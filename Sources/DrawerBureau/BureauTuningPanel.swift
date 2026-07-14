@@ -70,6 +70,9 @@ private struct BureauTuningView: View {
                     slider("Sensitivity", \.hoverScroll.sensitivity, 0.2...4)
                     slider("Inertia friction", \.hoverScroll.inertiaFriction, 0.5...0.99)
                 }
+                section("Sticky") {
+                    slider("Pull-out scale", \.sticky.pullOutScale, 1.0...2.5)
+                }
                 section("Rustle") {
                     slider("Gain", \.rustle.gain, 0...1)
                 }
