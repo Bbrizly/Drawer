@@ -154,14 +154,18 @@ public final class BureauFeature: ObservableObject {
         receipts.remove(id)
     }
 
-    /// Rebuilds a drawer sprite for a receipt coming home from a sticky and
-    /// drops it back into the pile.
+    /// Rebuilds a sprite for a receipt coming home from a sticky. A filed slip
+    /// flies back to the FILED tray; any other slip drops back into the pile.
     private func spawnSprite(for link: ReceiptLink) {
         let texture = textures.texture(
             title: link.textSnapshot, size: slipSize, scale: scale, age: link.ageFactor()
         )
         let sprite = ReceiptSprite(receiptID: link.id, texture: texture, size: slipSize)
-        scene.dropIn(sprite)
+        if link.state == .filed {
+            scene.fileIntoTray(sprite, animated: true, crumple: false)
+        } else {
+            scene.dropIn(sprite)
+        }
     }
 
     /// Saves the settled drawer layout back to the store (R2 deliverable 6), one

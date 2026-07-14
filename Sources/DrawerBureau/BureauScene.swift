@@ -69,6 +69,10 @@ final class BureauScene: SKScene {
     private var draggingSprite: ReceiptSprite?
     private var grabOffset: CGPoint = .zero
     private var topZ: CGFloat = 1
+    /// True while the grabbed slip came from the FILED tray (no physics body),
+    /// so on release inside the scene it flies back to its slot instead of being
+    /// stranded on the floor.
+    private var draggingTraySlip = false
 
     // MARK: settle-persistence state
     private var settleDirty = false
@@ -274,76 +278,103 @@ final class BureauScene: SKScene {
 
     // MARK: FILED tray (R4)
 
-    private var trayCount = 0
     /// How many slips the tray shows stacked before older ones just add to the
-    /// caption; keeps the trophy shelf readable at 100 filed.
+    /// caption; keeps the trophy shelf readable at 100 filed. Topic 5 lifts the
+    /// cap, scale, and spacing into the tuning file.
     private static let trayVisibleCap = 8
+    private var trayScale: CGFloat { 0.45 }
+    private var traySlotSpacing: CGFloat { 26 }
+
+    /// The slips currently resting in the tray (a filed souvenir has no physics
+    /// body and sits on the shelf). Counting them from the children lets the
+    /// bookkeeping survive a slip being pulled out or shredded, rather than a
+    /// standing counter drifting.
+    private func trayedSlips(excluding: ReceiptSprite? = nil) -> [ReceiptSprite] {
+        receiptSprites.filter {
+            $0 !== excluding && $0.physicsBody == nil && $0.position.y <= trayHeight + 1
+        }
+    }
 
     /// A DONE receipt arriving in the tray (spec "The stamp"): the slip
     /// crumples over `crumple.frames`, flies to its stack slot over
-    /// `flyToTrayMs`, and lands flat with the stamp showing.
-    func fileIntoTray(_ sprite: ReceiptSprite, animated: Bool = true) {
+    /// `flyToTrayMs`, and lands flat with the stamp showing. Also the landing
+    /// spot for a filed slip pulled back out and let go, which just flies to its
+    /// slot with no crumple replay.
+    func fileIntoTray(_ sprite: ReceiptSprite, animated: Bool = true, crumple: Bool = true) {
         sprite.physicsBody = nil
         if sprite.parent == nil {
             sprite.position = CGPoint(x: size.width / 2, y: size.height * 0.7)
             addChild(sprite)
         }
         stampTrayInk(on: sprite)
-        let slot = traySlot(index: trayCount)
-        trayCount += 1
-        sprite.zPosition = 6 + CGFloat(trayCount) * 0.01
+        let index = trayedSlips(excluding: sprite).count
+        let slot = traySlot(index: index)
+        sprite.zPosition = 6 + CGFloat(index + 1) * 0.01
 
         guard animated else {
-            settleInTray(sprite, at: slot)
+            settleInTray(sprite, at: slot, index: index)
             return
         }
-        // The crumple: quick alternating pinches, chunky on purpose.
-        let frames = max(1, tuning.crumple.frames)
-        var steps: [SKAction] = []
-        for i in 0..<frames {
-            let squeezeX: CGFloat = i.isMultiple(of: 2) ? 0.75 : 0.9
-            let squeezeY: CGFloat = i.isMultiple(of: 2) ? 0.9 : 0.72
-            steps.append(.group([
-                .scaleX(to: squeezeX, y: squeezeY, duration: 0.02),
-                .rotate(byAngle: i.isMultiple(of: 2) ? 0.08 : -0.08, duration: 0.02),
-            ]))
+        var pre: [SKAction] = []
+        if crumple {
+            // The crumple: quick alternating pinches, chunky on purpose.
+            let frames = max(1, tuning.crumple.frames)
+            for i in 0..<frames {
+                let squeezeX: CGFloat = i.isMultiple(of: 2) ? 0.75 : 0.9
+                let squeezeY: CGFloat = i.isMultiple(of: 2) ? 0.9 : 0.72
+                pre.append(.group([
+                    .scaleX(to: squeezeX, y: squeezeY, duration: 0.02),
+                    .rotate(byAngle: i.isMultiple(of: 2) ? 0.08 : -0.08, duration: 0.02),
+                ]))
+            }
         }
         let fly = SKAction.group([
             .move(to: slot, duration: max(0.05, tuning.crumple.flyToTrayMs / 1000)),
-            .rotate(toAngle: 0, duration: max(0.05, tuning.crumple.flyToTrayMs / 1000)),
+            .rotate(toAngle: slotRotation(index: index), duration: max(0.05, tuning.crumple.flyToTrayMs / 1000)),
         ])
         fly.timingMode = .easeIn
-        sprite.run(.sequence([.sequence(steps), fly])) { [weak self, weak sprite] in
+        sprite.run(.sequence([.sequence(pre), fly])) { [weak self, weak sprite] in
             guard let self, let sprite else { return }
-            self.settleInTray(sprite, at: slot)
+            self.settleInTray(sprite, at: slot, index: index)
         }
     }
 
-    private func settleInTray(_ sprite: ReceiptSprite, at slot: CGPoint) {
+    private func settleInTray(_ sprite: ReceiptSprite, at slot: CGPoint, index: Int) {
         sprite.position = slot
-        sprite.zRotation = 0
-        sprite.setScale(1)
-        sprite.xScale = 0.45
-        sprite.yScale = 0.45
-        if trayCount > Self.trayVisibleCap { sprite.removeFromParent() }
+        sprite.setScale(trayScale)
+        sprite.zRotation = slotRotation(index: index)
+        if index >= Self.trayVisibleCap { sprite.removeFromParent() }
     }
 
     private func traySlot(index: Int) -> CGPoint {
-        // Stacked flat left-to-right along the shelf, a small overlap per slip.
-        let x = 66 + CGFloat(min(index, Self.trayVisibleCap - 1)) * 26
-        return CGPoint(x: min(x, size.width - 40), y: trayHeight / 2)
+        // Stacked flat left-to-right along the shelf, a fixed overlap per slip,
+        // stopping short of the shredder slot at the far right.
+        let x = 66 + CGFloat(min(index, Self.trayVisibleCap - 1)) * traySlotSpacing
+        let rightLimit = size.width - shredderWidth - 20
+        return CGPoint(x: min(x, rightLimit), y: trayHeight / 2)
     }
 
-    /// A little DONE mark on the tray copy so the stack reads "stamped", per
-    /// Decision 4's trophy shelf. The real ink lives on the sticky; this slip
-    /// is a 45%-scale souvenir.
+    /// A small, stable per-slip tilt so the stack reads as real paper without
+    /// looking messy. Deterministic in the index so a slip does not re-tilt.
+    private func slotRotation(index: Int) -> CGFloat {
+        let jitter: [CGFloat] = [0.04, -0.05, 0.03, -0.03, 0.05, -0.04, 0.02, -0.02]
+        return jitter[index % jitter.count]
+    }
+
+    /// A little APPROVED mark on the tray souvenir so the stack reads "stamped",
+    /// per Decision 4's trophy shelf. Sized to fit the mini slip and rotated a
+    /// touch. Idempotent (named node) so a pulled-out slip returning does not
+    /// stack a second mark.
     private func stampTrayInk(on sprite: ReceiptSprite) {
+        guard sprite.childNode(withName: "trayInk") == nil else { return }
         let label = SKLabelNode(fontNamed: BureauPalette.pixelFamily)
+        label.name = "trayInk"
         label.text = BureauCopy.doneStampLabel
-        label.fontSize = 22
+        label.fontSize = 13
         label.fontColor = BureauPalette.stampGreen
         label.verticalAlignmentMode = .center
-        label.zRotation = 0.06
+        label.horizontalAlignmentMode = .center
+        label.zRotation = 0.08
         label.zPosition = 1
         sprite.addChild(label)
     }
@@ -351,9 +382,7 @@ final class BureauScene: SKScene {
     /// The Monday ceremony (spec Decision 4): the filed stack drops off the
     /// shelf and fades, leaving the engraved lifetime count.
     func clearTray() {
-        let stacked = children.compactMap { $0 as? ReceiptSprite }
-            .filter { $0.physicsBody == nil && $0.position.y <= trayHeight }
-        for (i, sprite) in stacked.enumerated() {
+        for (i, sprite) in trayedSlips().enumerated() {
             let drop = SKAction.sequence([
                 .wait(forDuration: Double(i) * 0.06),
                 .group([
@@ -365,7 +394,6 @@ final class BureauScene: SKScene {
             drop.timingMode = .easeIn
             sprite.run(drop)
         }
-        trayCount = 0
     }
 
     private var receiptSprites: [ReceiptSprite] {
@@ -493,7 +521,11 @@ final class BureauScene: SKScene {
         let p = event.location(in: self)
         guard let sprite = nodes(at: p).compactMap({ $0 as? ReceiptSprite }).first else { return }
         draggingSprite = sprite
+        draggingTraySlip = sprite.physicsBody == nil
         grabOffset = CGPoint(x: p.x - sprite.position.x, y: p.y - sprite.position.y)
+        // A tray slip lifts back to full size in the hand so it drags like a
+        // drawer receipt (and hands off to a sticky past the bounds).
+        if draggingTraySlip { sprite.setScale(1) }
         sprite.physicsBody?.isDynamic = false
         sprite.zPosition = nextZ()
     }
@@ -529,6 +561,12 @@ final class BureauScene: SKScene {
             return
         }
         setShredderHovered(false)
+        if draggingTraySlip {
+            // A filed slip dropped back in the scene flies to its tray slot
+            // rather than being stranded on the floor with no physics.
+            fileIntoTray(sprite, animated: true, crumple: false)
+            return
+        }
         sprite.physicsBody?.isDynamic = true
     }
 }
