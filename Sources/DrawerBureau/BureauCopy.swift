@@ -21,6 +21,10 @@ public enum BureauCopy {
     public static let expiredLabel = "EXPIRED"
     public static let filedLabel = "FILED"
 
+    /// The shredder slot in the bottom-right of the drawer: drop a slip in to
+    /// delete just the receipt, never the task.
+    public static let shredderLabel = "SHRED"
+
     /// FILED tray lifetime counter (spec Decision 4).
     public static func lifetimeFiledCaption(_ count: Int) -> String {
         count == 1 ? "1 filed" : "\(count) filed"

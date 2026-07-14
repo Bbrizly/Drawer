@@ -64,6 +64,7 @@ public final class BureauFeature: ObservableObject {
             self?.handleDragHandoff(sprite, cursorInScene: cursor)
         }
         scene.onReceiptsSettled = { [weak self] layout in self?.persistDrawerLayout(layout) }
+        scene.onShred = { [weak self] id in self?.shredReceipt(id) }
 
         // The drawer's on-screen frame while Bureau mode is mounted, so a sticky
         // dropped over the drawer goes home. `scene.view` is the live SKView; it
@@ -143,6 +144,14 @@ public final class BureauFeature: ObservableObject {
         let mouse = NSEvent.mouseLocation
         let origin = CGPoint(x: mouse.x - full.width / 2, y: mouse.y - full.height / 2)
         stickies.spawnFromDrag(receiptID: id, title: title, at: origin)
+    }
+
+    /// A slip fed into the shredder. Deletes only the receipt
+    /// (bureau-receipts.json); the task in Drawer.md is never touched. Plays the
+    /// shred sound as the tear-down animation runs in the scene.
+    private func shredReceipt(_ id: UUID) {
+        sounds.shred(volume: 0.7) // topic 5 lifts the shredder volume into tuning
+        receipts.remove(id)
     }
 
     /// Rebuilds a drawer sprite for a receipt coming home from a sticky and
