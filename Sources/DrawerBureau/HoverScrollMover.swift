@@ -70,11 +70,12 @@ final class HoverScrollMover {
             let dx = clamp(Double(event.scrollingDeltaX) * tuning.sensitivity)
             let dy = clamp(Double(event.scrollingDeltaY) * tuning.sensitivity)
             if abs(dx) >= tuning.minDelta || abs(dy) >= tuning.minDelta {
-                // The note follows the fingers: same sign as the scroll delta,
-                // and screen space is y-up like the delta, so no flips. If the
-                // feel wants inverting, negate here (the one tuning-free sign).
-                move(window, dx: dx, dy: dy)
-                velocity = CGVector(dx: dx, dy: dy)
+                // The note follows the fingers on x, but the y-axis is inverted
+                // by request: scrolling the fingers up sends the note down. The
+                // velocity is seeded with the same inverted dy so the inertia
+                // glide keeps heading the way the note visibly moved.
+                move(window, dx: dx, dy: -dy)
+                velocity = CGVector(dx: dx, dy: -dy)
                 glideWindow = window
             }
             if event.phase == .ended { startInertia() }
