@@ -140,9 +140,17 @@ final class StickyPanelManager {
 
     // MARK: stamp support (R4)
 
-    /// The live sticky windows, for the stamp controller's zone check.
+    /// The live sticky windows, front-to-back, for the stamp rack's hit-test.
+    /// Sorted by window order so a press lands on the topmost sticky under the
+    /// head when several overlap (`orderedIndex` 0 is frontmost).
     func stickyFrames() -> [(id: UUID, frame: NSRect)] {
-        panels.compactMap { id, host in host.hostWindow.map { (id, $0.frame) } }
+        panels
+            .compactMap { id, host -> (id: UUID, frame: NSRect, order: Int)? in
+                guard let window = host.hostWindow else { return nil }
+                return (id, window.frame, window.orderedIndex)
+            }
+            .sorted { $0.order < $1.order }
+            .map { (id: $0.id, frame: $0.frame) }
     }
 
     func model(for id: UUID) -> StickyModel? { models[id] }

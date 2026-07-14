@@ -34,7 +34,8 @@ public final class BureauFeature: ObservableObject {
     let stickies: StickyPanelManager
     /// Procedural noises (R4): chatter, ding, thunk, rustle.
     let sounds = BureauSounds()
-    /// The stamp mechanism (R4): summon zone watch, arm, consequences.
+    /// The stamp rack (R4): the right-edge tab, the two stamp heads, and the
+    /// press consequences.
     let stamps = StampController()
     /// The portrait drawer slip size, shared by the sprites and the printer
     /// (single source: `StickyMetrics.drawerSlip`). The pulled-out sticky is
@@ -80,11 +81,13 @@ public final class BureauFeature: ObservableObject {
         }
         stickies.onLiveCountChanged = { [weak self] count in self?.stamps.setWatching(count > 0) }
         stamps.stickyFrames = { [weak self] in self?.stickies.stickyFrames() ?? [] }
-        stamps.tuningProvider = { [weak self] in
-            self?.tuning.document.stamp ?? BureauTuningDocument.defaults.stamp
-        }
         stamps.onSlam = { [weak self] id, kind in self?.slam(id, kind) }
         stamps.onStamp = { [weak self] id, kind in self?.applyStamp(id, kind) }
+        stamps.onPressMiss = { [weak self] in
+            // The head pressed onto nothing: a soft thunk, no consequence.
+            guard let self else { return }
+            sounds.thunk(volume: tuning.document.stamp.thunkVolume * 0.5)
+        }
     }
 
     // MARK: the stamp (R4, spec flow d)
