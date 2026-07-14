@@ -267,7 +267,42 @@ final class BureauScene: SKScene {
         sprite.physicsBody?.applyImpulse(
             CGVector(dx: cos(angle) * magnitude, dy: sin(angle) * magnitude)
         )
-        sprite.physicsBody?.applyAngularImpulse(CGFloat.random(in: -0.4...0.4))
+        // A calmer fresh-print spin: the old range flung the slip around. Topic
+        // 5 lifts this into print.spin.
+        sprite.physicsBody?.applyAngularImpulse(CGFloat.random(in: -0.15...0.15))
+        settleDirty = true
+    }
+
+    /// Lays a receipt back down where a sticky was dropped (spec R4 return
+    /// path): placed at `point` (clamped inside the floor) or the drawer center
+    /// if nil, with a small nudge and a small spin, about a quarter of the
+    /// print's, so it reads as setting a paper down rather than throwing it.
+    func returnToDrawer(_ sprite: ReceiptSprite, at point: CGPoint?) {
+        let floor = CGRect(
+            x: 0, y: trayHeight, width: size.width, height: max(1, size.height - trayHeight)
+        )
+        let target: CGPoint
+        if let p = point {
+            target = CGPoint(
+                x: min(max(p.x, floor.minX + 20), floor.maxX - 20),
+                y: min(max(p.y, floor.minY + 20), floor.maxY - 20)
+            )
+        } else {
+            target = CGPoint(x: floor.midX, y: floor.midY)
+        }
+        sprite.position = target
+        sprite.zRotation = CGFloat.random(in: -0.12...0.12) // spawnRotationRange (topic 5)
+        sprite.applyPhysics(tuning.physics)
+        sprite.zPosition = nextZ()
+        if sprite.parent == nil { addChild(sprite) }
+        // Topic 5 lifts these into returnDrop.impulse / returnDrop.spin.
+        let impulse: CGFloat = 2
+        let spin: CGFloat = 0.1
+        sprite.physicsBody?.applyImpulse(CGVector(
+            dx: CGFloat.random(in: -impulse...impulse),
+            dy: CGFloat.random(in: -impulse...impulse)
+        ))
+        sprite.physicsBody?.applyAngularImpulse(CGFloat.random(in: -spin...spin))
         settleDirty = true
     }
 
