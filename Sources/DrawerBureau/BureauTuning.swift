@@ -30,11 +30,22 @@ public struct BureauPhysicsTuning: Codable, Equatable, Sendable {
     public var pushScale: Double
     /// Scales the per-tick rummage twist impulse (was a hardcoded 0.001).
     public var torqueScale: Double
+    /// Whether a slip may spin at all (`body.allowsRotation`). Off pins every
+    /// slip upright while still letting it slide.
+    public var rotationEnabled: Bool
+    /// How far (degrees) a slip may tilt from upright. 180 means unlimited; 0
+    /// keeps papers dead upright. Enforced per frame so a slider edit applies
+    /// live.
+    public var maxTiltDeg: Double
+    /// Whether slips collide with each other. Off lets them slide over one
+    /// another; they always still collide with the drawer walls.
+    public var papersCollide: Bool
 
     public init(
         repulsionRadius: Double, repulsionStrength: Double, torque: Double, friction: Double,
         restitution: Double, linearDamping: Double, angularDamping: Double, gravity: Double,
-        pushScale: Double, torqueScale: Double
+        pushScale: Double, torqueScale: Double,
+        rotationEnabled: Bool, maxTiltDeg: Double, papersCollide: Bool
     ) {
         self.repulsionRadius = repulsionRadius
         self.repulsionStrength = repulsionStrength
@@ -46,10 +57,15 @@ public struct BureauPhysicsTuning: Codable, Equatable, Sendable {
         self.gravity = gravity
         self.pushScale = pushScale
         self.torqueScale = torqueScale
+        self.rotationEnabled = rotationEnabled
+        self.maxTiltDeg = maxTiltDeg
+        self.papersCollide = papersCollide
     }
 
-    // Version-2 files predate pushScale/torqueScale; decode them tolerantly so
-    // the migration can fill the new fields without discarding tuned values.
+    // Version-2 files predate pushScale/torqueScale and version-3 files predate
+    // the rotation controls; decode them all tolerantly so the migration can
+    // fill the new fields without discarding tuned values. The defaults keep
+    // today's behavior (free spin, no tilt limit, papers collide).
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         repulsionRadius = try c.decode(Double.self, forKey: .repulsionRadius)
@@ -62,6 +78,9 @@ public struct BureauPhysicsTuning: Codable, Equatable, Sendable {
         gravity = try c.decode(Double.self, forKey: .gravity)
         pushScale = try c.decodeIfPresent(Double.self, forKey: .pushScale) ?? 0.02
         torqueScale = try c.decodeIfPresent(Double.self, forKey: .torqueScale) ?? 0.001
+        rotationEnabled = try c.decodeIfPresent(Bool.self, forKey: .rotationEnabled) ?? true
+        maxTiltDeg = try c.decodeIfPresent(Double.self, forKey: .maxTiltDeg) ?? 180
+        papersCollide = try c.decodeIfPresent(Bool.self, forKey: .papersCollide) ?? true
     }
 }
 
@@ -444,7 +463,8 @@ public struct BureauTuningDocument: Codable, Equatable, Sendable {
         physics: BureauPhysicsTuning(
             repulsionRadius: 90, repulsionStrength: 12, torque: 0.4, friction: 0.7,
             restitution: 0.15, linearDamping: 3.0, angularDamping: 4.0, gravity: 0,
-            pushScale: 0.02, torqueScale: 0.001
+            pushScale: 0.02, torqueScale: 0.001,
+            rotationEnabled: true, maxTiltDeg: 180, papersCollide: true
         ),
         rustle: BureauRustleTuning(
             gain: 0.6, velocityThreshold: 0.35, maxVolume: 0.5, rateCapMs: 250, speedRef: 200
