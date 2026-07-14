@@ -23,6 +23,15 @@ protocol StickyPanelHosting: AnyObject {
 /// key focus from whatever you are actually typing in (spec risk 8). It hosts a
 /// `StickyView` and does nothing else; movement (hover-scroll, drag handoff),
 /// caps, and persistence all live in the manager.
+/// A borderless panel cannot become key by default, but R3's in-place editing
+/// needs the caret. `becomesKeyOnlyIfNeeded` keeps the manipulation gestures
+/// (hover-scroll, drag, size cycle) from stealing key; only clicking a text
+/// field takes it, and `.nonactivatingPanel` means even that never activates
+/// the app (spec risk 8).
+private final class KeyableStickyPanel: NSPanel {
+    override var canBecomeKey: Bool { true }
+}
+
 @MainActor
 final class StickyPanel: StickyPanelHosting {
     let receiptID: UUID
@@ -30,7 +39,7 @@ final class StickyPanel: StickyPanelHosting {
 
     init(receiptID: UUID, model: StickyModel, origin: CGPoint, size: CGSize) {
         self.receiptID = receiptID
-        panel = NSPanel(
+        panel = KeyableStickyPanel(
             contentRect: NSRect(origin: origin, size: size),
             styleMask: [.borderless, .nonactivatingPanel],
             backing: .buffered,
@@ -45,6 +54,7 @@ final class StickyPanel: StickyPanelHosting {
         panel.isOpaque = false
         panel.hasShadow = true
         panel.hidesOnDeactivate = false
+        panel.becomesKeyOnlyIfNeeded = true
         // Movement is the hover-scroll gesture and the drag handoff, not a window
         // drag, so the body does not also move on a stray click-drag.
         panel.isMovableByWindowBackground = false

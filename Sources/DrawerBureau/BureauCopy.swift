@@ -32,4 +32,7 @@ public enum BureauCopy {
     public static func subtasksOverflow(_ count: Int) -> String {
         "+\(count) more"
     }
+
+    /// The empty add row at the bottom of a full sticky (R3).
+    public static let addSubtaskPlaceholder = "Add a subtask"
 }
