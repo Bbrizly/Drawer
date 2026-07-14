@@ -366,9 +366,17 @@ struct StampInkView: View {
             .foregroundStyle(Color(nsColor: stamp.kind.color).opacity(opacity))
             .padding(.horizontal, 6)
             .padding(.vertical, 2)
+            // A rounded box like a real rubber stamp, with a second stroke
+            // nudged half a point so the border reads slightly uneven, the way
+            // pressed ink never lands perfectly square.
             .overlay(
-                Rectangle()
+                RoundedRectangle(cornerRadius: 4)
                     .strokeBorder(Color(nsColor: stamp.kind.color).opacity(opacity), lineWidth: 2)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 4)
+                    .strokeBorder(Color(nsColor: stamp.kind.color).opacity(opacity * 0.5), lineWidth: 1)
+                    .offset(x: 0.5, y: 0.5)
             )
     }
 }

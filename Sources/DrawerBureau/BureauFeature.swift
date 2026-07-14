@@ -114,6 +114,10 @@ public final class BureauFeature: ObservableObject {
             guard let self else { return }
             sounds.thunk(volume: tuning.document.stamp.thunkVolume * 0.5)
         }
+        stamps.onSlide = { [weak self] in
+            guard let self else { return }
+            sounds.slide(volume: tuning.document.stamp.slideVolume)
+        }
     }
 
     // MARK: the stamp (R4, spec flow d)

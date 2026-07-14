@@ -182,11 +182,14 @@ public struct BureauStampTuning: Codable, Equatable, Sendable {
     public var doubleStrikeOffsetPx: Double
     public var thunkVolume: Double
     public var hapticEnabled: Bool
+    /// The mechanical rail sound as the rack slides out or back.
+    public var slideVolume: Double
 
     public init(
         rackWidthPx: Double, stampSizePx: Double, extendMs: Double, pressMs: Double,
         liftMs: Double, inkRotationMinDeg: Double, inkRotationMaxDeg: Double,
-        doubleStrikeOffsetPx: Double, thunkVolume: Double, hapticEnabled: Bool
+        doubleStrikeOffsetPx: Double, thunkVolume: Double, hapticEnabled: Bool,
+        slideVolume: Double
     ) {
         self.rackWidthPx = rackWidthPx
         self.stampSizePx = stampSizePx
@@ -198,10 +201,12 @@ public struct BureauStampTuning: Codable, Equatable, Sendable {
         self.doubleStrikeOffsetPx = doubleStrikeOffsetPx
         self.thunkVolume = thunkVolume
         self.hapticEnabled = hapticEnabled
+        self.slideVolume = slideVolume
     }
 
-    // A version-2 file carries the old arm keys and none of the rack ones. The
-    // extra keys are ignored; the rack keys decode tolerantly to defaults.
+    // A version-2 file carries the old arm keys and none of the rack ones, and a
+    // version-3 file has no slideVolume. The extra keys are ignored; the missing
+    // keys decode tolerantly to defaults.
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         rackWidthPx = try c.decodeIfPresent(Double.self, forKey: .rackWidthPx) ?? 200
@@ -214,6 +219,7 @@ public struct BureauStampTuning: Codable, Equatable, Sendable {
         doubleStrikeOffsetPx = try c.decode(Double.self, forKey: .doubleStrikeOffsetPx)
         thunkVolume = try c.decode(Double.self, forKey: .thunkVolume)
         hapticEnabled = try c.decode(Bool.self, forKey: .hapticEnabled)
+        slideVolume = try c.decodeIfPresent(Double.self, forKey: .slideVolume) ?? 0.5
     }
 }
 
@@ -477,7 +483,8 @@ public struct BureauTuningDocument: Codable, Equatable, Sendable {
         stamp: BureauStampTuning(
             rackWidthPx: 200, stampSizePx: 64, extendMs: 220, pressMs: 90, liftMs: 130,
             inkRotationMinDeg: 2, inkRotationMaxDeg: 4,
-            doubleStrikeOffsetPx: 1.5, thunkVolume: 0.8, hapticEnabled: true
+            doubleStrikeOffsetPx: 1.5, thunkVolume: 0.8, hapticEnabled: true,
+            slideVolume: 0.5
         ),
         crumple: BureauCrumpleTuning(frames: 8, flyToTrayMs: 260),
         hoverScroll: BureauHoverScrollTuning(

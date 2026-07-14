@@ -14,7 +14,7 @@ final class BureauSounds {
     private var lastRustleAt: TimeInterval = 0
 
     enum Sound: CaseIterable {
-        case chatter, ding, thunk, rustle, shred
+        case chatter, ding, thunk, rustle, shred, slide
     }
 
     init() {
@@ -40,6 +40,9 @@ final class BureauSounds {
     /// A receipt fed into the shredder: a short harsh burst with a downward
     /// sweep. Volume is passed at the call so hot-reload applies.
     func shred(volume: Double) { play(.shred, volume) }
+
+    /// The stamp rack sliding out or back on its rail: a short mechanical sweep.
+    func slide(volume: Double) { play(.slide, volume) }
 
     /// Velocity-scaled paper rustle while rummaging, rate-capped so a sweep is
     /// a texture rather than a burst of clicks (spec "The drawer scene").
@@ -90,6 +93,13 @@ final class BureauSounds {
             // pitch as the slip is pulled under, decaying over the burst.
             let buzz = sin(2 * .pi * (240 - 700 * t) * t)
             return (rng() * 0.7 + buzz * 0.3) * exp(-t * 7)
+        }
+        case .slide: return buffer(duration: 0.12) { t, rng in
+            // A drawer rail: filtered noise under a soft swell, with a faint low
+            // tone so it reads as metal sliding rather than plain hiss.
+            let env = sin(.pi * min(1, t / 0.12))
+            let tone = sin(2 * .pi * 180 * t) * 0.2
+            return (rng() * 0.5 + tone) * env
         }
         }
     }

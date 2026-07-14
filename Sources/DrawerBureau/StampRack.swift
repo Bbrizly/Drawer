@@ -44,6 +44,8 @@ final class StampController {
     var onStamp: ((UUID, StampKind) -> Void)?
     /// Set by the facade: the head pressed onto nothing, a soft thunk only.
     var onPressMiss: (() -> Void)?
+    /// Set by the facade: the rack slid out or back, so the rail sound plays.
+    var onSlide: (() -> Void)?
     /// Set by the facade: the live rack geometry and press timings.
     var tuningProvider: (() -> BureauStampTuning)?
 
@@ -100,6 +102,7 @@ final class StampController {
     private func toggleExpanded() {
         guard let panel = rackPanel, let screen = NSScreen.main else { return }
         expanded.toggle()
+        onSlide?()
         let frame = rackFrame(on: screen, expanded: expanded)
         panel.contentView = NSHostingView(rootView: rackView())
         NSAnimationContext.runAnimationGroup { context in
@@ -216,6 +219,7 @@ private struct StampRackView: View {
     var body: some View {
         ZStack(alignment: .topLeading) {
             if expanded {
+                metalPanel
                 head(.done)
                 head(.postponed)
             }
@@ -226,14 +230,38 @@ private struct StampRackView: View {
         .frame(width: (expanded ? rackWidth : 0) + tabWidth, height: height)
     }
 
+    /// The dark metal stamp bar the heads sit on: a near-black slab with a
+    /// lighter edge and small rivet dots at the corners.
+    private var metalPanel: some View {
+        RoundedRectangle(cornerRadius: 6)
+            .fill(Color(nsColor: BureauPalette.metal))
+            .overlay(
+                RoundedRectangle(cornerRadius: 6)
+                    .strokeBorder(Color(nsColor: BureauPalette.metalEdge), lineWidth: 1)
+            )
+            .overlay(alignment: .topLeading) { rivet.padding(6) }
+            .overlay(alignment: .topTrailing) { rivet.padding(6) }
+            .overlay(alignment: .bottomLeading) { rivet.padding(6) }
+            .overlay(alignment: .bottomTrailing) { rivet.padding(6) }
+            .frame(width: rackWidth, height: height)
+            .position(x: rackWidth / 2, y: height / 2)
+            .shadow(color: .black.opacity(0.35), radius: 3, x: -1)
+    }
+
+    private var rivet: some View {
+        Circle()
+            .fill(Color(nsColor: BureauPalette.rivet))
+            .frame(width: 4, height: 4)
+    }
+
     private var tab: some View {
         Button(action: onToggle) {
             ZStack {
                 RoundedRectangle(cornerRadius: 4)
-                    .fill(Color(nsColor: BureauPalette.tray))
+                    .fill(Color(nsColor: BureauPalette.metal))
                     .overlay(
                         RoundedRectangle(cornerRadius: 4)
-                            .strokeBorder(Color(nsColor: BureauPalette.drawerLip), lineWidth: 1)
+                            .strokeBorder(Color(nsColor: BureauPalette.metalEdge), lineWidth: 1)
                     )
                 Image(systemName: expanded ? "chevron.right" : "chevron.left")
                     .font(.system(size: 13, weight: .heavy))
@@ -256,10 +284,11 @@ private struct StampRackView: View {
     }
 }
 
-/// A single stamp head seen from above: a die face carrying its word, with a
-/// short caption below. Clicking it presses the head straight down (a small
-/// drop plus a scale-up-then-flatten and a growing shadow, so it reads as
-/// pressing onto the desk), fires at the bottom, then springs back and lifts.
+/// A single stamp head seen from above, Papers-Please style: a chunky rounded
+/// block in its color with a circular handle boss in the center, and the word on
+/// a small plate under it rather than across the die. Clicking presses the head
+/// straight down (a small drop plus a scale-up-then-flatten and a growing
+/// shadow), fires at the bottom, then springs back and lifts.
 private struct StampHeadView: View {
     let kind: StampKind
     let size: CGFloat
@@ -274,11 +303,9 @@ private struct StampHeadView: View {
 
     var body: some View {
         Button(action: press) {
-            VStack(spacing: 4) {
+            VStack(spacing: 5) {
                 die
-                Text(kind.label)
-                    .font(.custom(BureauPalette.pixelFamily, size: 9))
-                    .foregroundStyle(Color(nsColor: BureauPalette.trayInk))
+                plate
             }
         }
         .buttonStyle(.plain)
@@ -286,22 +313,37 @@ private struct StampHeadView: View {
     }
 
     private var die: some View {
-        RoundedRectangle(cornerRadius: 5)
+        RoundedRectangle(cornerRadius: 6)
             .fill(Color(nsColor: kind.color))
             .frame(width: size, height: size)
             .overlay(
-                Text(kind.label)
-                    .font(.custom(BureauPalette.pixelFamily, size: 11))
-                    .fontWeight(.black)
-                    .minimumScaleFactor(0.4)
-                    .lineLimit(1)
-                    .padding(.horizontal, 4)
-                    .foregroundStyle(Color(nsColor: BureauPalette.cream))
+                // The handle boss: a lighter inset knob you grip from above.
+                Circle()
+                    .fill(Color.white.opacity(0.18))
+                    .overlay(Circle().strokeBorder(Color.black.opacity(0.18), lineWidth: 1))
+                    .frame(width: size * 0.5, height: size * 0.5)
             )
             // The press: drop down, swell then flatten, shadow grows.
             .scaleEffect(x: 1 + depth * 0.06, y: 1 - depth * 0.12)
             .offset(y: depth * (size * 0.18))
             .shadow(color: .black.opacity(0.35), radius: 2 + depth * 8, y: 1 + depth * 3)
+    }
+
+    /// The word on a small plate below the stamp, like the label plate on a PP
+    /// stamp handle rather than ink across the die.
+    private var plate: some View {
+        Text(kind.label)
+            .font(.custom(BureauPalette.pixelFamily, size: 9))
+            .fontWeight(.black)
+            .minimumScaleFactor(0.5)
+            .lineLimit(1)
+            .foregroundStyle(Color(nsColor: kind.color))
+            .padding(.horizontal, 5)
+            .padding(.vertical, 1)
+            .background(
+                RoundedRectangle(cornerRadius: 2)
+                    .fill(Color(nsColor: BureauPalette.cream))
+            )
     }
 
     private func press() {
