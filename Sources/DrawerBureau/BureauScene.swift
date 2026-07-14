@@ -172,8 +172,10 @@ final class BureauScene: SKScene {
         settleDirty = true
     }
 
-    /// Drops a freshly torn-off receipt in from the printer seam at the top,
-    /// with a downward impulse so it falls into the pile (spec flow b).
+    /// Tears a fresh receipt off the printer seam at the top and flings it into
+    /// the drawer (spec flow b). This is a top-down look with no gravity, so the
+    /// slip is thrown in a random direction away from the seam and then glides to
+    /// a stop on linear damping, floating where it lands.
     func dropIn(_ sprite: ReceiptSprite) {
         sprite.position = CGPoint(
             x: size.width / 2 + CGFloat.random(in: -12...12),
@@ -182,9 +184,16 @@ final class BureauScene: SKScene {
         sprite.applyPhysics(tuning.physics)
         sprite.zPosition = nextZ()
         addChild(sprite)
+        // A downward-into-scene half-disc: straight down, spread either side, so
+        // the slip always heads away from the top edge and never back out the
+        // seam.
+        let spread = CGFloat.pi * 70 / 180
+        let angle = -CGFloat.pi / 2 + CGFloat.random(in: -spread...spread)
+        let magnitude = CGFloat(tuning.print.dropImpulse) * CGFloat.random(in: 0.7...1.3)
         sprite.physicsBody?.applyImpulse(
-            CGVector(dx: CGFloat.random(in: -2...2), dy: -CGFloat(tuning.print.dropImpulse))
+            CGVector(dx: cos(angle) * magnitude, dy: sin(angle) * magnitude)
         )
+        sprite.physicsBody?.applyAngularImpulse(CGFloat.random(in: -0.4...0.4))
         settleDirty = true
     }
 
@@ -323,6 +332,10 @@ final class BureauScene: SKScene {
         let strength = CGFloat(tuning.physics.repulsionStrength)
         guard radius > 0, strength > 0 else { return }
 
+        // The rustle tracks how fast the paper actually moves, taken once across
+        // every moved slip. Firing per-sprite off cursor proximity let a plain
+        // hover machine-gun the sound, so one call per tick at the top speed.
+        var maxRustle: CGFloat = 0
         for sprite in receiptSprites where sprite !== draggingSprite {
             guard let body = sprite.physicsBody else { continue }
             let dx = sprite.position.x - mouse.x
@@ -338,9 +351,11 @@ final class BureauScene: SKScene {
             body.applyAngularImpulse(
                 CGFloat(tuning.physics.torque) * falloff * 0.001 * (Bool.random() ? 1 : -1)
             )
-            onRustle?(min(1, falloff))
+            let speed = hypot(body.velocity.dx, body.velocity.dy)
+            maxRustle = max(maxRustle, min(1, speed / 200))
             settleDirty = true
         }
+        if maxRustle > 0 { onRustle?(maxRustle) }
     }
 
     /// Debounced layout save: whenever any body is moving, mark the drawer dirty
