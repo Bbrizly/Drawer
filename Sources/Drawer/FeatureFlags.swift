@@ -52,10 +52,9 @@ enum FeatureFlag: String, CaseIterable, Identifiable {
     /// later to wrap the integration.
     case mcp
     /// The Papers-Please rummage drawer (see Docs/bureau-spec.md). Off by
-    /// default and kept out of `groupsInOrder`: it is mid-build (R1) and has
-    /// no settings toggle yet. The raw `feature.bureau` key works even
-    /// without one, and deleting the `DrawerBureau` target leaves the app
-    /// exactly as it is today.
+    /// default; the toggle lives in Settings > Features under "Bureau".
+    /// Deleting the `DrawerBureau` target leaves the app exactly as it is
+    /// today.
     case bureau
 
     var id: String { rawValue }
@@ -124,7 +123,7 @@ enum FeatureFlag: String, CaseIterable, Identifiable {
         case .ideas: return "A board of parked ideas you swipe to."
         case .ideaCapture: return "A light bulb to jot an idea and park it on the board. Off by default; rough edges."
         case .mcp: return "Let AI agents read and write your drawer over MCP."
-        case .bureau: return "A rummage drawer of receipt-notes for the week's tasks. Off by default; mid-build."
+        case .bureau: return "A rummage drawer of receipt-notes for the week's tasks. Queue tasks from the row menu, then flip the tray button."
         }
     }
 
@@ -144,9 +143,6 @@ enum FeatureFlag: String, CaseIterable, Identifiable {
         // "Integrations" is intentionally absent from groupsInOrder, so this
         // flag exists without rendering a toggle (see the case comment).
         case .mcp: return "Integrations"
-        // "Bureau" is intentionally absent from groupsInOrder too: no
-        // settings toggle until the feature is further along (see the case
-        // comment above).
         case .bureau: return "Bureau"
         }
     }
@@ -169,7 +165,7 @@ enum FeatureFlag: String, CaseIterable, Identifiable {
     }
 
     static let groupsInOrder = [
-        "Feedback", "Swipe gestures", "Task rows", "Sections", "Controls", "Automation",
+        "Feedback", "Swipe gestures", "Task rows", "Sections", "Controls", "Automation", "Bureau",
     ]
 
     /// The flags that exist in this build. The App Store build drops
