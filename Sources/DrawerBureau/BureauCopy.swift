@@ -12,9 +12,10 @@ public enum BureauCopy {
     public static let modeButtonTooltip = "Open the Bureau"
     public static let exitModeButtonTooltip = "Back to list"
 
-    /// Stamp labels (spec "The stamp").
-    public static let doneStampLabel = "DONE"
-    public static let postponedStampLabel = "POSTPONED"
+    /// Stamp labels (spec "The stamp"). The kinds stay done/postponed inside;
+    /// the wording follows the Papers-Please stamp rack.
+    public static let doneStampLabel = "APPROVED"
+    public static let postponedStampLabel = "DENIED"
 
     /// Slip states shown on a receipt (spec "Architecture", "The drawer scene").
     public static let expiredLabel = "EXPIRED"
