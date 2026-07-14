@@ -104,6 +104,11 @@ final class StickyPanelManager {
         }
 
         let model = StickyModel(receiptID: receiptID, title: title, size: size)
+        // A filed receipt pulled back out carries its APPROVED ink, so the note
+        // visibly shows it was already stamped.
+        if receipts.document.receipts.first(where: { $0.id == receiptID })?.state == .filed {
+            model.stamp = StickyModel.AppliedStamp(kind: .done, rotationDeg: -3, ghostOffsetPx: 1.5)
+        }
         model.subtasks = subtasksProvider?(receiptID) ?? []
         model.subtaskVisibleCap = max(1, tuning.document.sticky.subtaskVisibleCap)
         model.pullOutScale = tuning.document.sticky.pullOutScale
@@ -217,8 +222,13 @@ final class StickyPanelManager {
         if let host = panels.removeValue(forKey: id) { host.dismiss() }
         models[id] = nil
         if var link = receipts.document.receipts.first(where: { $0.id == id }) {
-            link.state = .inDrawer
-            receipts.update(link)
+            // A filed slip returns to the tray and stays filed; every other slip
+            // drops back into the pile as an in-drawer receipt. The facade reads
+            // the state to route it to the tray or the drawer floor.
+            if link.state != .filed {
+                link.state = .inDrawer
+                receipts.update(link)
+            }
             onReturnToDrawer?(link)
         }
         if panels.isEmpty { hover.stop(); stopWindowMoveObserver() }
@@ -269,7 +279,10 @@ final class StickyPanelManager {
 
     private func persist(_ id: UUID, state: ReceiptState, origin: CGPoint, size: StickySize) {
         guard var link = receipts.document.receipts.first(where: { $0.id == id }) else { return }
-        link.state = state
+        // A filed slip pulled onto the desk stays "filed" through every move so
+        // it returns to the tray, not the pile, when it goes home. Any other
+        // slip takes the asked-for state.
+        link.state = link.state == .filed ? .filed : state
         link.position = ReceiptPosition(x: Double(origin.x), y: Double(origin.y))
         link.stickySize = size
         receipts.update(link)
