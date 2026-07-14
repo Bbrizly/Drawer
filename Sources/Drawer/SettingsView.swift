@@ -3,12 +3,20 @@ import DrawerCore
 import ServiceManagement
 import SwiftUI
 import UniformTypeIdentifiers
+#if canImport(DrawerBureau)
+import DrawerBureau
+#endif
 
 struct SettingsView: View {
     var onChooseFile: (URL) -> Void
     var onHotkeyChange: (HotkeyBinding) -> Bool
     var onLayoutChange: () -> Void
     var onRightCommandTapChange: (Bool) -> Void
+    #if canImport(DrawerBureau)
+    /// The Bureau tuning object, passed in when the feature is wired so the
+    /// Settings window can embed its slider controls. Nil leaves the tab out.
+    var bureauTuning: BureauTuning? = nil
+    #endif
 
     private enum Tab: String, CaseIterable {
         case general = "General"
@@ -16,6 +24,7 @@ struct SettingsView: View {
         case timers = "Timers"
         case features = "Features"
         case board = "Board"
+        case bureau = "Bureau"
         case advanced = "Advanced"
         case help = "Help"
 
@@ -26,6 +35,7 @@ struct SettingsView: View {
             case .timers: return "timer"
             case .features: return "switch.2"
             case .board: return "square.grid.2x2"
+            case .bureau: return "tray.full"
             case .advanced: return "slider.horizontal.3"
             case .help: return "questionmark.circle"
             }
@@ -33,11 +43,25 @@ struct SettingsView: View {
     }
 
     @State private var tab: Tab = .general
+    @AppStorage("feature.bureau") private var bureauEnabled = false
+
+    /// The Bureau tab only shows when the feature is on and its tuning is wired.
+    private var bureauShowsTuning: Bool {
+        #if canImport(DrawerBureau)
+        return bureauEnabled && bureauTuning != nil
+        #else
+        return false
+        #endif
+    }
+
+    private var visibleTabs: [Tab] {
+        Tab.allCases.filter { $0 != .bureau || bureauShowsTuning }
+    }
 
     var body: some View {
         VStack(spacing: 0) {
             HStack(spacing: 6) {
-                ForEach(Tab.allCases, id: \.self) { item in
+                ForEach(visibleTabs, id: \.self) { item in
                     Button {
                         tab = item
                     } label: {
@@ -80,6 +104,8 @@ struct SettingsView: View {
                 FeatureSettingsView()
             case .board:
                 BoardSettingsView()
+            case .bureau:
+                bureauTab
             case .advanced:
                 AdvancedSettingsView()
             case .help:
@@ -87,8 +113,45 @@ struct SettingsView: View {
             }
         }
         .frame(width: 540, height: 580)
+        .onChange(of: bureauShowsTuning) { _, shows in
+            // If the Bureau tab was open and the feature is turned off, fall
+            // back to General so the content does not sit on a hidden tab.
+            if !shows, tab == .bureau { tab = .general }
+        }
+    }
+
+    @ViewBuilder
+    private var bureauTab: some View {
+        #if canImport(DrawerBureau)
+        if let bureauTuning {
+            BureauSettingsView(tuning: bureauTuning)
+        }
+        #else
+        EmptyView()
+        #endif
     }
 }
+
+#if canImport(DrawerBureau)
+/// The Bureau tab: the same slider controls the long-press panel shows, so the
+/// tuning is findable without the hidden gesture. A caption points at the
+/// long-press too.
+private struct BureauSettingsView: View {
+    @ObservedObject var tuning: BureauTuning
+
+    var body: some View {
+        VStack(spacing: 0) {
+            BureauTuningControls(tuning: tuning)
+            Divider()
+            SettingsCaption(
+                "These are the Bureau feel and layout controls. A long press on the "
+                + "tray button in the drawer header opens the same panel as a floating window."
+            )
+            .padding(10)
+        }
+    }
+}
+#endif
 
 private struct BoardSettingsView: View {
     @AppStorage("boardBackground") private var boardBackground = "dark"

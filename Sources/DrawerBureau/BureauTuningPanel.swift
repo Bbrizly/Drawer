@@ -30,17 +30,24 @@ final class BureauTuningPanel {
         panel.level = .floating
         panel.hidesOnDeactivate = false
         panel.isReleasedWhenClosed = false
-        panel.contentView = NSHostingView(rootView: BureauTuningView(tuning: tuning))
+        panel.contentView = NSHostingView(rootView: BureauTuningControls(tuning: tuning))
         panel.center()
         panel.orderFrontRegardless()
         self.panel = panel
     }
 }
 
-private struct BureauTuningView: View {
+/// The full slider panel body, split out from the floating `NSPanel` so both
+/// the long-press panel and the Settings window embed the identical controls
+/// (feedback 3: Bassam could not find the tuning, so it also lives in Settings).
+public struct BureauTuningControls: View {
     @ObservedObject var tuning: BureauTuning
 
-    var body: some View {
+    public init(tuning: BureauTuning) {
+        self.tuning = tuning
+    }
+
+    public var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 14) {
                 section("Transition") {
