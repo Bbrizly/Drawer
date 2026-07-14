@@ -7,11 +7,20 @@ public struct ReceiptDocument: Codable, Equatable, Sendable {
     public var version: Int
     public var lifetimeFiled: Int
     public var receipts: [ReceiptLink]
+    /// When the FILED tray last cleared (spec Decision 4: every Monday, with
+    /// ceremony). Optional so version-1 files without it still decode.
+    public var trayClearedAt: Date?
 
-    public init(version: Int = 1, lifetimeFiled: Int = 0, receipts: [ReceiptLink] = []) {
+    public init(
+        version: Int = 1,
+        lifetimeFiled: Int = 0,
+        receipts: [ReceiptLink] = [],
+        trayClearedAt: Date? = nil
+    ) {
         self.version = version
         self.lifetimeFiled = lifetimeFiled
         self.receipts = receipts
+        self.trayClearedAt = trayClearedAt
     }
 }
 
@@ -124,6 +133,35 @@ public final class ReceiptStore: ObservableObject {
         document.receipts[i].state = .filed
         document.lifetimeFiled += 1
         save()
+    }
+
+    /// The Monday ceremony (spec Decision 4): entering the drawer in a new ISO
+    /// week (weeks start Monday) empties the tray's filed receipts and stamps
+    /// the clear date. The lifetime counter stays engraved. A first run with no
+    /// recorded clear just starts the week clock. Returns whether it cleared,
+    /// so the scene can run the ceremony animation only when something changed.
+    @discardableResult
+    public func clearTrayIfNewWeek(now: Date = Date()) -> Bool {
+        guard let last = document.trayClearedAt else {
+            document.trayClearedAt = now
+            save()
+            return false
+        }
+        guard Self.isNewISOWeek(since: last, now: now) else { return false }
+        document.receipts.removeAll { $0.state == .filed }
+        document.trayClearedAt = now
+        save()
+        return true
+    }
+
+    /// True when `now` falls in a later ISO-8601 week (Monday-start) than
+    /// `since`.
+    public static func isNewISOWeek(since: Date, now: Date) -> Bool {
+        guard now > since else { return false }
+        let cal = Calendar(identifier: .iso8601)
+        let a = cal.dateComponents([.yearForWeekOfYear, .weekOfYear], from: since)
+        let b = cal.dateComponents([.yearForWeekOfYear, .weekOfYear], from: now)
+        return a != b
     }
 
     private static let encoder: JSONEncoder = {

@@ -43,6 +43,9 @@ final class StickyPanelManager {
     var subtasksProvider: ((UUID) -> [String])?
     var onCommitTitle: ((UUID, String) -> Void)?
     var onCommitSubtasks: ((UUID, [String]) -> Void)?
+    /// Set by the facade (R4): the number of live stickies changed, so the
+    /// stamp watcher can start or stop.
+    var onLiveCountChanged: ((Int) -> Void)?
 
     private var panels: [UUID: StickyPanelHosting] = [:]
     private var models: [UUID: StickyModel] = [:]
@@ -118,7 +121,27 @@ final class StickyPanelManager {
         if let retired = roster.insert(receiptID, cap: cap), retired != receiptID {
             sendHome(retired)
         }
+        onLiveCountChanged?(panels.count)
         return host
+    }
+
+    // MARK: stamp support (R4)
+
+    /// The live sticky windows, for the stamp controller's zone check.
+    func stickyFrames() -> [(id: UUID, frame: NSRect)] {
+        panels.compactMap { id, host in host.hostWindow.map { (id, $0.frame) } }
+    }
+
+    func model(for id: UUID) -> StickyModel? { models[id] }
+
+    /// Closes a sticky without changing its stored state or respawning a
+    /// sprite; the DONE flow files the receipt itself and the tray takes over.
+    func close(_ id: UUID) {
+        roster.remove(id)
+        if let host = panels.removeValue(forKey: id) { host.dismiss() }
+        models[id] = nil
+        if panels.isEmpty { hover.stop() }
+        onLiveCountChanged?(panels.count)
     }
 
     /// The continuous drag handoff (spec flow c): spawn the sticky under the
@@ -168,6 +191,7 @@ final class StickyPanelManager {
             onReturnToDrawer?(link)
         }
         if panels.isEmpty { hover.stop() }
+        onLiveCountChanged?(panels.count)
     }
 
     /// Reopens the panels for receipts persisted as `.sticky` (a relaunch, or
@@ -193,6 +217,7 @@ final class StickyPanelManager {
         models.removeAll()
         roster = StickyRoster()
         hover.stop()
+        onLiveCountChanged?(0)
     }
 
     // MARK: resize / persistence

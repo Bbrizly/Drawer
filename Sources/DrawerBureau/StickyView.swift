@@ -63,6 +63,16 @@ final class StickyModel: ObservableObject {
     @Published var isExpanded = false
     var subtaskVisibleCap = 6
 
+    /// Ink landed by the stamp arm (R4): the label, its baked rotation, and
+    /// the double-strike ghost offset, chosen once at slam time.
+    struct AppliedStamp {
+        let kind: StampKind
+        let rotationDeg: Double
+        let ghostOffsetPx: Double
+    }
+
+    @Published var stamp: AppliedStamp?
+
     /// Set by the manager: resize the panel and persist the new size.
     var onResize: ((StickySize) -> Void)?
     /// Set by the manager: send this receipt back into the drawer.
@@ -157,6 +167,10 @@ struct StickyView: View {
             returnHomeButton
                 .padding(4)
                 .opacity(model.size == .chip ? 0 : 1) // no room on a chip
+            if let stamp = model.stamp {
+                StampInkView(stamp: stamp)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
         }
         .frame(width: metrics.width, height: metrics.height)
         .contentShape(Rectangle())
@@ -286,6 +300,43 @@ struct StickyView: View {
         }
         .buttonStyle(.plain)
         .help(BureauCopy.exitModeButtonTooltip)
+    }
+}
+
+/// Stamped ink (R4): the label in a rough box, rotated the few degrees the
+/// slam landed at, over a lighter double-strike ghost. It scales in hard from
+/// oversize so the arrival reads as the 12-frame slam, not a fade.
+struct StampInkView: View {
+    let stamp: StickyModel.AppliedStamp
+
+    @State private var landed = false
+
+    var body: some View {
+        ZStack {
+            inkFace(opacity: 0.25)
+                .offset(x: stamp.ghostOffsetPx, y: stamp.ghostOffsetPx)
+            inkFace(opacity: 0.85)
+        }
+        .rotationEffect(.degrees(stamp.rotationDeg))
+        .scaleEffect(landed ? 1 : 2.4)
+        .opacity(landed ? 1 : 0)
+        .allowsHitTesting(false)
+        .onAppear {
+            withAnimation(.easeIn(duration: 0.08)) { landed = true }
+        }
+    }
+
+    private func inkFace(opacity: Double) -> some View {
+        Text(stamp.kind.label)
+            .font(.custom(BureauPalette.pixelFamily, size: 16))
+            .fontWeight(.black)
+            .foregroundStyle(Color(nsColor: stamp.kind.color).opacity(opacity))
+            .padding(.horizontal, 6)
+            .padding(.vertical, 2)
+            .overlay(
+                Rectangle()
+                    .strokeBorder(Color(nsColor: stamp.kind.color).opacity(opacity), lineWidth: 2)
+            )
     }
 }
 
