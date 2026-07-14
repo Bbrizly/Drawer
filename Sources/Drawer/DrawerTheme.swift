@@ -16,6 +16,7 @@ enum DrawerTheme: String, CaseIterable, Identifiable {
     case dots
     case notebook
     case windowsXP
+    case bureau
 
     static let `default` = DrawerTheme.liquidGlass
 
@@ -31,13 +32,14 @@ enum DrawerTheme: String, CaseIterable, Identifiable {
         case .dots: return "Dots"
         case .notebook: return "Notebook"
         case .windowsXP: return "Windows XP"
+        case .bureau: return "Bureau"
         }
     }
 
     /// Art-directed themes paint their own opaque world (see PanelBackground).
     var isArtDirected: Bool {
         switch self {
-        case .medieval, .pixel, .dots, .notebook, .windowsXP: return true
+        case .medieval, .pixel, .dots, .notebook, .windowsXP, .bureau: return true
         default: return false
         }
     }
@@ -49,7 +51,7 @@ enum DrawerTheme: String, CaseIterable, Identifiable {
     /// on light paper. System themes return nil and follow the OS.
     var forcedColorScheme: ColorScheme? {
         switch self {
-        case .notebook, .medieval, .windowsXP: return .light
+        case .notebook, .medieval, .windowsXP, .bureau: return .light
         case .pixel, .dots: return .dark
         default: return nil
         }
@@ -59,7 +61,7 @@ enum DrawerTheme: String, CaseIterable, Identifiable {
     /// the drawer's color scheme. Pin them to the theme's intended chrome.
     var popoverColorScheme: ColorScheme {
         switch self {
-        case .reminders, .medieval, .notebook, .windowsXP: return .light
+        case .reminders, .medieval, .notebook, .windowsXP, .bureau: return .light
         default: return .dark
         }
     }
@@ -126,6 +128,17 @@ enum DrawerTheme: String, CaseIterable, Identifiable {
             ))
             p.sectionHeader = AnyShapeStyle(Palette.xpBlue)
             return p
+        case .bureau:
+            // Papers-Please paperwork (spec Decision 5): dusty ink on aged
+            // cream, one red accent doing all the accent work.
+            var p = Palette.light
+            p.accent = Palette.bureauRed
+            p.primary = Palette.bureauInk
+            p.secondary = Palette.bureauInk.opacity(0.68)
+            p.tertiary = Palette.bureauInk.opacity(0.42)
+            p.controlFill = AnyShapeStyle(Palette.bureauInk.opacity(0.08))
+            p.sectionHeader = AnyShapeStyle(Palette.bureauRed)
+            return p
         }
     }
 
@@ -155,6 +168,7 @@ enum DrawerTheme: String, CaseIterable, Identifiable {
         case .dots: return 22
         case .notebook: return 8
         case .windowsXP: return 0
+        case .bureau: return 4    // chunky government paperwork, barely rounded
         }
     }
 
@@ -171,12 +185,13 @@ enum DrawerTheme: String, CaseIterable, Identifiable {
         case .dots: return 16
         case .notebook: return 16
         case .windowsXP: return 13
+        case .bureau: return 15
         }
     }
 
     var rowVerticalPadding: CGFloat {
         switch self {
-        case .reminders, .medieval, .windowsXP: return 8
+        case .reminders, .medieval, .windowsXP, .bureau: return 8
         case .notebook: return 9   // give each ruled line room to breathe
         default: return 7
         }
@@ -189,17 +204,20 @@ enum DrawerTheme: String, CaseIterable, Identifiable {
         case .pixel: return 2
         case .windowsXP: return 0
         case .notebook: return 0
+        case .bureau: return 2
         default: return 10
         }
     }
 
     /// Reminders and Medieval separate rows with hairlines; Notebook rules every
     /// row (see TaskRowView); the others rely on hover alone.
-    var showsRowSeparators: Bool { self == .reminders || self == .medieval || self == .windowsXP }
+    var showsRowSeparators: Bool {
+        self == .reminders || self == .medieval || self == .windowsXP || self == .bureau
+    }
 
     /// Checkbox glyphs. Pixel swaps the round set for squares so it reads 8-bit.
     func checkboxSymbol(done: Bool, inProgress: Bool) -> String {
-        if self == .pixel || self == .windowsXP {
+        if self == .pixel || self == .windowsXP || self == .bureau {
             if done { return "checkmark.square.fill" }
             if inProgress { return "square.lefthalf.filled" }
             return "square"
@@ -215,7 +233,7 @@ enum DrawerTheme: String, CaseIterable, Identifiable {
         switch self {
         case .widget, .dots: return .rounded
         case .medieval: return .serif
-        case .pixel: return .monospaced
+        case .pixel, .bureau: return .monospaced
         default: return .default
         }
     }
@@ -226,7 +244,7 @@ enum DrawerTheme: String, CaseIterable, Identifiable {
     /// design from the root `fontDesign`.
     func titleFont(size: Double) -> Font {
         switch self {
-        case .pixel:
+        case .pixel, .bureau:
             return .custom(FontLoader.pixelFamily, size: CGFloat(size) - 1)
         case .windowsXP:
             return FontLoader.xpFont(size: CGFloat(size))
@@ -246,7 +264,7 @@ enum DrawerTheme: String, CaseIterable, Identifiable {
         switch self {
         case .reminders: return .system(size: 13, weight: .bold)
         case .medieval: return .system(size: 11, weight: .bold) // serif via root design
-        case .pixel: return .custom(FontLoader.pixelFamily, size: 11)
+        case .pixel, .bureau: return .custom(FontLoader.pixelFamily, size: 11)
         case .windowsXP: return FontLoader.xpFont(size: 12, weight: .bold)
         case .dots: return .system(size: 11, weight: .heavy)
         default: return .system(size: 10, weight: .bold)
@@ -316,6 +334,14 @@ struct Palette {
     static let xpBevelShadowRGBA = RGBA(0.40, 0.40, 0.40)
     /// X of the notebook red margin; the task list insets past it (DrawerView).
     static let notebookMargin: CGFloat = 40
+
+    // Bureau theme (spec Decision 5): the same dusty register the drawer scene
+    // paints (see BureauPalette in DrawerBureau), mirrored here because the
+    // theme lives in this target and the scene deliberately never reads it.
+    static let bureauInk = Color(red: 0.16, green: 0.15, blue: 0.13)
+    static let bureauRed = Color(red: 0.62, green: 0.20, blue: 0.15)
+    static let bureauCream = Color(red: 0.91, green: 0.87, blue: 0.77)
+    static let bureauCreamShade = Color(red: 0.83, green: 0.78, blue: 0.66)
 
     static let boardDark = RGBA(0.11, 0.11, 0.11)
     static let hitClear = RGBA(0, 0, 0, 0.01)           // invisible, keeps the window hit-testable
@@ -426,7 +452,37 @@ struct PanelBackground: View {
             NotebookPaper(shape: shape)
         case .windowsXP:
             WindowsXPPanel(shape: shape)
+        case .bureau:
+            BureauPaper(shape: shape)
         }
+    }
+}
+
+/// Papers-Please paperwork: aged cream stock with faint foxing, a soft edge
+/// shadow, a heavy ink border and a thin red inner rule, like a form that has
+/// been through a few too many hands.
+private struct BureauPaper: View {
+    let shape: RoundedRectangle
+
+    var body: some View {
+        shape
+            .fill(LinearGradient(
+                colors: [Palette.bureauCream, Palette.bureauCreamShade],
+                startPoint: .top, endPoint: .bottom
+            ))
+            .overlay(ParchmentGrain().opacity(0.06).clipShape(shape))
+            .overlay(
+                shape.fill(RadialGradient(
+                    colors: [.clear, Palette.bureauInk.opacity(0.14)],
+                    center: .center, startRadius: 90, endRadius: 260
+                ))
+            )
+            .overlay(shape.strokeBorder(Palette.bureauInk, lineWidth: 2))
+            .overlay(
+                RoundedRectangle(cornerRadius: max(0, shape.cornerSize.width - 3), style: .continuous)
+                    .strokeBorder(Palette.bureauRed.opacity(0.45), lineWidth: 1)
+                    .padding(3)
+            )
     }
 }
 
