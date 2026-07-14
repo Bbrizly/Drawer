@@ -28,6 +28,12 @@ final class BureauScene: SKScene {
     /// Velocity-scaled paper-rustle hook, 0...1. No-op until R4 wires sounds.
     var onRustle: ((CGFloat) -> Void)?
 
+    /// Fires once the drawer has been still for a short beat after any movement,
+    /// with each receipt's settled center and rotation, so the facade can save
+    /// the layout back to `ReceiptStore` (R2 deliverable 6). Debounced to one
+    /// write per rest, not per frame.
+    var onReceiptsSettled: (([UUID: (CGPoint, CGFloat)]) -> Void)?
+
     /// Set once the drawer furniture and the receipts already in the drawer
     /// have been placed. The scene is owned by the facade and outlives the
     /// SwiftUI view, so this guards against re-spawning the same receipts when
@@ -49,6 +55,10 @@ final class BureauScene: SKScene {
     private var draggingSprite: ReceiptSprite?
     private var grabOffset: CGPoint = .zero
     private var topZ: CGFloat = 1
+
+    // MARK: settle-persistence state
+    private var settleDirty = false
+    private var lastActivity: TimeInterval = 0
 
     override func didMove(to view: SKView) {
         anchorPoint = .zero
@@ -146,12 +156,13 @@ final class BureauScene: SKScene {
 
     /// Places an already-built sprite at a point in the drawer with a physics
     /// body, for receipts that were already `inDrawer` on mount.
-    func addExisting(_ sprite: ReceiptSprite, at point: CGPoint) {
+    func addExisting(_ sprite: ReceiptSprite, at point: CGPoint, rotation: CGFloat? = nil) {
         sprite.position = point
-        sprite.zRotation = CGFloat.random(in: -0.12...0.12)
+        sprite.zRotation = rotation ?? CGFloat.random(in: -0.12...0.12)
         sprite.applyPhysics(tuning.physics)
         sprite.zPosition = nextZ()
         addChild(sprite)
+        settleDirty = true
     }
 
     /// Drops a freshly torn-off receipt in from the printer seam at the top,
@@ -167,6 +178,7 @@ final class BureauScene: SKScene {
         sprite.physicsBody?.applyImpulse(
             CGVector(dx: CGFloat.random(in: -2...2), dy: -CGFloat(tuning.print.dropImpulse))
         )
+        settleDirty = true
     }
 
     private func nextZ() -> CGFloat {
@@ -198,6 +210,7 @@ final class BureauScene: SKScene {
     }
 
     override func update(_ currentTime: TimeInterval) {
+        detectSettle(currentTime)
         guard let mouse = lastMouse else { return }
         // Manual force loop, active ONLY while the cursor is moving. Once it
         // stops the window goes quiet and bodies settle back to sleep, holding
@@ -223,6 +236,31 @@ final class BureauScene: SKScene {
                 CGFloat(tuning.physics.torque) * falloff * 0.001 * (Bool.random() ? 1 : -1)
             )
             onRustle?(min(1, falloff))
+            settleDirty = true
+        }
+    }
+
+    /// Debounced layout save: whenever any body is moving, mark the drawer dirty
+    /// and note the time; once everything has been still for a beat, emit each
+    /// receipt's settled center and rotation exactly once. A drag holds a body
+    /// non-dynamic (zero velocity), so `mouseDragged`/`mouseUp` mark activity
+    /// directly for it.
+    private func detectSettle(_ currentTime: TimeInterval) {
+        let moving = receiptSprites.contains { sprite in
+            guard let b = sprite.physicsBody else { return false }
+            return hypot(b.velocity.dx, b.velocity.dy) > 2 || abs(b.angularVelocity) > 0.2
+        }
+        if moving {
+            settleDirty = true
+            lastActivity = currentTime
+        } else if settleDirty, currentTime - lastActivity > 0.4 {
+            settleDirty = false
+            guard onReceiptsSettled != nil else { return }
+            var layout: [UUID: (CGPoint, CGFloat)] = [:]
+            for sprite in receiptSprites where sprite !== draggingSprite {
+                layout[sprite.receiptID] = (sprite.position, sprite.zRotation)
+            }
+            if !layout.isEmpty { onReceiptsSettled?(layout) }
         }
     }
 
@@ -241,15 +279,23 @@ final class BureauScene: SKScene {
         guard let sprite = draggingSprite else { return }
         let p = event.location(in: self)
         sprite.position = CGPoint(x: p.x - grabOffset.x, y: p.y - grabOffset.y)
-        if !frame.contains(sprite.position) {
-            // The R2 handoff seam. Nil in R1b, so the sprite simply keeps moving
-            // in-scene and falls back when released.
-            onSpriteDraggedPastBounds?(sprite, p)
+        settleDirty = true
+        lastActivity = event.timestamp
+        if let handoff = onSpriteDraggedPastBounds, !frame.contains(sprite.position) {
+            // The R2 handoff seam (flow c): the sprite's center left the scene,
+            // so the sticky layer takes over the drag. Stop tracking it here
+            // (and fire once) so the scene and the follow monitor never both
+            // move it. With no handler wired the whole branch is skipped and the
+            // sprite keeps moving in-scene, R1b's fallback behavior.
+            draggingSprite = nil
+            handoff(sprite, p)
         }
     }
 
     override func mouseUp(with event: NSEvent) {
         draggingSprite?.physicsBody?.isDynamic = true
         draggingSprite = nil
+        settleDirty = true
+        lastActivity = event.timestamp
     }
 }

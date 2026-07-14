@@ -96,6 +96,21 @@ public final class ReceiptStore: ObservableObject {
         save()
     }
 
+    /// Applies a batch of settled positions/rotations in one write, so a
+    /// drawer coming to rest after a rummage saves its whole layout once instead
+    /// of a write per receipt (R2 deliverable 6). Ids not present are ignored.
+    public func updatePositions(_ changes: [UUID: (ReceiptPosition, Double)]) {
+        guard !changes.isEmpty else { return }
+        var touched = false
+        for i in document.receipts.indices {
+            guard let (position, rotation) = changes[document.receipts[i].id] else { continue }
+            document.receipts[i].position = position
+            document.receipts[i].rotation = rotation
+            touched = true
+        }
+        if touched { save() }
+    }
+
     public func remove(_ id: UUID) {
         guard document.receipts.contains(where: { $0.id == id }) else { return }
         document.receipts.removeAll { $0.id == id }

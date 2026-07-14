@@ -1,0 +1,120 @@
+import AppKit
+
+/// The signature interaction: while the cursor is over a live sticky, a
+/// two-finger trackpad scroll MOVES the note instead of scrolling anything
+/// (spec Decision 2, "hover-scroll move"). A single local `.scrollWheel`
+/// monitor watches every scroll event; when one lands on a sticky panel it
+/// nudges that window by the scroll delta and CONSUMES the event, so the
+/// drawer's own `ScrollSwipeMonitor` never sees it and no board-page or
+/// list-scroll fires underneath (spec risk 7).
+///
+/// The monitor is installed once the first sticky opens and removed when the
+/// last one closes, so it costs nothing while no note is live. Because it is
+/// installed at app launch (before the drawer's monitor appears on view
+/// appear), it runs first and its `nil` return stops the event before the
+/// drawer monitor is consulted.
+///
+/// Inertia is manual and deterministic: a physical scroll tracks the note 1:1
+/// and seeds a velocity; on finger-up the note glides, decaying by
+/// `inertiaFriction` each frame until it drops below `minDelta`. Trackpad
+/// momentum events are consumed but not applied, so the OS glide and this one
+/// never double up.
+@MainActor
+final class HoverScrollMover {
+    private var token: Any?
+    private var tuning: BureauHoverScrollTuning
+    /// Resolves a scroll event to the sticky window under it, or `nil` if the
+    /// scroll is not over a live sticky (then the event passes through).
+    private let windowUnder: (NSEvent) -> NSWindow?
+    /// Called when a move gesture settles, so the manager can persist the note's
+    /// resting position.
+    var onSettled: ((NSWindow) -> Void)?
+
+    private var inertiaTimer: Timer?
+    private weak var glideWindow: NSWindow?
+    private var velocity = CGVector.zero
+
+    init(tuning: BureauHoverScrollTuning, windowUnder: @escaping (NSEvent) -> NSWindow?) {
+        self.tuning = tuning
+        self.windowUnder = windowUnder
+    }
+
+    func updateTuning(_ t: BureauHoverScrollTuning) { tuning = t }
+
+    func start() {
+        guard token == nil else { return }
+        // Explicit guard, not `self?.handle(event) ?? event`: optional chaining
+        // flattens the result, so a `nil` returned from `handle` to CONSUME the
+        // event would be turned back into `event` by the `??` and passed through.
+        // Consuming is the whole point here (risk 7), so return `handle`'s value
+        // directly and only fall back to passing the event when self is gone.
+        token = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { [weak self] event in
+            guard let self else { return event }
+            return self.handle(event)
+        }
+    }
+
+    func stop() {
+        if let token { NSEvent.removeMonitor(token) }
+        token = nil
+        stopInertia(settle: false)
+    }
+
+    private func handle(_ event: NSEvent) -> NSEvent? {
+        guard let window = windowUnder(event) else { return event }
+
+        // Physical scroll: track the note under the fingers and seed velocity.
+        // Momentum events are swallowed (return nil below) but not applied.
+        if event.momentumPhase == [] {
+            stopInertia(settle: false)
+            let dx = clamp(Double(event.scrollingDeltaX) * tuning.sensitivity)
+            let dy = clamp(Double(event.scrollingDeltaY) * tuning.sensitivity)
+            if abs(dx) >= tuning.minDelta || abs(dy) >= tuning.minDelta {
+                // The note follows the fingers: same sign as the scroll delta,
+                // and screen space is y-up like the delta, so no flips. If the
+                // feel wants inverting, negate here (the one tuning-free sign).
+                move(window, dx: dx, dy: dy)
+                velocity = CGVector(dx: dx, dy: dy)
+                glideWindow = window
+            }
+            if event.phase == .ended { startInertia() }
+        }
+        return nil // consume so the drawer swipe never sees it (risk 7)
+    }
+
+    private func clamp(_ v: Double) -> Double {
+        max(-tuning.maxVelocity, min(tuning.maxVelocity, v))
+    }
+
+    private func move(_ window: NSWindow, dx: Double, dy: Double) {
+        var o = window.frame.origin
+        o.x += dx
+        o.y += dy
+        window.setFrameOrigin(o)
+    }
+
+    private func startInertia() {
+        stopInertia(settle: false)
+        guard glideWindow != nil else { return }
+        let friction = tuning.inertiaFriction
+        inertiaTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 60.0, repeats: true) { [weak self] timer in
+            MainActor.assumeIsolated {
+                guard let self, let window = self.glideWindow else { timer.invalidate(); return }
+                self.velocity.dx *= CGFloat(friction)
+                self.velocity.dy *= CGFloat(friction)
+                if hypot(self.velocity.dx, self.velocity.dy) < CGFloat(self.tuning.minDelta) {
+                    self.stopInertia(settle: true)
+                    return
+                }
+                self.move(window, dx: Double(self.velocity.dx), dy: Double(self.velocity.dy))
+            }
+        }
+    }
+
+    private func stopInertia(settle: Bool) {
+        inertiaTimer?.invalidate()
+        inertiaTimer = nil
+        if settle, let window = glideWindow { onSettled?(window) }
+        if settle { glideWindow = nil }
+    }
+}

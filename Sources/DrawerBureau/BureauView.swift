@@ -23,7 +23,7 @@ struct BureauView: View {
     /// True while Bureau mode is the visible bottom region.
     var isActive: Bool
 
-    private let slipSize = CGSize(width: 150, height: 84)
+    private var slipSize: CGSize { feature.slipSize }
     private var scale: CGFloat { NSScreen.main?.backingScaleFactor ?? 2 }
 
     @State private var jobs: [PrintingJob] = []
@@ -45,7 +45,10 @@ struct BureauView: View {
             .frame(maxWidth: .infinity, alignment: .top)
         }
         .onAppear { configure() }
-        .onChange(of: tuning.document) { _, doc in scene.tuning = doc }
+        .onChange(of: tuning.document) { _, doc in
+            scene.tuning = doc
+            feature.stickies.tuningChanged()
+        }
         .onChange(of: store.todayItems) { old, new in handleTodayItemsChanged(from: old, to: new) }
     }
 
@@ -61,22 +64,33 @@ struct BureauView: View {
         }
         previousTodayCount = store.todayItems.count
         printQueuedReceipts()
+        // Reopen any notes persisted as sticky, so entering the drawer never
+        // leaves a receipt with no window and no sprite (spec "Pull-out" cap).
+        feature.stickies.restore()
     }
 
-    /// Places receipts already `inDrawer` at a spread of positions.
-    // ponytail: positions are not yet persisted per frame; a saved-layout
-    // restore lands with the R2 drag/physics writeback. For now they settle
-    // fresh on first entry, which reads fine for a rummage drawer.
+    /// Places receipts already `inDrawer`, restoring each to its saved settle
+    /// position/rotation when there is one (R2 deliverable 6), else spreading it
+    /// fresh across the drawer.
     private func spawnExistingReceipts() {
         let width = max(120, scene.size.width)
         let height = max(160, scene.size.height)
         for link in receipts.document.receipts where link.state == .inDrawer {
             let sprite = makeSprite(receiptID: link.id, title: link.textSnapshot)
-            let point = CGPoint(
-                x: CGFloat.random(in: width * 0.2...width * 0.8),
-                y: CGFloat.random(in: height * 0.4...height * 0.85)
-            )
-            scene.addExisting(sprite, at: point)
+            let saved = CGPoint(x: link.position.x, y: link.position.y)
+            let point: CGPoint
+            if saved.x != 0 || saved.y != 0 {
+                point = CGPoint(
+                    x: min(max(saved.x, 10), width - 10),
+                    y: min(max(saved.y, 10), height - 10)
+                )
+            } else {
+                point = CGPoint(
+                    x: CGFloat.random(in: width * 0.2...width * 0.8),
+                    y: CGFloat.random(in: height * 0.4...height * 0.85)
+                )
+            }
+            scene.addExisting(sprite, at: point, rotation: link.rotation != 0 ? CGFloat(link.rotation) : nil)
         }
     }
 
