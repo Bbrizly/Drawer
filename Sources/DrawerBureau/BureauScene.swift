@@ -28,6 +28,12 @@ final class BureauScene: SKScene {
     /// Velocity-scaled paper-rustle hook, 0...1. No-op until R4 wires sounds.
     var onRustle: ((CGFloat) -> Void)?
 
+    /// Fired when a slip is dropped into the shredder. The facade deletes only
+    /// the RECEIPT (bureau-receipts.json) and plays the shred sound; the task
+    /// in Drawer.md is never touched. Fires as the shred begins; the scene runs
+    /// the tear-down animation and removes the sprite itself.
+    var onShred: ((UUID) -> Void)?
+
     /// Fires once the drawer has been still for a short beat after any movement,
     /// with each receipt's settled center and rotation, so the facade can save
     /// the layout back to `ReceiptStore` (R2 deliverable 6). Debounced to one
@@ -46,6 +52,14 @@ final class BureauScene: SKScene {
     private var trayLabel: SKLabelNode?
     private var lipNode: SKSpriteNode?
     private var trayHeight: CGFloat { max(34, size.height * 0.14) }
+
+    // MARK: shredder (bottom-right of the tray strip)
+
+    private var shredderTeeth: [SKSpriteNode] = []
+    private var shredderZone: CGRect = .zero
+    /// Width of the shredder slot. Topic 5 lifts this into the tuning file.
+    private var shredderWidth: CGFloat { 56 }
+    private var shredderHovered = false
 
     // MARK: rummage / drag state
 
@@ -151,6 +165,62 @@ final class BureauScene: SKScene {
         lip.zPosition = 100
         addChild(lip)
         lipNode = lip
+
+        layoutShredder()
+    }
+
+    /// The shredder: a dark slot with a row of teeth at the right end of the
+    /// tray strip, in the Bureau palette, pure SKNodes. Drop a slip in to
+    /// delete just its receipt.
+    private func layoutShredder() {
+        shredderTeeth.removeAll()
+        let width = shredderWidth
+        let zone = CGRect(x: size.width - width - 6, y: 3, width: width, height: trayHeight - 6)
+        shredderZone = zone
+
+        // The dark slot body.
+        let slot = SKSpriteNode(color: BureauPalette.drawerLip, size: zone.size)
+        slot.anchorPoint = CGPoint(x: 0, y: 0)
+        slot.position = CGPoint(x: zone.minX, y: zone.minY)
+        slot.zPosition = 7
+        trayNode.addChild(slot)
+
+        // A row of teeth along the top lip of the slot.
+        let count = 7
+        let tw = zone.width / CGFloat(count)
+        for i in 0..<count {
+            let tooth = SKSpriteNode(color: BureauPalette.trayInk, size: CGSize(width: tw * 0.7, height: 5))
+            tooth.anchorPoint = CGPoint(x: 0.5, y: 1)
+            tooth.position = CGPoint(x: zone.minX + (CGFloat(i) + 0.5) * tw, y: zone.maxY)
+            tooth.zPosition = 8
+            trayNode.addChild(tooth)
+            shredderTeeth.append(tooth)
+        }
+
+        let label = SKLabelNode(fontNamed: BureauPalette.pixelFamily)
+        label.text = BureauCopy.shredderLabel
+        label.fontSize = 7
+        label.fontColor = BureauPalette.trayInk
+        label.horizontalAlignmentMode = .center
+        label.verticalAlignmentMode = .bottom
+        label.position = CGPoint(x: zone.midX, y: zone.minY + 2)
+        label.zPosition = 8
+        trayNode.addChild(label)
+
+        applyShredderHighlight()
+    }
+
+    /// Brightens the teeth while a dragged slip hovers the slot so the target
+    /// reads before release.
+    private func setShredderHovered(_ hovered: Bool) {
+        guard hovered != shredderHovered else { return }
+        shredderHovered = hovered
+        applyShredderHighlight()
+    }
+
+    private func applyShredderHighlight() {
+        let color = shredderHovered ? BureauPalette.stampGreen : BureauPalette.trayInk
+        for tooth in shredderTeeth { tooth.color = color }
     }
 
     /// Updates the tray's lifetime FILED caption (spec Decision 4). Visual only
@@ -302,6 +372,41 @@ final class BureauScene: SKScene {
         children.compactMap { $0 as? ReceiptSprite }
     }
 
+    // MARK: shredder
+
+    /// Feeds a slip into the shredder: the receipt is deleted (via `onShred`,
+    /// which the facade routes to `ReceiptStore.remove` and the shred sound;
+    /// the Drawer.md task is never touched), then the slip snaps upright over
+    /// the slot and slides down while squeezing narrow and fading, in the same
+    /// chunky step style as the crumple.
+    private func shred(_ sprite: ReceiptSprite) {
+        let id = sprite.receiptID
+        sprite.physicsBody = nil
+        setShredderHovered(false)
+        onShred?(id)
+
+        // Snap upright, centered over the slot mouth.
+        let mouth = CGPoint(x: shredderZone.midX, y: shredderZone.maxY + sprite.size.height * sprite.yScale * 0.3)
+        let align = SKAction.group([
+            .move(to: mouth, duration: 0.08),
+            .rotate(toAngle: 0, duration: 0.08),
+        ])
+        // Chunky downward steps: squeeze X, drop, fade. Topic 5 lifts the total.
+        let shredMs = 240.0
+        let n = 6
+        let stepDur = shredMs / 1000 / Double(n)
+        var steps: [SKAction] = []
+        for i in 0..<n {
+            let f = CGFloat(i + 1) / CGFloat(n)
+            steps.append(.group([
+                .scaleX(to: max(0.06, (1 - f) * sprite.xScale), y: sprite.yScale, duration: stepDur),
+                .moveBy(x: 0, y: -shredderZone.height / CGFloat(n), duration: stepDur),
+                .fadeAlpha(to: max(0, 1 - f), duration: stepDur),
+            ]))
+        }
+        sprite.run(.sequence([align, .sequence(steps), .removeFromParent()]))
+    }
+
     // MARK: rummage
 
     private func installTracking(in view: SKView) {
@@ -399,6 +504,8 @@ final class BureauScene: SKScene {
         sprite.position = CGPoint(x: p.x - grabOffset.x, y: p.y - grabOffset.y)
         settleDirty = true
         lastActivity = event.timestamp
+        // Light up the shredder while the slip hovers its slot.
+        setShredderHovered(shredderZone.contains(sprite.position))
         if let handoff = onSpriteDraggedPastBounds, !frame.contains(sprite.position) {
             // The R2 handoff seam (flow c): the sprite's center left the scene,
             // so the sticky layer takes over the drag. Stop tracking it here
@@ -411,9 +518,17 @@ final class BureauScene: SKScene {
     }
 
     override func mouseUp(with event: NSEvent) {
-        draggingSprite?.physicsBody?.isDynamic = true
-        draggingSprite = nil
-        settleDirty = true
-        lastActivity = event.timestamp
+        defer {
+            draggingSprite = nil
+            settleDirty = true
+            lastActivity = event.timestamp
+        }
+        guard let sprite = draggingSprite else { return }
+        if shredderZone.contains(sprite.position) {
+            shred(sprite)
+            return
+        }
+        setShredderHovered(false)
+        sprite.physicsBody?.isDynamic = true
     }
 }
