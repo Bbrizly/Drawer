@@ -17,11 +17,13 @@ struct PrintingJob: Identifiable, Equatable {
 /// then, after a short tear pause, hands the finished slip to `onTorn` so the
 /// scene can drop it in (spec "The printer", flow b).
 ///
-/// Sound is deferred to R4, so the dot-matrix chatter and the terminal ding are
-/// left as explicit no-op hooks rather than wired here.
 struct PrinterSlot: View {
     let job: PrintingJob?
     let tuning: BureauPrintTuning
+    /// One dot-matrix tick per revealed step and the terminal ding at the end
+    /// (R4); nil hooks keep the printer silent.
+    var onChatter: (() -> Void)?
+    var onDing: (() -> Void)?
     var onTorn: (PrintingJob) -> Void
 
     @State private var revealed: CGFloat = 0
@@ -58,9 +60,9 @@ struct PrinterSlot: View {
             try? await Task.sleep(nanoseconds: stepNanos)
             if Task.isCancelled { return }
             revealed = min(full, revealed + step)
-            // ponytail: dot-matrix chatter tick goes here (no-op until R4).
+            onChatter?()
         }
-        // ponytail: terminal ding goes here (no-op until R4).
+        onDing?()
         try? await Task.sleep(nanoseconds: UInt64(max(1, tuning.tearMs) * 1_000_000))
         if Task.isCancelled { return }
         onTorn(job)
