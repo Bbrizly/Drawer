@@ -1019,6 +1019,12 @@ private struct BureauModeButton: View {
                 isSelected: inBureauMode,
                 action: toggle
             )
+            // The hidden tuning panel (spec "Tuning system"): a long press
+            // where a click flips the mode.
+            .simultaneousGesture(
+                LongPressGesture(minimumDuration: 0.6)
+                    .onEnded { _ in bureau.toggleTuningPanel() }
+            )
             if !inBureauMode, bureau.queuedCount > 0 {
                 Text("\(bureau.queuedCount)")
                     .font(.system(size: 10, weight: .bold, design: .rounded))
