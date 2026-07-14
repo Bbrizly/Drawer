@@ -26,10 +26,15 @@ public struct BureauPhysicsTuning: Codable, Equatable, Sendable {
     public var linearDamping: Double
     public var angularDamping: Double
     public var gravity: Double
+    /// Scales the per-tick rummage push impulse (was a hardcoded 0.02).
+    public var pushScale: Double
+    /// Scales the per-tick rummage twist impulse (was a hardcoded 0.001).
+    public var torqueScale: Double
 
     public init(
         repulsionRadius: Double, repulsionStrength: Double, torque: Double, friction: Double,
-        restitution: Double, linearDamping: Double, angularDamping: Double, gravity: Double
+        restitution: Double, linearDamping: Double, angularDamping: Double, gravity: Double,
+        pushScale: Double, torqueScale: Double
     ) {
         self.repulsionRadius = repulsionRadius
         self.repulsionStrength = repulsionStrength
@@ -39,6 +44,24 @@ public struct BureauPhysicsTuning: Codable, Equatable, Sendable {
         self.linearDamping = linearDamping
         self.angularDamping = angularDamping
         self.gravity = gravity
+        self.pushScale = pushScale
+        self.torqueScale = torqueScale
+    }
+
+    // Version-2 files predate pushScale/torqueScale; decode them tolerantly so
+    // the migration can fill the new fields without discarding tuned values.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        repulsionRadius = try c.decode(Double.self, forKey: .repulsionRadius)
+        repulsionStrength = try c.decode(Double.self, forKey: .repulsionStrength)
+        torque = try c.decode(Double.self, forKey: .torque)
+        friction = try c.decode(Double.self, forKey: .friction)
+        restitution = try c.decode(Double.self, forKey: .restitution)
+        linearDamping = try c.decode(Double.self, forKey: .linearDamping)
+        angularDamping = try c.decode(Double.self, forKey: .angularDamping)
+        gravity = try c.decode(Double.self, forKey: .gravity)
+        pushScale = try c.decodeIfPresent(Double.self, forKey: .pushScale) ?? 0.02
+        torqueScale = try c.decodeIfPresent(Double.self, forKey: .torqueScale) ?? 0.001
     }
 }
 
@@ -48,12 +71,28 @@ public struct BureauRustleTuning: Codable, Equatable, Sendable {
     public var velocityThreshold: Double
     public var maxVolume: Double
     public var rateCapMs: Double
+    /// The body speed (points/sec) mapped to full rustle intensity in
+    /// `BureauScene.update` (was a hardcoded 200).
+    public var speedRef: Double
 
-    public init(gain: Double, velocityThreshold: Double, maxVolume: Double, rateCapMs: Double) {
+    public init(
+        gain: Double, velocityThreshold: Double, maxVolume: Double, rateCapMs: Double,
+        speedRef: Double
+    ) {
         self.gain = gain
         self.velocityThreshold = velocityThreshold
         self.maxVolume = maxVolume
         self.rateCapMs = rateCapMs
+        self.speedRef = speedRef
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        gain = try c.decode(Double.self, forKey: .gain)
+        velocityThreshold = try c.decode(Double.self, forKey: .velocityThreshold)
+        maxVolume = try c.decode(Double.self, forKey: .maxVolume)
+        rateCapMs = try c.decode(Double.self, forKey: .rateCapMs)
+        speedRef = try c.decodeIfPresent(Double.self, forKey: .speedRef) ?? 200
     }
 }
 
@@ -66,10 +105,17 @@ public struct BureauPrintTuning: Codable, Equatable, Sendable {
     public var tearMs: Double
     public var dropImpulse: Double
     public var queueStaggerMs: Double
+    /// Half-angle (degrees) of the fresh-print fling spread (was hardcoded 70).
+    public var spreadDeg: Double
+    /// Random +/- fraction on the fling magnitude (was hardcoded 0.3).
+    public var impulseVariance: Double
+    /// Half-range of the fresh-print angular impulse (was hardcoded 0.15).
+    public var spin: Double
 
     public init(
         stepMs: Double, stepPx: Double, chatterVolume: Double, dingVolume: Double,
-        tearMs: Double, dropImpulse: Double, queueStaggerMs: Double
+        tearMs: Double, dropImpulse: Double, queueStaggerMs: Double,
+        spreadDeg: Double, impulseVariance: Double, spin: Double
     ) {
         self.stepMs = stepMs
         self.stepPx = stepPx
@@ -78,17 +124,40 @@ public struct BureauPrintTuning: Codable, Equatable, Sendable {
         self.tearMs = tearMs
         self.dropImpulse = dropImpulse
         self.queueStaggerMs = queueStaggerMs
+        self.spreadDeg = spreadDeg
+        self.impulseVariance = impulseVariance
+        self.spin = spin
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        stepMs = try c.decode(Double.self, forKey: .stepMs)
+        stepPx = try c.decode(Double.self, forKey: .stepPx)
+        chatterVolume = try c.decode(Double.self, forKey: .chatterVolume)
+        dingVolume = try c.decode(Double.self, forKey: .dingVolume)
+        tearMs = try c.decode(Double.self, forKey: .tearMs)
+        dropImpulse = try c.decode(Double.self, forKey: .dropImpulse)
+        queueStaggerMs = try c.decode(Double.self, forKey: .queueStaggerMs)
+        spreadDeg = try c.decodeIfPresent(Double.self, forKey: .spreadDeg) ?? 70
+        impulseVariance = try c.decodeIfPresent(Double.self, forKey: .impulseVariance) ?? 0.3
+        spin = try c.decodeIfPresent(Double.self, forKey: .spin) ?? 0.15
     }
 }
 
-/// The stamp arm's four keyframes plus ink/haptic feel (spec "The stamp").
+/// The stamp rack's geometry and press timings plus ink/haptic feel (spec "The
+/// stamp"). The old sweep-arm keyframes (armInMs, overshootPx, settleMs,
+/// shiverPx, shiverCount, slamFrames) went away with the arm.
 public struct BureauStampTuning: Codable, Equatable, Sendable {
-    public var armInMs: Double
-    public var overshootPx: Double
-    public var settleMs: Double
-    public var shiverPx: Double
-    public var shiverCount: Int
-    public var slamFrames: Int
+    /// Width of the pulled-out rack panel (the part holding the two heads).
+    public var rackWidthPx: Double
+    /// Side of a stamp head's square footprint.
+    public var stampSizePx: Double
+    /// How long the rack takes to slide out or retract.
+    public var extendMs: Double
+    /// How long the head takes to press down to the desk.
+    public var pressMs: Double
+    /// How long the head takes to spring back up.
+    public var liftMs: Double
     public var inkRotationMinDeg: Double
     public var inkRotationMaxDeg: Double
     public var doubleStrikeOffsetPx: Double
@@ -96,21 +165,36 @@ public struct BureauStampTuning: Codable, Equatable, Sendable {
     public var hapticEnabled: Bool
 
     public init(
-        armInMs: Double, overshootPx: Double, settleMs: Double, shiverPx: Double,
-        shiverCount: Int, slamFrames: Int, inkRotationMinDeg: Double, inkRotationMaxDeg: Double,
+        rackWidthPx: Double, stampSizePx: Double, extendMs: Double, pressMs: Double,
+        liftMs: Double, inkRotationMinDeg: Double, inkRotationMaxDeg: Double,
         doubleStrikeOffsetPx: Double, thunkVolume: Double, hapticEnabled: Bool
     ) {
-        self.armInMs = armInMs
-        self.overshootPx = overshootPx
-        self.settleMs = settleMs
-        self.shiverPx = shiverPx
-        self.shiverCount = shiverCount
-        self.slamFrames = slamFrames
+        self.rackWidthPx = rackWidthPx
+        self.stampSizePx = stampSizePx
+        self.extendMs = extendMs
+        self.pressMs = pressMs
+        self.liftMs = liftMs
         self.inkRotationMinDeg = inkRotationMinDeg
         self.inkRotationMaxDeg = inkRotationMaxDeg
         self.doubleStrikeOffsetPx = doubleStrikeOffsetPx
         self.thunkVolume = thunkVolume
         self.hapticEnabled = hapticEnabled
+    }
+
+    // A version-2 file carries the old arm keys and none of the rack ones. The
+    // extra keys are ignored; the rack keys decode tolerantly to defaults.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        rackWidthPx = try c.decodeIfPresent(Double.self, forKey: .rackWidthPx) ?? 200
+        stampSizePx = try c.decodeIfPresent(Double.self, forKey: .stampSizePx) ?? 64
+        extendMs = try c.decodeIfPresent(Double.self, forKey: .extendMs) ?? 220
+        pressMs = try c.decodeIfPresent(Double.self, forKey: .pressMs) ?? 90
+        liftMs = try c.decodeIfPresent(Double.self, forKey: .liftMs) ?? 130
+        inkRotationMinDeg = try c.decode(Double.self, forKey: .inkRotationMinDeg)
+        inkRotationMaxDeg = try c.decode(Double.self, forKey: .inkRotationMaxDeg)
+        doubleStrikeOffsetPx = try c.decode(Double.self, forKey: .doubleStrikeOffsetPx)
+        thunkVolume = try c.decode(Double.self, forKey: .thunkVolume)
+        hapticEnabled = try c.decode(Bool.self, forKey: .hapticEnabled)
     }
 }
 
@@ -140,27 +224,60 @@ public struct BureauHoverScrollTuning: Codable, Equatable, Sendable {
     }
 }
 
-/// Sticky panel caps (spec "Pull-out").
+/// Sticky panel caps and geometry (spec "Pull-out").
 public struct BureauStickyTuning: Codable, Equatable, Sendable {
     public var liveCap: Int
     public var subtaskVisibleCap: Int
     /// How much bigger a pulled-out sticky is than the drawer slip it came from
     /// (spec "Pull-out"): the `.full` panel is the slip size times this.
     public var pullOutScale: Double
+    /// The portrait drawer slip size, shared by the sprites, the printer, and
+    /// the pulled-out sticky (was hardcoded 96x144 in StickyMetrics).
+    public var slipWidth: Double
+    public var slipHeight: Double
+    /// The grow-from-slip spring when a sticky is pulled out (was 0.28 / 0.72).
+    public var growSpringResponse: Double
+    public var growSpringDamping: Double
+    /// The scale a pulled-out sticky grows from; roughly 1/pullOutScale so it
+    /// starts at the drawer-slip size.
+    public var growStart: Double
+    /// Points of a note kept on screen by the off-screen clamp (was 40).
+    public var clampMinVisible: Double
+    /// How long after the last window move the settle fires (was 350ms).
+    public var settleDebounceMs: Double
 
-    public init(liveCap: Int, subtaskVisibleCap: Int, pullOutScale: Double) {
+    public init(
+        liveCap: Int, subtaskVisibleCap: Int, pullOutScale: Double,
+        slipWidth: Double, slipHeight: Double, growSpringResponse: Double,
+        growSpringDamping: Double, growStart: Double, clampMinVisible: Double,
+        settleDebounceMs: Double
+    ) {
         self.liveCap = liveCap
         self.subtaskVisibleCap = subtaskVisibleCap
         self.pullOutScale = pullOutScale
+        self.slipWidth = slipWidth
+        self.slipHeight = slipHeight
+        self.growSpringResponse = growSpringResponse
+        self.growSpringDamping = growSpringDamping
+        self.growStart = growStart
+        self.clampMinVisible = clampMinVisible
+        self.settleDebounceMs = settleDebounceMs
     }
 
-    // A version-1 file on disk has no pullOutScale, so decode it tolerantly and
-    // let the version migration replace the whole document afterward.
+    // A version-1 file has no pullOutScale and a version-2 file none of the
+    // geometry fields, so decode every optional tolerantly to its default.
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         liveCap = try c.decode(Int.self, forKey: .liveCap)
         subtaskVisibleCap = try c.decode(Int.self, forKey: .subtaskVisibleCap)
         pullOutScale = try c.decodeIfPresent(Double.self, forKey: .pullOutScale) ?? 1.5
+        slipWidth = try c.decodeIfPresent(Double.self, forKey: .slipWidth) ?? 96
+        slipHeight = try c.decodeIfPresent(Double.self, forKey: .slipHeight) ?? 144
+        growSpringResponse = try c.decodeIfPresent(Double.self, forKey: .growSpringResponse) ?? 0.28
+        growSpringDamping = try c.decodeIfPresent(Double.self, forKey: .growSpringDamping) ?? 0.72
+        growStart = try c.decodeIfPresent(Double.self, forKey: .growStart) ?? 0.667
+        clampMinVisible = try c.decodeIfPresent(Double.self, forKey: .clampMinVisible) ?? 40
+        settleDebounceMs = try c.decodeIfPresent(Double.self, forKey: .settleDebounceMs) ?? 350
     }
 }
 
@@ -182,6 +299,55 @@ public struct BureauFiledTrayTuning: Codable, Equatable, Sendable {
     }
 }
 
+/// The drawer furniture geometry (tray, lip, souvenir stack) and the
+/// fresh-spawn tilt (all were hardcoded in `BureauScene`).
+public struct BureauDrawerTuning: Codable, Equatable, Sendable {
+    public var trayHeightFraction: Double
+    public var trayMinHeight: Double
+    public var lipHeightPx: Double
+    public var traySlotSpacing: Double
+    public var trayScale: Double
+    public var trayVisibleCap: Int
+    public var spawnRotationRange: Double
+
+    public init(
+        trayHeightFraction: Double, trayMinHeight: Double, lipHeightPx: Double,
+        traySlotSpacing: Double, trayScale: Double, trayVisibleCap: Int, spawnRotationRange: Double
+    ) {
+        self.trayHeightFraction = trayHeightFraction
+        self.trayMinHeight = trayMinHeight
+        self.lipHeightPx = lipHeightPx
+        self.traySlotSpacing = traySlotSpacing
+        self.trayScale = trayScale
+        self.trayVisibleCap = trayVisibleCap
+        self.spawnRotationRange = spawnRotationRange
+    }
+}
+
+/// The gentle lay-down when a sticky returns to the drawer (spec R4).
+public struct BureauReturnDropTuning: Codable, Equatable, Sendable {
+    public var impulse: Double
+    public var spin: Double
+
+    public init(impulse: Double, spin: Double) {
+        self.impulse = impulse
+        self.spin = spin
+    }
+}
+
+/// The shredder slot: geometry, animation length, and sound volume.
+public struct BureauShredderTuning: Codable, Equatable, Sendable {
+    public var widthPx: Double
+    public var shredMs: Double
+    public var volume: Double
+
+    public init(widthPx: Double, shredMs: Double, volume: Double) {
+        self.widthPx = widthPx
+        self.shredMs = shredMs
+        self.volume = volume
+    }
+}
+
 /// The full contents of `bureau-tuning.json`: every feel value in one place,
 /// schema per `bureau-impl.md` section 5.
 public struct BureauTuningDocument: Codable, Equatable, Sendable {
@@ -196,12 +362,16 @@ public struct BureauTuningDocument: Codable, Equatable, Sendable {
     public var sticky: BureauStickyTuning
     public var texture: BureauTextureTuning
     public var filedTray: BureauFiledTrayTuning
+    public var drawer: BureauDrawerTuning
+    public var returnDrop: BureauReturnDropTuning
+    public var shredder: BureauShredderTuning
 
     public init(
         version: Int, transition: BureauTransitionTuning, physics: BureauPhysicsTuning,
         rustle: BureauRustleTuning, print: BureauPrintTuning, stamp: BureauStampTuning,
         crumple: BureauCrumpleTuning, hoverScroll: BureauHoverScrollTuning,
-        sticky: BureauStickyTuning, texture: BureauTextureTuning, filedTray: BureauFiledTrayTuning
+        sticky: BureauStickyTuning, texture: BureauTextureTuning, filedTray: BureauFiledTrayTuning,
+        drawer: BureauDrawerTuning, returnDrop: BureauReturnDropTuning, shredder: BureauShredderTuning
     ) {
         self.version = version
         self.transition = transition
@@ -214,38 +384,77 @@ public struct BureauTuningDocument: Codable, Equatable, Sendable {
         self.sticky = sticky
         self.texture = texture
         self.filedTray = filedTray
+        self.drawer = drawer
+        self.returnDrop = returnDrop
+        self.shredder = shredder
+    }
+
+    // Version-2 files carry none of the drawer/returnDrop/shredder blocks, so
+    // decode them tolerantly to defaults; the per-struct inits above fill the
+    // fields added to existing blocks. The migration then bumps to version 3.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        version = try c.decode(Int.self, forKey: .version)
+        transition = try c.decode(BureauTransitionTuning.self, forKey: .transition)
+        physics = try c.decode(BureauPhysicsTuning.self, forKey: .physics)
+        rustle = try c.decode(BureauRustleTuning.self, forKey: .rustle)
+        print = try c.decode(BureauPrintTuning.self, forKey: .print)
+        stamp = try c.decode(BureauStampTuning.self, forKey: .stamp)
+        crumple = try c.decode(BureauCrumpleTuning.self, forKey: .crumple)
+        hoverScroll = try c.decode(BureauHoverScrollTuning.self, forKey: .hoverScroll)
+        sticky = try c.decode(BureauStickyTuning.self, forKey: .sticky)
+        texture = try c.decode(BureauTextureTuning.self, forKey: .texture)
+        filedTray = try c.decode(BureauFiledTrayTuning.self, forKey: .filedTray)
+        drawer = try c.decodeIfPresent(BureauDrawerTuning.self, forKey: .drawer)
+            ?? BureauTuningDocument.defaults.drawer
+        returnDrop = try c.decodeIfPresent(BureauReturnDropTuning.self, forKey: .returnDrop)
+            ?? BureauTuningDocument.defaults.returnDrop
+        shredder = try c.decodeIfPresent(BureauShredderTuning.self, forKey: .shredder)
+            ?? BureauTuningDocument.defaults.shredder
     }
 
     /// The values in `bureau-impl.md` section 5, written to disk the first
     /// time the app looks for the tuning file.
     public static let defaults = BureauTuningDocument(
-        version: 2,
+        version: 3,
         transition: BureauTransitionTuning(
             pushMs: 320, easing: [0.16, 1.0, 0.3, 1.0], reduceMotionCrossfadeMs: 160
         ),
         physics: BureauPhysicsTuning(
             repulsionRadius: 90, repulsionStrength: 12, torque: 0.4, friction: 0.7,
-            restitution: 0.15, linearDamping: 3.0, angularDamping: 4.0, gravity: 0
+            restitution: 0.15, linearDamping: 3.0, angularDamping: 4.0, gravity: 0,
+            pushScale: 0.02, torqueScale: 0.001
         ),
         rustle: BureauRustleTuning(
-            gain: 0.6, velocityThreshold: 0.35, maxVolume: 0.5, rateCapMs: 250
+            gain: 0.6, velocityThreshold: 0.35, maxVolume: 0.5, rateCapMs: 250, speedRef: 200
         ),
         print: BureauPrintTuning(
             stepMs: 55, stepPx: 6, chatterVolume: 0.4, dingVolume: 0.7,
-            tearMs: 180, dropImpulse: 8, queueStaggerMs: 250
+            tearMs: 180, dropImpulse: 8, queueStaggerMs: 250,
+            spreadDeg: 70, impulseVariance: 0.3, spin: 0.15
         ),
         stamp: BureauStampTuning(
-            armInMs: 140, overshootPx: 18, settleMs: 120, shiverPx: 3,
-            shiverCount: 3, slamFrames: 12, inkRotationMinDeg: 2, inkRotationMaxDeg: 4,
+            rackWidthPx: 200, stampSizePx: 64, extendMs: 220, pressMs: 90, liftMs: 130,
+            inkRotationMinDeg: 2, inkRotationMaxDeg: 4,
             doubleStrikeOffsetPx: 1.5, thunkVolume: 0.8, hapticEnabled: true
         ),
         crumple: BureauCrumpleTuning(frames: 8, flyToTrayMs: 260),
         hoverScroll: BureauHoverScrollTuning(
             sensitivity: 1.0, inertiaFriction: 0.92, minDelta: 0.5, maxVelocity: 40
         ),
-        sticky: BureauStickyTuning(liveCap: 12, subtaskVisibleCap: 6, pullOutScale: 1.5),
+        sticky: BureauStickyTuning(
+            liveCap: 12, subtaskVisibleCap: 6, pullOutScale: 1.5,
+            slipWidth: 96, slipHeight: 144, growSpringResponse: 0.28, growSpringDamping: 0.72,
+            growStart: 0.667, clampMinVisible: 40, settleDebounceMs: 350
+        ),
         texture: BureauTextureTuning(rerenderOnEditOnly: true),
-        filedTray: BureauFiledTrayTuning(clearsMonday: true)
+        filedTray: BureauFiledTrayTuning(clearsMonday: true),
+        drawer: BureauDrawerTuning(
+            trayHeightFraction: 0.14, trayMinHeight: 34, lipHeightPx: 6,
+            traySlotSpacing: 26, trayScale: 0.45, trayVisibleCap: 8, spawnRotationRange: 0.12
+        ),
+        returnDrop: BureauReturnDropTuning(impulse: 2, spin: 0.1),
+        shredder: BureauShredderTuning(widthPx: 56, shredMs: 240, volume: 0.7)
     )
 }
 
@@ -315,6 +524,18 @@ public final class BureauTuning: ObservableObject {
         if doc.version < 2 {
             document = BureauTuningDocument.defaults
             write(BureauTuningDocument.defaults)
+            return
+        }
+        // Version 3 only added fields (stamp rack, shredder, drawer geometry,
+        // return drop, and the many lifted feel numbers). A version-2 file
+        // already decoded tolerantly above, filling the new fields with
+        // defaults while keeping the user's tuned v2 values. Bump it to 3 and
+        // write it back so the whole schema is on disk for the slider panel.
+        if doc.version == 2 {
+            var migrated = doc
+            migrated.version = 3
+            document = migrated
+            write(migrated)
             return
         }
         document = doc

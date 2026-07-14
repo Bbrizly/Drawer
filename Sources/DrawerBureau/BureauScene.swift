@@ -51,14 +51,15 @@ final class BureauScene: SKScene {
     private let trayNode = SKNode()
     private var trayLabel: SKLabelNode?
     private var lipNode: SKSpriteNode?
-    private var trayHeight: CGFloat { max(34, size.height * 0.14) }
+    private var trayHeight: CGFloat {
+        max(CGFloat(tuning.drawer.trayMinHeight), size.height * CGFloat(tuning.drawer.trayHeightFraction))
+    }
 
     // MARK: shredder (bottom-right of the tray strip)
 
     private var shredderTeeth: [SKSpriteNode] = []
     private var shredderZone: CGRect = .zero
-    /// Width of the shredder slot. Topic 5 lifts this into the tuning file.
-    private var shredderWidth: CGFloat { 56 }
+    private var shredderWidth: CGFloat { CGFloat(tuning.shredder.widthPx) }
     private var shredderHovered = false
 
     // MARK: rummage / drag state
@@ -162,7 +163,7 @@ final class BureauScene: SKScene {
         lipNode?.removeFromParent()
         let lip = SKSpriteNode(
             color: BureauPalette.drawerLip,
-            size: CGSize(width: size.width, height: 6)
+            size: CGSize(width: size.width, height: CGFloat(tuning.drawer.lipHeightPx))
         )
         lip.anchorPoint = CGPoint(x: 0, y: 0)
         lip.position = .zero
@@ -239,7 +240,8 @@ final class BureauScene: SKScene {
     /// body, for receipts that were already `inDrawer` on mount.
     func addExisting(_ sprite: ReceiptSprite, at point: CGPoint, rotation: CGFloat? = nil) {
         sprite.position = point
-        sprite.zRotation = rotation ?? CGFloat.random(in: -0.12...0.12)
+        let spawnTilt = CGFloat(tuning.drawer.spawnRotationRange)
+        sprite.zRotation = rotation ?? CGFloat.random(in: -spawnTilt...spawnTilt)
         sprite.applyPhysics(tuning.physics)
         sprite.zPosition = nextZ()
         addChild(sprite)
@@ -261,15 +263,17 @@ final class BureauScene: SKScene {
         // A downward-into-scene half-disc: straight down, spread either side, so
         // the slip always heads away from the top edge and never back out the
         // seam.
-        let spread = CGFloat.pi * 70 / 180
+        let spread = CGFloat.pi * CGFloat(tuning.print.spreadDeg) / 180
         let angle = -CGFloat.pi / 2 + CGFloat.random(in: -spread...spread)
-        let magnitude = CGFloat(tuning.print.dropImpulse) * CGFloat.random(in: 0.7...1.3)
+        let variance = CGFloat(tuning.print.impulseVariance)
+        let magnitude = CGFloat(tuning.print.dropImpulse) * CGFloat.random(in: (1 - variance)...(1 + variance))
         sprite.physicsBody?.applyImpulse(
             CGVector(dx: cos(angle) * magnitude, dy: sin(angle) * magnitude)
         )
-        // A calmer fresh-print spin: the old range flung the slip around. Topic
-        // 5 lifts this into print.spin.
-        sprite.physicsBody?.applyAngularImpulse(CGFloat.random(in: -0.15...0.15))
+        // A calmer fresh-print spin than the old range, which flung the slip
+        // around the drawer.
+        let spin = CGFloat(tuning.print.spin)
+        sprite.physicsBody?.applyAngularImpulse(CGFloat.random(in: -spin...spin))
         settleDirty = true
     }
 
@@ -291,13 +295,13 @@ final class BureauScene: SKScene {
             target = CGPoint(x: floor.midX, y: floor.midY)
         }
         sprite.position = target
-        sprite.zRotation = CGFloat.random(in: -0.12...0.12) // spawnRotationRange (topic 5)
+        let spawnTilt = CGFloat(tuning.drawer.spawnRotationRange)
+        sprite.zRotation = CGFloat.random(in: -spawnTilt...spawnTilt)
         sprite.applyPhysics(tuning.physics)
         sprite.zPosition = nextZ()
         if sprite.parent == nil { addChild(sprite) }
-        // Topic 5 lifts these into returnDrop.impulse / returnDrop.spin.
-        let impulse: CGFloat = 2
-        let spin: CGFloat = 0.1
+        let impulse = CGFloat(tuning.returnDrop.impulse)
+        let spin = CGFloat(tuning.returnDrop.spin)
         sprite.physicsBody?.applyImpulse(CGVector(
             dx: CGFloat.random(in: -impulse...impulse),
             dy: CGFloat.random(in: -impulse...impulse)
@@ -314,11 +318,10 @@ final class BureauScene: SKScene {
     // MARK: FILED tray (R4)
 
     /// How many slips the tray shows stacked before older ones just add to the
-    /// caption; keeps the trophy shelf readable at 100 filed. Topic 5 lifts the
-    /// cap, scale, and spacing into the tuning file.
-    private static let trayVisibleCap = 8
-    private var trayScale: CGFloat { 0.45 }
-    private var traySlotSpacing: CGFloat { 26 }
+    /// caption; keeps the trophy shelf readable at 100 filed.
+    private var trayVisibleCap: Int { max(1, tuning.drawer.trayVisibleCap) }
+    private var trayScale: CGFloat { CGFloat(tuning.drawer.trayScale) }
+    private var traySlotSpacing: CGFloat { CGFloat(tuning.drawer.traySlotSpacing) }
 
     /// The slips currently resting in the tray (a filed souvenir has no physics
     /// body and sits on the shelf). Counting them from the children lets the
@@ -378,13 +381,13 @@ final class BureauScene: SKScene {
         sprite.position = slot
         sprite.setScale(trayScale)
         sprite.zRotation = slotRotation(index: index)
-        if index >= Self.trayVisibleCap { sprite.removeFromParent() }
+        if index >= trayVisibleCap { sprite.removeFromParent() }
     }
 
     private func traySlot(index: Int) -> CGPoint {
         // Stacked flat left-to-right along the shelf, a fixed overlap per slip,
         // stopping short of the shredder slot at the far right.
-        let x = 66 + CGFloat(min(index, Self.trayVisibleCap - 1)) * traySlotSpacing
+        let x = 66 + CGFloat(min(index, trayVisibleCap - 1)) * traySlotSpacing
         let rightLimit = size.width - shredderWidth - 20
         return CGPoint(x: min(x, rightLimit), y: trayHeight / 2)
     }
@@ -454,8 +457,8 @@ final class BureauScene: SKScene {
             .move(to: mouth, duration: 0.08),
             .rotate(toAngle: 0, duration: 0.08),
         ])
-        // Chunky downward steps: squeeze X, drop, fade. Topic 5 lifts the total.
-        let shredMs = 240.0
+        // Chunky downward steps: squeeze X, drop, fade.
+        let shredMs = tuning.shredder.shredMs
         let n = 6
         let stepDur = shredMs / 1000 / Double(n)
         var steps: [SKAction] = []
@@ -514,13 +517,14 @@ final class BureauScene: SKScene {
             // Impulses (not forces) so a resting body actually wakes; forces
             // are ignored by a sleeping body.
             body.isResting = false
-            let push = strength * falloff * 0.02
+            let push = strength * falloff * CGFloat(tuning.physics.pushScale)
             body.applyImpulse(CGVector(dx: dx / dist * push, dy: dy / dist * push))
             body.applyAngularImpulse(
-                CGFloat(tuning.physics.torque) * falloff * 0.001 * (Bool.random() ? 1 : -1)
+                CGFloat(tuning.physics.torque) * falloff * CGFloat(tuning.physics.torqueScale) * (Bool.random() ? 1 : -1)
             )
             let speed = hypot(body.velocity.dx, body.velocity.dy)
-            maxRustle = max(maxRustle, min(1, speed / 200))
+            let speedRef = max(1, CGFloat(tuning.rustle.speedRef))
+            maxRustle = max(maxRustle, min(1, speed / speedRef))
             settleDirty = true
         }
         if maxRustle > 0 { onRustle?(maxRustle) }

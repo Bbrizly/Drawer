@@ -44,14 +44,17 @@ final class StampController {
     var onStamp: ((UUID, StampKind) -> Void)?
     /// Set by the facade: the head pressed onto nothing, a soft thunk only.
     var onPressMiss: (() -> Void)?
+    /// Set by the facade: the live rack geometry and press timings.
+    var tuningProvider: (() -> BureauStampTuning)?
 
-    // Press and layout timings. Hardcoded here with reasonable feel; topic 5
-    // lifts them into the tuning file so they are all adjustable.
-    private let rackWidthPx: CGFloat = 200
-    private let stampSizePx: CGFloat = 64
-    private let extendMs: Double = 220
-    private let pressMs: Double = 90
-    private let liftMs: Double = 130
+    // Geometry and press timings, read live from tuning so a slider edit
+    // reshapes the rack on its next build.
+    private var stamp: BureauStampTuning { tuningProvider?() ?? BureauTuningDocument.defaults.stamp }
+    private var rackWidthPx: CGFloat { CGFloat(stamp.rackWidthPx) }
+    private var stampSizePx: CGFloat { CGFloat(stamp.stampSizePx) }
+    private var extendMs: Double { stamp.extendMs }
+    private var pressMs: Double { stamp.pressMs }
+    private var liftMs: Double { stamp.liftMs }
 
     private let tabWidth: CGFloat = 30
     private let rackHeight: CGFloat = 130
