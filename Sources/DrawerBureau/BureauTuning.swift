@@ -335,16 +335,37 @@ public struct BureauReturnDropTuning: Codable, Equatable, Sendable {
     }
 }
 
-/// The shredder slot: geometry, animation length, and sound volume.
+/// The shredder slot: geometry, animation length, and sound volume. The
+/// `overlay` sizes are the screen-level shredder panel pinned bottom-right,
+/// separate from `widthPx` which is the in-drawer slot inside the scene.
 public struct BureauShredderTuning: Codable, Equatable, Sendable {
     public var widthPx: Double
     public var shredMs: Double
     public var volume: Double
+    /// The bottom-right overlay panel size, for shredding pulled-out stickies.
+    public var overlayWidthPx: Double
+    public var overlayHeightPx: Double
 
-    public init(widthPx: Double, shredMs: Double, volume: Double) {
+    public init(
+        widthPx: Double, shredMs: Double, volume: Double,
+        overlayWidthPx: Double, overlayHeightPx: Double
+    ) {
         self.widthPx = widthPx
         self.shredMs = shredMs
         self.volume = volume
+        self.overlayWidthPx = overlayWidthPx
+        self.overlayHeightPx = overlayHeightPx
+    }
+
+    // A version-3 file has no overlay sizes; decode them tolerantly so the
+    // migration fills them without discarding tuned values.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        widthPx = try c.decode(Double.self, forKey: .widthPx)
+        shredMs = try c.decode(Double.self, forKey: .shredMs)
+        volume = try c.decode(Double.self, forKey: .volume)
+        overlayWidthPx = try c.decodeIfPresent(Double.self, forKey: .overlayWidthPx) ?? 170
+        overlayHeightPx = try c.decodeIfPresent(Double.self, forKey: .overlayHeightPx) ?? 72
     }
 }
 
@@ -416,7 +437,7 @@ public struct BureauTuningDocument: Codable, Equatable, Sendable {
     /// The values in `bureau-impl.md` section 5, written to disk the first
     /// time the app looks for the tuning file.
     public static let defaults = BureauTuningDocument(
-        version: 3,
+        version: 4,
         transition: BureauTransitionTuning(
             pushMs: 320, easing: [0.16, 1.0, 0.3, 1.0], reduceMotionCrossfadeMs: 160
         ),
@@ -454,7 +475,9 @@ public struct BureauTuningDocument: Codable, Equatable, Sendable {
             traySlotSpacing: 26, trayScale: 0.45, trayVisibleCap: 8, spawnRotationRange: 0.12
         ),
         returnDrop: BureauReturnDropTuning(impulse: 2, spin: 0.1),
-        shredder: BureauShredderTuning(widthPx: 56, shredMs: 240, volume: 0.7)
+        shredder: BureauShredderTuning(
+            widthPx: 56, shredMs: 240, volume: 0.7, overlayWidthPx: 170, overlayHeightPx: 72
+        )
     )
 }
 
@@ -526,14 +549,15 @@ public final class BureauTuning: ObservableObject {
             write(BureauTuningDocument.defaults)
             return
         }
-        // Version 3 only added fields (stamp rack, shredder, drawer geometry,
-        // return drop, and the many lifted feel numbers). A version-2 file
-        // already decoded tolerantly above, filling the new fields with
-        // defaults while keeping the user's tuned v2 values. Bump it to 3 and
-        // write it back so the whole schema is on disk for the slider panel.
-        if doc.version == 2 {
+        // Versions 3 and 4 only added fields (v3: stamp rack, shredder, drawer
+        // geometry, return drop; v4: shredder overlay, rotation control, stamp
+        // slide sound). A version-2 or version-3 file already decoded tolerantly
+        // above, filling the new fields with defaults while keeping the user's
+        // tuned values. Bump it to 4 and write it back so the whole schema is on
+        // disk for the slider panel.
+        if doc.version == 2 || doc.version == 3 {
             var migrated = doc
-            migrated.version = 3
+            migrated.version = 4
             document = migrated
             write(migrated)
             return

@@ -49,6 +49,16 @@ final class StickyPanelManager {
     /// Set by the facade (R4): the number of live stickies changed, so the
     /// stamp watcher can start or stop.
     var onLiveCountChanged: ((Int) -> Void)?
+    /// Set by the facade: a sticky window moved, so the shredder overlay can
+    /// light its teeth while a note hovers the slot.
+    var onStickyMoved: ((NSRect) -> Void)?
+    /// Set by the facade: does this window frame overlap the shredder overlay?
+    /// Checked on settle before the send-home-over-drawer rule so a drop on the
+    /// shredder shreds the note.
+    var shredderOverlap: ((NSRect) -> Bool)?
+    /// Set by the facade: a sticky settled on the shredder. The facade deletes
+    /// the receipt and runs the slot animation on the passed host.
+    var onShredSticky: ((UUID, StickyPanelHosting) -> Void)?
     /// Set by the facade: the Bureau drawer's on-screen frame while it is
     /// mounted, or nil when it is not visible. A sticky that settles with its
     /// center inside this frame is dropped back into the drawer.
@@ -223,6 +233,7 @@ final class StickyPanelManager {
                 origin: CGPoint(x: m.x - size.width / 2, y: m.y - size.height / 2),
                 size: size
             )
+            if let window = host.hostWindow { self.onStickyMoved?(window.frame) }
             if event.type == .leftMouseUp {
                 // Same settle rule as every other movement path: drop home if it
                 // landed over the drawer, else persist where it rests.
@@ -332,6 +343,12 @@ final class StickyPanelManager {
     /// otherwise persist its new resting spot.
     private func stickySettled(_ window: NSWindow) {
         guard let (id, host) = panels.first(where: { $0.value.hostWindow === window }) else { return }
+        // The shredder wins over any other routing: a note dropped on the slot
+        // is deleted, even one that also overlaps the drawer.
+        if shredderOverlap?(window.frame) == true {
+            shredSticky(id, host: host)
+            return
+        }
         let center = CGPoint(x: window.frame.midX, y: window.frame.midY)
         if shouldReturnHome(center: center) {
             // Drop the slip back where the note was let go.
@@ -340,6 +357,19 @@ final class StickyPanelManager {
         }
         let size = models[id]?.size ?? .full
         persist(id, state: .sticky, origin: host.frameOrigin, size: size)
+    }
+
+    /// Drops a sticky from the books because it landed on the shredder. The
+    /// panel is not dismissed here: the facade's shredder controller keeps the
+    /// host alive to run the slot animation, then closes it. A filed slip
+    /// shredded this way just deletes the receipt too (lifetime count stays).
+    private func shredSticky(_ id: UUID, host: StickyPanelHosting) {
+        roster.remove(id)
+        panels.removeValue(forKey: id)
+        models[id] = nil
+        onShredSticky?(id, host)
+        if panels.isEmpty { hover.stop(); stopWindowMoveObserver() }
+        onLiveCountChanged?(panels.count)
     }
 
     /// Watches window-background drags of the sticky panels. A programmatic move
@@ -354,6 +384,7 @@ final class StickyPanelManager {
             MainActor.assumeIsolated {
                 guard let self, let window = note.object as? NSWindow else { return }
                 guard self.panels.values.contains(where: { $0.hostWindow === window }) else { return }
+                self.onStickyMoved?(window.frame)
                 self.scheduleWindowSettle(window)
             }
         }
