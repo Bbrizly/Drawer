@@ -140,7 +140,9 @@ public final class BureauFeature: ObservableObject {
     /// Rebuilds a drawer sprite for a receipt coming home from a sticky and
     /// drops it back into the pile.
     private func spawnSprite(for link: ReceiptLink) {
-        let texture = textures.texture(title: link.textSnapshot, size: slipSize, scale: scale)
+        let texture = textures.texture(
+            title: link.textSnapshot, size: slipSize, scale: scale, age: link.ageFactor()
+        )
         let sprite = ReceiptSprite(receiptID: link.id, texture: texture, size: slipSize)
         scene.dropIn(sprite)
     }
@@ -204,6 +206,14 @@ public final class BureauFeature: ObservableObject {
     // MARK: panel visibility
 
     public func setPanelVisible(_ visible: Bool) { panelVisible = visible }
+
+    // MARK: tuning panel (R5)
+
+    private let tuningPanel = BureauTuningPanel()
+
+    /// Long-press on the mode button (spec "Tuning system"): the hidden
+    /// slider panel, bound live to bureau-tuning.json.
+    public func toggleTuningPanel() { tuningPanel.toggle(tuning: tuning) }
 
     // MARK: queue actions (spec flow a)
 
