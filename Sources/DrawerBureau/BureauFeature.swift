@@ -1,3 +1,4 @@
+import AppKit
 import DrawerCore
 import SpriteKit
 import SwiftUI
@@ -27,13 +28,72 @@ public final class BureauFeature: ObservableObject {
     /// the drawer) survive the SwiftUI view mounting and unmounting as the mode
     /// is entered and left.
     let scene = BureauScene(size: CGSize(width: 300, height: 400))
+    /// The live sticky notes (spec "Pull-out"). Owned here, not by `BureauView`,
+    /// because a sticky floats on independently of whether the drawer is the
+    /// visible bottom region.
+    let stickies: StickyPanelManager
+    /// The drawer slip size, shared so the drag handoff spawns a sticky that
+    /// matches the sprite exactly (single source: `StickyMetrics.fullSlip`).
+    let slipSize = StickyMetrics.fullSlip
+
+    private var scale: CGFloat { NSScreen.main?.backingScaleFactor ?? 2 }
 
     public init(store: TodoStore, directory: URL) {
         self.store = store
-        self.receipts = ReceiptStore(directory: directory)
+        let receipts = ReceiptStore(directory: directory)
+        self.receipts = receipts
         self.tuning = BureauTuning(directory: directory)
+        self.stickies = StickyPanelManager(receipts: receipts, tuning: tuning)
         tuning.startWatching()
         refreshQueue()
+
+        // Wire the scene seams left for R2 (handoff + layout save) and the
+        // sticky return path, all through the facade so the one owner holds the
+        // scene, the store, the textures, and the panels.
+        stickies.onReturnToDrawer = { [weak self] link in self?.spawnSprite(for: link) }
+        scene.onSpriteDraggedPastBounds = { [weak self] sprite, cursor in
+            self?.handleDragHandoff(sprite, cursorInScene: cursor)
+        }
+        scene.onReceiptsSettled = { [weak self] layout in self?.persistDrawerLayout(layout) }
+    }
+
+    // MARK: sticky pull-out (spec flow c)
+
+    /// The drag left the drawer: despawn the sprite and hand the same paper to a
+    /// floating sticky under the held cursor. `grab` is recovered from the sprite
+    /// (its center was just set to `cursor - grab`), so the note keeps the exact
+    /// grab point under the pointer and the seam reads as one object.
+    private func handleDragHandoff(_ sprite: ReceiptSprite, cursorInScene cursor: CGPoint) {
+        let id = sprite.receiptID
+        let grab = CGPoint(x: cursor.x - sprite.position.x, y: cursor.y - sprite.position.y)
+        let title = receipts.document.receipts.first(where: { $0.id == id })?.textSnapshot ?? ""
+        sprite.removeFromParent()
+        // Scene space and screen space are both y-up and, with resizeFill, one
+        // scene unit is one point, so `grab` maps straight across.
+        let mouse = NSEvent.mouseLocation
+        let origin = CGPoint(
+            x: mouse.x - grab.x - slipSize.width / 2,
+            y: mouse.y - grab.y - slipSize.height / 2
+        )
+        stickies.spawnFromDrag(receiptID: id, title: title, at: origin, grab: grab)
+    }
+
+    /// Rebuilds a drawer sprite for a receipt coming home from a sticky and
+    /// drops it back into the pile.
+    private func spawnSprite(for link: ReceiptLink) {
+        let texture = textures.texture(title: link.textSnapshot, size: slipSize, scale: scale)
+        let sprite = ReceiptSprite(receiptID: link.id, texture: texture, size: slipSize)
+        scene.dropIn(sprite)
+    }
+
+    /// Saves the settled drawer layout back to the store (R2 deliverable 6), one
+    /// batched write per rest.
+    private func persistDrawerLayout(_ layout: [UUID: (CGPoint, CGFloat)]) {
+        var changes: [UUID: (ReceiptPosition, Double)] = [:]
+        for (id, value) in layout {
+            changes[id] = (ReceiptPosition(x: Double(value.0.x), y: Double(value.0.y)), Double(value.1))
+        }
+        receipts.updatePositions(changes)
     }
 
     // MARK: transition (read by DrawerView to build the push animation)
