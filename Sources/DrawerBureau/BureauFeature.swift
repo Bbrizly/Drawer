@@ -56,7 +56,7 @@ public final class BureauFeature: ObservableObject {
         // Wire the scene seams left for R2 (handoff + layout save) and the
         // sticky return path, all through the facade so the one owner holds the
         // scene, the store, the textures, and the panels.
-        stickies.onReturnToDrawer = { [weak self] link in self?.spawnSprite(for: link) }
+        stickies.onReturnToDrawer = { [weak self] link, point in self?.spawnSprite(for: link, screenPoint: point) }
         stickies.subtasksProvider = { [weak self] id in self?.subtasks(for: id) ?? [] }
         stickies.onCommitTitle = { [weak self] id, title in self?.renameSticky(id, to: title) }
         stickies.onCommitSubtasks = { [weak self] id, lines in self?.setSubtasks(id, lines) }
@@ -155,17 +155,28 @@ public final class BureauFeature: ObservableObject {
     }
 
     /// Rebuilds a sprite for a receipt coming home from a sticky. A filed slip
-    /// flies back to the FILED tray; any other slip drops back into the pile.
-    private func spawnSprite(for link: ReceiptLink) {
+    /// flies back to the FILED tray; any other slip is laid gently back on the
+    /// drawer floor where the note was dropped (or the default spot when there
+    /// is no drop location).
+    private func spawnSprite(for link: ReceiptLink, screenPoint: CGPoint?) {
         let texture = textures.texture(
             title: link.textSnapshot, size: slipSize, scale: scale, age: link.ageFactor()
         )
         let sprite = ReceiptSprite(receiptID: link.id, texture: texture, size: slipSize)
         if link.state == .filed {
             scene.fileIntoTray(sprite, animated: true, crumple: false)
-        } else {
-            scene.dropIn(sprite)
+            return
         }
+        scene.returnToDrawer(sprite, at: screenPoint.flatMap(sceneCoordinate))
+    }
+
+    /// Converts a screen point into the drawer scene's coordinate space (screen
+    /// -> window -> view -> scene). Nil when the drawer is not on screen.
+    private func sceneCoordinate(_ screen: CGPoint) -> CGPoint? {
+        guard let view = scene.view, let window = view.window else { return nil }
+        let windowPoint = window.convertPoint(fromScreen: screen)
+        let viewPoint = view.convert(windowPoint, from: nil)
+        return scene.convertPoint(fromView: viewPoint)
     }
 
     /// Saves the settled drawer layout back to the store (R2 deliverable 6), one

@@ -35,9 +35,12 @@ final class StickyPanelManager {
     private let tuning: BureauTuning
     private let makePanel: PanelFactory
 
-    /// Set by the facade: respawn a sprite in the drawer when a sticky goes home
-    /// (either the return-home button or being retired as the oldest).
-    var onReturnToDrawer: ((ReceiptLink) -> Void)?
+    /// Set by the facade: respawn a sprite when a sticky goes home. The optional
+    /// point is the sticky window's center in screen coordinates when it was
+    /// dropped over the drawer, so the slip lands where the note was let go; nil
+    /// for a home with no location (cap retirement, return-home button, DENIED),
+    /// which uses the scene's default spot.
+    var onReturnToDrawer: ((ReceiptLink, CGPoint?) -> Void)?
     /// Set by the facade (R3): seed a fresh sticky's subtask lines, and write
     /// title / subtask edits back through `TodoStore`.
     var subtasksProvider: ((UUID) -> [String])?
@@ -217,7 +220,7 @@ final class StickyPanelManager {
 
     /// Sends a sticky back into the drawer: mark the receipt `.inDrawer`, close
     /// its panel, and ask the scene (via `onReturnToDrawer`) to respawn a sprite.
-    func sendHome(_ id: UUID) {
+    func sendHome(_ id: UUID, at screenPoint: CGPoint? = nil) {
         roster.remove(id)
         if let host = panels.removeValue(forKey: id) { host.dismiss() }
         models[id] = nil
@@ -229,7 +232,7 @@ final class StickyPanelManager {
                 link.state = .inDrawer
                 receipts.update(link)
             }
-            onReturnToDrawer?(link)
+            onReturnToDrawer?(link, screenPoint)
         }
         if panels.isEmpty { hover.stop(); stopWindowMoveObserver() }
         onLiveCountChanged?(panels.count)
@@ -305,7 +308,8 @@ final class StickyPanelManager {
         guard let (id, host) = panels.first(where: { $0.value.hostWindow === window }) else { return }
         let center = CGPoint(x: window.frame.midX, y: window.frame.midY)
         if shouldReturnHome(center: center) {
-            sendHome(id)
+            // Drop the slip back where the note was let go.
+            sendHome(id, at: center)
             return
         }
         let size = models[id]?.size ?? .full

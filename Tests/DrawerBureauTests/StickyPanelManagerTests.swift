@@ -87,7 +87,7 @@ final class StickyPanelManagerTests: XCTestCase {
     func testSendHomeMarksInDrawerClosesPanelAndRespawns() throws {
         let (manager, store, fakes) = try makeManager(cap: 12)
         var returned: [UUID] = []
-        manager.onReturnToDrawer = { returned.append($0.id) }
+        manager.onReturnToDrawer = { link, _ in returned.append(link.id) }
 
         let id = addLink(store, "Ship the release")
         manager.spawn(receiptID: id, title: "Ship the release", at: .zero, size: .full)
@@ -103,7 +103,7 @@ final class StickyPanelManagerTests: XCTestCase {
     func testSpawnPastCapSendsOldestHome() throws {
         let (manager, store, fakes) = try makeManager(cap: 2)
         var returned: [UUID] = []
-        manager.onReturnToDrawer = { returned.append($0.id) }
+        manager.onReturnToDrawer = { link, _ in returned.append(link.id) }
 
         let a = addLink(store, "a")
         let b = addLink(store, "b")
