@@ -98,6 +98,7 @@ public struct BureauTuningControls: View {
                     slider("Ink rotation max", \.stamp.inkRotationMaxDeg, 0...20)
                     slider("Double-strike px", \.stamp.doubleStrikeOffsetPx, 0...6)
                     slider("Thunk volume", \.stamp.thunkVolume, 0...1)
+                    slider("Slide volume", \.stamp.slideVolume, 0...1)
                     toggle("Haptic", \.stamp.hapticEnabled)
                 }
                 section("Crumple") {

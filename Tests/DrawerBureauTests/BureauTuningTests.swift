@@ -83,6 +83,7 @@ final class BureauTuningTests: XCTestCase {
         XCTAssertEqual(d.stamp.rackWidthPx, 200)
         XCTAssertEqual(d.stamp.stampSizePx, 64)
         XCTAssertEqual(d.stamp.pressMs, 90)
+        XCTAssertEqual(d.stamp.slideVolume, 0.5)
         XCTAssertEqual(d.stamp.inkRotationMinDeg, 2)
         XCTAssertEqual(d.stamp.inkRotationMaxDeg, 4)
         XCTAssertEqual(d.crumple.frames, 8)

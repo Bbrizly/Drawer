@@ -19,6 +19,12 @@ enum BureauPalette {
     static let tray = NSColor(calibratedRed: 0.37, green: 0.32, blue: 0.24, alpha: 1)
     static let trayInk = NSColor(calibratedRed: 0.87, green: 0.83, blue: 0.73, alpha: 1)
 
+    /// The Papers-Please stamp bar: near-black metal, a lighter edge, and the
+    /// rivet dots at its corners.
+    static let metal = NSColor(calibratedWhite: 0.15, alpha: 1)
+    static let metalEdge = NSColor(calibratedWhite: 0.32, alpha: 1)
+    static let rivet = NSColor(calibratedWhite: 0.42, alpha: 1)
+
     /// The bundled pixel face the Pixel theme ships (registered process-wide by
     /// the app at launch via `FontLoader.registerBundledFonts`). DrawerBureau
     /// cannot import `Drawer`, so the family is named directly here; a missing
