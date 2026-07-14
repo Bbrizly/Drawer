@@ -12,3 +12,6 @@ Sources/Drawer/Resources/Fonts/Tahoma.ttf
 *.provisionprofile
 Drawer.pkg
 Drawer.zip
+AGENTS.md
+.agents/
+.cursor/
