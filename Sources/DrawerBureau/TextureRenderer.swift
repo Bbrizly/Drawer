@@ -11,6 +11,9 @@ enum BureauPalette {
     static let ink = NSColor(calibratedRed: 0.16, green: 0.15, blue: 0.13, alpha: 1)
     static let inkFaint = NSColor(calibratedRed: 0.16, green: 0.15, blue: 0.13, alpha: 0.55)
     static let red = NSColor(calibratedRed: 0.62, green: 0.20, blue: 0.15, alpha: 1)
+    /// The DONE stamp die and its ink (spec "The stamp"): a muted approval
+    /// green sitting beside `red`'s POSTPONED in the same dusty register.
+    static let stampGreen = NSColor(calibratedRed: 0.24, green: 0.42, blue: 0.22, alpha: 1)
     static let drawerFloor = NSColor(calibratedRed: 0.30, green: 0.25, blue: 0.18, alpha: 1)
     static let drawerLip = NSColor(calibratedRed: 0.21, green: 0.17, blue: 0.12, alpha: 1)
     static let tray = NSColor(calibratedRed: 0.37, green: 0.32, blue: 0.24, alpha: 1)

@@ -37,7 +37,12 @@ struct BureauView: View {
             SpriteView(scene: scene, isPaused: isPaused)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
 
-            PrinterSlot(job: current, tuning: tuning.document.print) { finished in
+            PrinterSlot(
+                job: current,
+                tuning: tuning.document.print,
+                onChatter: { feature.sounds.chatter(volume: tuning.document.print.chatterVolume) },
+                onDing: { feature.sounds.ding(volume: tuning.document.print.dingVolume) }
+            ) { finished in
                 scene.dropIn(makeSprite(receiptID: finished.receiptID, image: finished.image))
                 current = nil
                 pumpQueue()
@@ -61,6 +66,11 @@ struct BureauView: View {
             scene.tuning = tuning.document
             scene.setFiledCount(receipts.document.lifetimeFiled)
             spawnExistingReceipts()
+        }
+        // The Monday ceremony (spec Decision 4): a new ISO week empties the
+        // tray; the animation only runs when something actually cleared.
+        if tuning.document.filedTray.clearsMonday, receipts.clearTrayIfNewWeek() {
+            scene.clearTray()
         }
         previousTodayCount = store.todayItems.count
         printQueuedReceipts()
@@ -91,6 +101,11 @@ struct BureauView: View {
                 )
             }
             scene.addExisting(sprite, at: point, rotation: link.rotation != 0 ? CGFloat(link.rotation) : nil)
+        }
+        // The week's trophies so far: filed slips stack straight into the tray,
+        // no crumple replay (R4, spec Decision 4).
+        for link in receipts.document.receipts where link.state == .filed {
+            scene.fileIntoTray(makeSprite(receiptID: link.id, title: link.textSnapshot), animated: false)
         }
     }
 

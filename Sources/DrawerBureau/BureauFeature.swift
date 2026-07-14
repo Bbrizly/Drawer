@@ -32,6 +32,10 @@ public final class BureauFeature: ObservableObject {
     /// because a sticky floats on independently of whether the drawer is the
     /// visible bottom region.
     let stickies: StickyPanelManager
+    /// Procedural noises (R4): chatter, ding, thunk, rustle.
+    let sounds = BureauSounds()
+    /// The stamp mechanism (R4): summon zone watch, arm, consequences.
+    let stamps = StampController()
     /// The drawer slip size, shared so the drag handoff spawns a sticky that
     /// matches the sprite exactly (single source: `StickyMetrics.fullSlip`).
     let slipSize = StickyMetrics.fullSlip
@@ -58,6 +62,58 @@ public final class BureauFeature: ObservableObject {
             self?.handleDragHandoff(sprite, cursorInScene: cursor)
         }
         scene.onReceiptsSettled = { [weak self] layout in self?.persistDrawerLayout(layout) }
+
+        // R4: the stamp ritual and the drawer's noises.
+        scene.onRustle = { [weak self] intensity in
+            guard let self else { return }
+            sounds.rustle(intensity, tuning: tuning.document.rustle)
+        }
+        stickies.onLiveCountChanged = { [weak self] count in self?.stamps.setWatching(count > 0) }
+        stamps.stickyFrames = { [weak self] in self?.stickies.stickyFrames() ?? [] }
+        stamps.tuningProvider = { [weak self] in
+            self?.tuning.document.stamp ?? BureauTuningDocument.defaults.stamp
+        }
+        stamps.onSlam = { [weak self] id, kind in self?.slam(id, kind) }
+        stamps.onStamp = { [weak self] id, kind in self?.applyStamp(id, kind) }
+    }
+
+    // MARK: the stamp (R4, spec flow d)
+
+    /// The slam moment: ink lands on the sticky a few degrees rotated with a
+    /// double-strike ghost, the thunk plays, the haptic taps.
+    private func slam(_ id: UUID, _ kind: StampKind) {
+        let stamp = tuning.document.stamp
+        stickies.model(for: id)?.stamp = StickyModel.AppliedStamp(
+            kind: kind,
+            rotationDeg: Double.random(in: stamp.inkRotationMinDeg...max(stamp.inkRotationMinDeg, stamp.inkRotationMaxDeg))
+                * (Bool.random() ? 1 : -1),
+            ghostOffsetPx: stamp.doubleStrikeOffsetPx
+        )
+        sounds.thunk(volume: stamp.thunkVolume)
+        if stamp.hapticEnabled {
+            NSHapticFeedbackManager.defaultPerformer.perform(.generic, performanceTime: .now)
+        }
+    }
+
+    /// The consequence once the arm retracts. DONE: check the task in
+    /// Drawer.md, file the receipt (lifetime counter bumps), crumple the slip
+    /// into the FILED tray. POSTPONED: pure return to the pile, the task
+    /// untouched (spec: exact postpone semantics deferred by design).
+    func applyStamp(_ id: UUID, _ kind: StampKind) {
+        switch kind {
+        case .done:
+            if let item = liveItem(for: id), !item.isDone {
+                store.toggle(item)
+            }
+            guard let link = receipts.document.receipts.first(where: { $0.id == id }) else { return }
+            stickies.close(id)
+            receipts.file(id)
+            let texture = textures.texture(title: link.textSnapshot, size: slipSize, scale: scale)
+            scene.fileIntoTray(ReceiptSprite(receiptID: id, texture: texture, size: slipSize))
+            scene.setFiledCount(receipts.document.lifetimeFiled)
+        case .postponed:
+            stickies.sendHome(id)
+        }
     }
 
     // MARK: sticky pull-out (spec flow c)

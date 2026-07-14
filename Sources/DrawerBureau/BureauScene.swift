@@ -186,6 +186,102 @@ final class BureauScene: SKScene {
         return topZ
     }
 
+    // MARK: FILED tray (R4)
+
+    private var trayCount = 0
+    /// How many slips the tray shows stacked before older ones just add to the
+    /// caption; keeps the trophy shelf readable at 100 filed.
+    private static let trayVisibleCap = 8
+
+    /// A DONE receipt arriving in the tray (spec "The stamp"): the slip
+    /// crumples over `crumple.frames`, flies to its stack slot over
+    /// `flyToTrayMs`, and lands flat with the stamp showing.
+    func fileIntoTray(_ sprite: ReceiptSprite, animated: Bool = true) {
+        sprite.physicsBody = nil
+        if sprite.parent == nil {
+            sprite.position = CGPoint(x: size.width / 2, y: size.height * 0.7)
+            addChild(sprite)
+        }
+        stampTrayInk(on: sprite)
+        let slot = traySlot(index: trayCount)
+        trayCount += 1
+        sprite.zPosition = 6 + CGFloat(trayCount) * 0.01
+
+        guard animated else {
+            settleInTray(sprite, at: slot)
+            return
+        }
+        // The crumple: quick alternating pinches, chunky on purpose.
+        let frames = max(1, tuning.crumple.frames)
+        var steps: [SKAction] = []
+        for i in 0..<frames {
+            let squeezeX: CGFloat = i.isMultiple(of: 2) ? 0.75 : 0.9
+            let squeezeY: CGFloat = i.isMultiple(of: 2) ? 0.9 : 0.72
+            steps.append(.group([
+                .scaleX(to: squeezeX, y: squeezeY, duration: 0.02),
+                .rotate(byAngle: i.isMultiple(of: 2) ? 0.08 : -0.08, duration: 0.02),
+            ]))
+        }
+        let fly = SKAction.group([
+            .move(to: slot, duration: max(0.05, tuning.crumple.flyToTrayMs / 1000)),
+            .rotate(toAngle: 0, duration: max(0.05, tuning.crumple.flyToTrayMs / 1000)),
+        ])
+        fly.timingMode = .easeIn
+        sprite.run(.sequence([.sequence(steps), fly])) { [weak self, weak sprite] in
+            guard let self, let sprite else { return }
+            self.settleInTray(sprite, at: slot)
+        }
+    }
+
+    private func settleInTray(_ sprite: ReceiptSprite, at slot: CGPoint) {
+        sprite.position = slot
+        sprite.zRotation = 0
+        sprite.setScale(1)
+        sprite.xScale = 0.45
+        sprite.yScale = 0.45
+        if trayCount > Self.trayVisibleCap { sprite.removeFromParent() }
+    }
+
+    private func traySlot(index: Int) -> CGPoint {
+        // Stacked flat left-to-right along the shelf, a small overlap per slip.
+        let x = 66 + CGFloat(min(index, Self.trayVisibleCap - 1)) * 26
+        return CGPoint(x: min(x, size.width - 40), y: trayHeight / 2)
+    }
+
+    /// A little DONE mark on the tray copy so the stack reads "stamped", per
+    /// Decision 4's trophy shelf. The real ink lives on the sticky; this slip
+    /// is a 45%-scale souvenir.
+    private func stampTrayInk(on sprite: ReceiptSprite) {
+        let label = SKLabelNode(fontNamed: BureauPalette.pixelFamily)
+        label.text = BureauCopy.doneStampLabel
+        label.fontSize = 22
+        label.fontColor = BureauPalette.stampGreen
+        label.verticalAlignmentMode = .center
+        label.zRotation = 0.06
+        label.zPosition = 1
+        sprite.addChild(label)
+    }
+
+    /// The Monday ceremony (spec Decision 4): the filed stack drops off the
+    /// shelf and fades, leaving the engraved lifetime count.
+    func clearTray() {
+        let stacked = children.compactMap { $0 as? ReceiptSprite }
+            .filter { $0.physicsBody == nil && $0.position.y <= trayHeight }
+        for (i, sprite) in stacked.enumerated() {
+            let drop = SKAction.sequence([
+                .wait(forDuration: Double(i) * 0.06),
+                .group([
+                    .moveBy(x: 0, y: -trayHeight, duration: 0.3),
+                    .fadeOut(withDuration: 0.3),
+                ]),
+                .removeFromParent(),
+            ])
+            drop.timingMode = .easeIn
+            sprite.run(drop)
+        }
+        trayCount = 0
+    }
+
     private var receiptSprites: [ReceiptSprite] {
         children.compactMap { $0 as? ReceiptSprite }
     }
