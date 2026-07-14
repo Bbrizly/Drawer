@@ -64,6 +64,15 @@ public final class BureauFeature: ObservableObject {
         }
         scene.onReceiptsSettled = { [weak self] layout in self?.persistDrawerLayout(layout) }
 
+        // The drawer's on-screen frame while Bureau mode is mounted, so a sticky
+        // dropped over the drawer goes home. `scene.view` is the live SKView; it
+        // is nil (and its window hidden) when the drawer is off screen, which
+        // naturally turns drop-back off then.
+        stickies.drawerFrame = { [weak self] in
+            guard let view = self?.scene.view, let window = view.window, window.isVisible else { return nil }
+            return window.convertToScreen(view.convert(view.bounds, to: nil))
+        }
+
         // R4: the stamp ritual and the drawer's noises.
         scene.onRustle = { [weak self] intensity in
             guard let self else { return }
@@ -120,22 +129,17 @@ public final class BureauFeature: ObservableObject {
     // MARK: sticky pull-out (spec flow c)
 
     /// The drag left the drawer: despawn the sprite and hand the same paper to a
-    /// floating sticky under the held cursor. `grab` is recovered from the sprite
-    /// (its center was just set to `cursor - grab`), so the note keeps the exact
-    /// grab point under the pointer and the seam reads as one object.
+    /// floating sticky. The pull-out is bigger than the drawer slip, so it can no
+    /// longer keep the exact grab point under the pointer; instead it swells up
+    /// centered under the cursor (the grow-in sells the size change).
     private func handleDragHandoff(_ sprite: ReceiptSprite, cursorInScene cursor: CGPoint) {
         let id = sprite.receiptID
-        let grab = CGPoint(x: cursor.x - sprite.position.x, y: cursor.y - sprite.position.y)
         let title = receipts.document.receipts.first(where: { $0.id == id })?.textSnapshot ?? ""
         sprite.removeFromParent()
-        // Scene space and screen space are both y-up and, with resizeFill, one
-        // scene unit is one point, so `grab` maps straight across.
+        let full = StickyMetrics.size(.full, pullOutScale: CGFloat(tuning.document.sticky.pullOutScale))
         let mouse = NSEvent.mouseLocation
-        let origin = CGPoint(
-            x: mouse.x - grab.x - slipSize.width / 2,
-            y: mouse.y - grab.y - slipSize.height / 2
-        )
-        stickies.spawnFromDrag(receiptID: id, title: title, at: origin, grab: grab)
+        let origin = CGPoint(x: mouse.x - full.width / 2, y: mouse.y - full.height / 2)
+        stickies.spawnFromDrag(receiptID: id, title: title, at: origin)
     }
 
     /// Rebuilds a drawer sprite for a receipt coming home from a sticky and
