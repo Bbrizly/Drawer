@@ -613,7 +613,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     @objc private func openSettings() {
         if settingsWindow == nil {
-            let view = SettingsView(
+            var view = SettingsView(
                 onChooseFile: { [weak self] url in
                     self?.store.updateFileURL(url)
                     self?.historyRecorder.repoint(to: url)  // follow the new drawer file
@@ -636,6 +636,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                     self?.applyRightCommandTap(enabled: enabled, prompt: true)
                 }
             )
+            #if canImport(DrawerBureau)
+            view.bureauTuning = bureau?.tuning
+            #endif
             let window = NSWindow(
                 contentRect: .zero,
                 styleMask: [.titled, .closable],

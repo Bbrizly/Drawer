@@ -22,7 +22,9 @@ public final class BureauFeature: ObservableObject {
 
     private let store: TodoStore
     let receipts: ReceiptStore
-    let tuning: BureauTuning
+    /// The live tuning object. Public so the Settings window can embed the same
+    /// slider controls the long-press panel shows (feedback 3).
+    public let tuning: BureauTuning
     let textures = TextureRenderer()
     /// The one scene instance, owned here so it (and the receipts already in
     /// the drawer) survive the SwiftUI view mounting and unmounting as the mode
