@@ -64,7 +64,7 @@ final class BureauTuningTests: XCTestCase {
 
     func testDefaultsMatchTheSchemaInBureauImplDoc() {
         let d = BureauTuningDocument.defaults
-        XCTAssertEqual(d.version, 3)
+        XCTAssertEqual(d.version, 4)
         XCTAssertEqual(d.transition.pushMs, 320)
         XCTAssertEqual(d.transition.easing, [0.16, 1.0, 0.3, 1.0])
         // Top-down drawer: no gravity, so receipts do not fall to the bottom.
@@ -95,6 +95,8 @@ final class BureauTuningTests: XCTestCase {
         XCTAssertEqual(d.returnDrop.impulse, 2)
         XCTAssertEqual(d.shredder.volume, 0.7)
         XCTAssertEqual(d.shredder.widthPx, 56)
+        XCTAssertEqual(d.shredder.overlayWidthPx, 170)
+        XCTAssertEqual(d.shredder.overlayHeightPx, 72)
         XCTAssertTrue(d.texture.rerenderOnEditOnly)
         XCTAssertTrue(d.filedTray.clearsMonday)
     }
@@ -122,19 +124,19 @@ final class BureauTuningTests: XCTestCase {
 
         let tuning = BureauTuning(directory: dir)
         XCTAssertEqual(tuning.document, BureauTuningDocument.defaults)
-        XCTAssertEqual(tuning.document.version, 3)
+        XCTAssertEqual(tuning.document.version, 4)
         XCTAssertEqual(tuning.document.physics.gravity, 0)
 
-        // The stale file was replaced on disk: a fresh load reads version 3.
+        // The stale file was replaced on disk: a fresh load reads version 4.
         let reloaded = BureauTuning(directory: dir)
-        XCTAssertEqual(reloaded.document.version, 3)
+        XCTAssertEqual(reloaded.document.version, 4)
         XCTAssertEqual(reloaded.document.physics.gravity, 0)
     }
 
-    /// A version-2 file only added fields at version 3, so it is a valid tuned
-    /// file, not stale. It must migrate to 3 in place: the user's v2 values are
-    /// preserved and every new field is filled with its default.
-    func testVersion2FileMigratesToV3PreservingValues() throws {
+    /// A version-2 file only added fields at later versions, so it is a valid
+    /// tuned file, not stale. It must migrate to 4 in place: the user's v2
+    /// values are preserved and every new field is filled with its default.
+    func testVersion2FileMigratesToV4PreservingValues() throws {
         let v2 = """
         {
           "version": 2,
@@ -153,7 +155,7 @@ final class BureauTuningTests: XCTestCase {
         try Data(v2.utf8).write(to: dir.appendingPathComponent("bureau-tuning.json"))
 
         let tuning = BureauTuning(directory: dir)
-        XCTAssertEqual(tuning.document.version, 3)
+        XCTAssertEqual(tuning.document.version, 4)
         // Preserved v2 values.
         XCTAssertEqual(tuning.document.physics.repulsionStrength, 42)
         XCTAssertEqual(tuning.document.sticky.liveCap, 7)
@@ -167,11 +169,47 @@ final class BureauTuningTests: XCTestCase {
         XCTAssertEqual(tuning.document.drawer.trayScale, 0.45)
         XCTAssertEqual(tuning.document.returnDrop.impulse, 2)
         XCTAssertEqual(tuning.document.shredder.volume, 0.7)
+        XCTAssertEqual(tuning.document.shredder.overlayWidthPx, 170)
 
-        // Written back at version 3: a fresh load reads 3 and keeps the values.
+        // Written back at version 4: a fresh load reads 4 and keeps the values.
         let reloaded = BureauTuning(directory: dir)
-        XCTAssertEqual(reloaded.document.version, 3)
+        XCTAssertEqual(reloaded.document.version, 4)
         XCTAssertEqual(reloaded.document.physics.repulsionStrength, 42)
         XCTAssertEqual(reloaded.document.sticky.liveCap, 7)
+    }
+
+    /// A version-3 file added the overlay/rotation/slide fields at version 4, so
+    /// it is a valid tuned file. It migrates to 4 in place: the user's v3 values
+    /// are preserved and the new fields default.
+    func testVersion3FileMigratesToV4PreservingValues() throws {
+        var v3 = BureauTuningDocument.defaults
+        v3.version = 3
+        v3.physics.repulsionStrength = 33
+        v3.sticky.liveCap = 9
+        // Strip the fields a real v3 file would not carry so the tolerant
+        // decode has to fill them from defaults.
+        var object = try JSONSerialization.jsonObject(
+            with: JSONEncoder().encode(v3)
+        ) as! [String: Any]
+        var shredder = object["shredder"] as! [String: Any]
+        shredder.removeValue(forKey: "overlayWidthPx")
+        shredder.removeValue(forKey: "overlayHeightPx")
+        object["shredder"] = shredder
+        let data = try JSONSerialization.data(withJSONObject: object)
+        try data.write(to: dir.appendingPathComponent("bureau-tuning.json"))
+
+        let tuning = BureauTuning(directory: dir)
+        XCTAssertEqual(tuning.document.version, 4)
+        // Preserved v3 values.
+        XCTAssertEqual(tuning.document.physics.repulsionStrength, 33)
+        XCTAssertEqual(tuning.document.sticky.liveCap, 9)
+        // New fields filled with defaults.
+        XCTAssertEqual(tuning.document.shredder.overlayWidthPx, 170)
+        XCTAssertEqual(tuning.document.shredder.overlayHeightPx, 72)
+
+        // Written back at version 4: a fresh load reads 4 and keeps the values.
+        let reloaded = BureauTuning(directory: dir)
+        XCTAssertEqual(reloaded.document.version, 4)
+        XCTAssertEqual(reloaded.document.physics.repulsionStrength, 33)
     }
 }

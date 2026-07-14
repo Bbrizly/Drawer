@@ -129,6 +129,8 @@ private struct BureauTuningView: View {
                     slider("Width px", \.shredder.widthPx, 30...120)
                     slider("Shred ms", \.shredder.shredMs, 80...800)
                     slider("Volume", \.shredder.volume, 0...1)
+                    slider("Overlay width px", \.shredder.overlayWidthPx, 100...320)
+                    slider("Overlay height px", \.shredder.overlayHeightPx, 40...160)
                 }
                 section("Texture / tray") {
                     toggle("Re-render on edit only", \.texture.rerenderOnEditOnly)

@@ -37,6 +37,9 @@ public final class BureauFeature: ObservableObject {
     /// The stamp rack (R4): the right-edge tab, the two stamp heads, and the
     /// press consequences.
     let stamps = StampController()
+    /// The screen-level shredder overlay: the bottom-right slot that shreds a
+    /// pulled-out sticky dropped on it, same as the in-drawer shredder.
+    let shredder = ShredderController()
     /// The portrait drawer slip size, shared by the sprites and the printer.
     /// Computed from tuning (`sticky.slipWidth`/`slipHeight`) so a slider edit
     /// resizes every slip. The pulled-out sticky is bigger by `pullOutScale`.
@@ -82,7 +85,22 @@ public final class BureauFeature: ObservableObject {
             guard let self else { return }
             sounds.rustle(intensity, tuning: tuning.document.rustle)
         }
-        stickies.onLiveCountChanged = { [weak self] count in self?.stamps.setWatching(count > 0) }
+        stickies.onLiveCountChanged = { [weak self] count in
+            self?.stamps.setWatching(count > 0)
+            self?.shredder.setWatching(count > 0)
+        }
+        shredder.tuningProvider = { [weak self] in
+            self?.tuning.document.shredder ?? BureauTuningDocument.defaults.shredder
+        }
+        stickies.onStickyMoved = { [weak self] frame in self?.shredder.stickyMoved(frame) }
+        stickies.shredderOverlap = { [weak self] frame in self?.shredder.overlaps(frame) ?? false }
+        stickies.onShredSticky = { [weak self] id, host in
+            guard let self else { return }
+            // Delete just the receipt (never the task) and run the slot animation
+            // on the note's own window before it closes.
+            self.shredReceipt(id)
+            self.shredder.shred(host)
+        }
         stamps.stickyFrames = { [weak self] in self?.stickies.stickyFrames() ?? [] }
         stamps.tuningProvider = { [weak self] in
             self?.tuning.document.stamp ?? BureauTuningDocument.defaults.stamp
