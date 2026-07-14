@@ -144,10 +144,23 @@ public struct BureauHoverScrollTuning: Codable, Equatable, Sendable {
 public struct BureauStickyTuning: Codable, Equatable, Sendable {
     public var liveCap: Int
     public var subtaskVisibleCap: Int
+    /// How much bigger a pulled-out sticky is than the drawer slip it came from
+    /// (spec "Pull-out"): the `.full` panel is the slip size times this.
+    public var pullOutScale: Double
 
-    public init(liveCap: Int, subtaskVisibleCap: Int) {
+    public init(liveCap: Int, subtaskVisibleCap: Int, pullOutScale: Double) {
         self.liveCap = liveCap
         self.subtaskVisibleCap = subtaskVisibleCap
+        self.pullOutScale = pullOutScale
+    }
+
+    // A version-1 file on disk has no pullOutScale, so decode it tolerantly and
+    // let the version migration replace the whole document afterward.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        liveCap = try c.decode(Int.self, forKey: .liveCap)
+        subtaskVisibleCap = try c.decode(Int.self, forKey: .subtaskVisibleCap)
+        pullOutScale = try c.decodeIfPresent(Double.self, forKey: .pullOutScale) ?? 1.5
     }
 }
 
@@ -206,16 +219,16 @@ public struct BureauTuningDocument: Codable, Equatable, Sendable {
     /// The values in `bureau-impl.md` section 5, written to disk the first
     /// time the app looks for the tuning file.
     public static let defaults = BureauTuningDocument(
-        version: 1,
+        version: 2,
         transition: BureauTransitionTuning(
             pushMs: 320, easing: [0.16, 1.0, 0.3, 1.0], reduceMotionCrossfadeMs: 160
         ),
         physics: BureauPhysicsTuning(
             repulsionRadius: 90, repulsionStrength: 12, torque: 0.4, friction: 0.7,
-            restitution: 0.15, linearDamping: 3.0, angularDamping: 4.0, gravity: -3.0
+            restitution: 0.15, linearDamping: 3.0, angularDamping: 4.0, gravity: 0
         ),
         rustle: BureauRustleTuning(
-            gain: 0.6, velocityThreshold: 0.35, maxVolume: 0.5, rateCapMs: 60
+            gain: 0.6, velocityThreshold: 0.35, maxVolume: 0.5, rateCapMs: 250
         ),
         print: BureauPrintTuning(
             stepMs: 55, stepPx: 6, chatterVolume: 0.4, dingVolume: 0.7,
@@ -230,7 +243,7 @@ public struct BureauTuningDocument: Codable, Equatable, Sendable {
         hoverScroll: BureauHoverScrollTuning(
             sensitivity: 1.0, inertiaFriction: 0.92, minDelta: 0.5, maxVelocity: 40
         ),
-        sticky: BureauStickyTuning(liveCap: 12, subtaskVisibleCap: 6),
+        sticky: BureauStickyTuning(liveCap: 12, subtaskVisibleCap: 6, pullOutScale: 1.5),
         texture: BureauTextureTuning(rerenderOnEditOnly: true),
         filedTray: BureauFiledTrayTuning(clearsMonday: true)
     )
@@ -293,6 +306,15 @@ public final class BureauTuning: ObservableObject {
               let doc = try? Self.decoder.decode(BureauTuningDocument.self, from: data)
         else {
             document = BureauTuningDocument.defaults
+            return
+        }
+        // Version 2 changed what the feel values mean (top-down drawer, no
+        // gravity, bigger pull-outs), so a version-1 file on disk is stale, not
+        // a valid hand edit. Replace it wholesale with the new defaults and
+        // write it back so the old gravity never survives a load.
+        if doc.version < 2 {
+            document = BureauTuningDocument.defaults
+            write(BureauTuningDocument.defaults)
             return
         }
         document = doc

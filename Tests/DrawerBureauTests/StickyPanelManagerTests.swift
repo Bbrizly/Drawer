@@ -44,7 +44,7 @@ final class StickyPanelManagerTests: XCTestCase {
     /// panels are fakes we can inspect.
     private func makeManager(cap: Int) throws -> (StickyPanelManager, ReceiptStore, () -> [UUID: FakePanel]) {
         var doc = BureauTuningDocument.defaults
-        doc.sticky = BureauStickyTuning(liveCap: cap, subtaskVisibleCap: 6)
+        doc.sticky = BureauStickyTuning(liveCap: cap, subtaskVisibleCap: 6, pullOutScale: 1.5)
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         try encoder.encode(doc).write(to: dir.appendingPathComponent("bureau-tuning.json"))
