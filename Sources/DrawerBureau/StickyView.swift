@@ -7,6 +7,7 @@ import SwiftUI
 /// one object: the panel spawns at the same size the sprite showed.
 enum StickyMetrics {
     static let fullSlip = CGSize(width: 150, height: 84)
+    static let subtaskRowHeight: CGFloat = 16
 
     static func size(_ s: StickySize) -> CGSize {
         switch s {
@@ -14,6 +15,21 @@ enum StickyMetrics {
         case .title: return CGSize(width: 150, height: 46)
         case .chip: return CGSize(width: 112, height: 34)
         }
+    }
+
+    /// The panel size a model needs right now: the base slip plus one row per
+    /// visible subtask line (R3) and the "+N more" row. The add row lives in
+    /// the base slip's slack so a no-subtask sticky stays exactly the drawer
+    /// slip size and the drag handoff reads as the same object. Only the
+    /// `.full` size shows subtasks, so the others stay fixed.
+    @MainActor
+    static func size(for model: StickyModel) -> CGSize {
+        var s = size(model.size)
+        if model.size == .full {
+            let rows = model.visibleSubtaskCount + (model.overflowCount > 0 ? 1 : 0)
+            s.height += CGFloat(rows) * subtaskRowHeight
+        }
+        return s
     }
 }
 
@@ -32,44 +48,106 @@ extension StickySize {
 /// and the `StickyPanelManager`. Kept as a small `ObservableObject` so the view
 /// re-renders on a size cycle while the manager resizes the panel and persists.
 ///
-/// R3 hook: title editing and subtasks land here. Add `@Published var isEditing`
-/// and an `onCommitTitle: (String) -> Void` (wired to `TodoStore.rename`), then
-/// swap the title `Text` in `StickyView` for a `TextField($model.title)`; add a
-/// `@Published var subtaskLines: [String]` rendered under the title in the
-/// `.full` body. No structural change to the panel or the manager is needed.
+/// R3: title editing and subtasks live here. Edits commit through the manager
+/// callbacks into `BureauFeature`, which writes back via `TodoStore.rename` /
+/// `.setNote` (spec flow e). Subtasks are the task's note lines, so the array
+/// here is a working copy; commit joins and writes the whole note.
 @MainActor
 final class StickyModel: ObservableObject {
     let receiptID: UUID
     @Published var title: String
     @Published var size: StickySize
+    @Published var subtasks: [String] = []
+    /// True once "+N more" was clicked; the note grows taller instead of
+    /// scrolling (spec Decision 2). Reset by a size cycle.
+    @Published var isExpanded = false
+    var subtaskVisibleCap = 6
 
     /// Set by the manager: resize the panel and persist the new size.
     var onResize: ((StickySize) -> Void)?
     /// Set by the manager: send this receipt back into the drawer.
     var onReturnHome: (() -> Void)?
+    /// Set by the manager: the visible row count changed, refit the panel.
+    var onLayoutChanged: (() -> Void)?
+    /// Set by the manager: commit an edited title / the subtask lines.
+    var onCommitTitle: ((String) -> Void)?
+    var onCommitSubtasks: (([String]) -> Void)?
+
+    /// The last title known to be in Drawer.md, restored when an edit commits
+    /// empty so the sticky never shows a blank slip.
+    private var committedTitle: String
 
     init(receiptID: UUID, title: String, size: StickySize) {
         self.receiptID = receiptID
         self.title = title
         self.size = size
+        self.committedTitle = title
     }
 
     /// Double-click advances the size and tells the manager to resize.
     func cycleSize() {
         size = size.next
+        isExpanded = false
         onResize?(size)
+    }
+
+    // MARK: R3 edits
+
+    var visibleSubtaskCount: Int {
+        guard size == .full else { return 0 }
+        return isExpanded ? subtasks.count : min(subtasks.count, max(1, subtaskVisibleCap))
+    }
+
+    var overflowCount: Int { size == .full ? subtasks.count - visibleSubtaskCount : 0 }
+
+    func expand() {
+        isExpanded = true
+        onLayoutChanged?()
+    }
+
+    func commitTitle() {
+        let trimmed = title.trimmingCharacters(in: .whitespaces)
+        guard !trimmed.isEmpty else {
+            title = committedTitle
+            return
+        }
+        title = trimmed
+        committedTitle = trimmed
+        onCommitTitle?(trimmed)
+    }
+
+    /// Cleans the working lines (an emptied row is a delete) and writes the
+    /// note back. Layout refits because the row count may have changed.
+    func commitSubtasks() {
+        subtasks = subtasks
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+        onCommitSubtasks?(subtasks)
+        onLayoutChanged?()
+    }
+
+    func addSubtask(_ text: String) {
+        let trimmed = text.trimmingCharacters(in: .whitespaces)
+        guard !trimmed.isEmpty else { return }
+        subtasks.append(trimmed)
+        commitSubtasks()
     }
 }
 
-/// The floating sticky note. R2 shell: it shows the receipt as a manipulable
-/// paper slip in the Bureau palette (cream, one red rule, big pixel title) with
-/// a torn top edge echoing the drawer slip, a double-click size cycle, and a
-/// return-home affordance. No text editing and no subtasks yet; those are R3
-/// and slot into `StickyModel` (see its doc) without touching this layout.
+/// The floating sticky note: the receipt as a manipulable paper slip in the
+/// Bureau palette (cream, one red rule, big pixel title) with a torn top edge
+/// echoing the drawer slip, a double-click size cycle, and a return-home
+/// affordance. R3: a single click on the title edits it in place, and the
+/// `.full` size lists the task's note lines as subtasks, each editable, with
+/// a "+N more" row that grows the note taller (never scrolls) and an add row.
 struct StickyView: View {
     @ObservedObject var model: StickyModel
 
-    private var metrics: CGSize { StickyMetrics.size(model.size) }
+    @State private var isEditingTitle = false
+    @State private var newSubtask = ""
+    @FocusState private var titleFocused: Bool
+
+    private var metrics: CGSize { StickyMetrics.size(for: model) }
     private var titleFontSize: CGFloat { model.size == .chip ? 11 : 15 }
 
     var body: some View {
@@ -82,8 +160,8 @@ struct StickyView: View {
         }
         .frame(width: metrics.width, height: metrics.height)
         .contentShape(Rectangle())
-        // Double-click cycles the size (spec "Pull-out"). A single click is left
-        // free so R3 can start title editing on it.
+        // Double-click cycles the size (spec "Pull-out"); a single click on the
+        // title starts editing instead (R3).
         .onTapGesture(count: 2) { model.cycleSize() }
         .help(BureauCopy.stickySizeCycleHint)
     }
@@ -117,8 +195,7 @@ struct StickyView: View {
                 Rectangle()
                     .fill(Color(nsColor: BureauPalette.red))
                     .frame(height: 1.5)
-                // R3 hook: subtask lines render here, capped at
-                // tuning.sticky.subtaskVisibleCap with a "+N more" row.
+                subtaskRows
                 Spacer(minLength: 0)
             }
             .padding(.horizontal, 10)
@@ -134,12 +211,69 @@ struct StickyView: View {
         }
     }
 
+    @ViewBuilder
     private func titleText(lineLimit: Int) -> some View {
-        Text(model.title)
-            .font(.custom(BureauPalette.pixelFamily, size: titleFontSize))
-            .foregroundStyle(Color(nsColor: BureauPalette.ink))
-            .lineLimit(lineLimit)
-            .frame(maxWidth: .infinity, alignment: .leading)
+        if isEditingTitle {
+            TextField("", text: $model.title)
+                .textFieldStyle(.plain)
+                .font(.custom(BureauPalette.pixelFamily, size: titleFontSize))
+                .foregroundStyle(Color(nsColor: BureauPalette.ink))
+                .focused($titleFocused)
+                .onSubmit { endTitleEdit() }
+                .onChange(of: titleFocused) { _, focused in
+                    if !focused { endTitleEdit() }
+                }
+        } else {
+            Text(model.title)
+                .font(.custom(BureauPalette.pixelFamily, size: titleFontSize))
+                .foregroundStyle(Color(nsColor: BureauPalette.ink))
+                .lineLimit(lineLimit)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(Rectangle())
+                .onTapGesture {
+                    isEditingTitle = true
+                    titleFocused = true
+                }
+        }
+    }
+
+    private func endTitleEdit() {
+        guard isEditingTitle else { return }
+        isEditingTitle = false
+        model.commitTitle()
+    }
+
+    // MARK: subtasks (R3)
+
+    private var subtaskRows: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            ForEach(0..<model.visibleSubtaskCount, id: \.self) { i in
+                TextField("", text: $model.subtasks[i])
+                    .textFieldStyle(.plain)
+                    .font(.custom(BureauPalette.pixelFamily, size: 10))
+                    .foregroundStyle(Color(nsColor: BureauPalette.ink))
+                    .onSubmit { model.commitSubtasks() }
+                    .frame(height: StickyMetrics.subtaskRowHeight - 2)
+            }
+            if model.overflowCount > 0 {
+                Button(action: { model.expand() }) {
+                    Text(BureauCopy.subtasksOverflow(model.overflowCount))
+                        .font(.custom(BureauPalette.pixelFamily, size: 10))
+                        .foregroundStyle(Color(nsColor: BureauPalette.inkFaint))
+                }
+                .buttonStyle(.plain)
+                .frame(height: StickyMetrics.subtaskRowHeight - 2)
+            }
+            TextField(BureauCopy.addSubtaskPlaceholder, text: $newSubtask)
+                .textFieldStyle(.plain)
+                .font(.custom(BureauPalette.pixelFamily, size: 10))
+                .foregroundStyle(Color(nsColor: BureauPalette.inkFaint))
+                .onSubmit {
+                    model.addSubtask(newSubtask)
+                    newSubtask = ""
+                }
+                .frame(height: StickyMetrics.subtaskRowHeight - 2)
+        }
     }
 
     private var returnHomeButton: some View {

@@ -38,6 +38,11 @@ final class StickyPanelManager {
     /// Set by the facade: respawn a sprite in the drawer when a sticky goes home
     /// (either the return-home button or being retired as the oldest).
     var onReturnToDrawer: ((ReceiptLink) -> Void)?
+    /// Set by the facade (R3): seed a fresh sticky's subtask lines, and write
+    /// title / subtask edits back through `TodoStore`.
+    var subtasksProvider: ((UUID) -> [String])?
+    var onCommitTitle: ((UUID, String) -> Void)?
+    var onCommitSubtasks: ((UUID, [String]) -> Void)?
 
     private var panels: [UUID: StickyPanelHosting] = [:]
     private var models: [UUID: StickyModel] = [:]
@@ -88,14 +93,19 @@ final class StickyPanelManager {
         }
 
         let model = StickyModel(receiptID: receiptID, title: title, size: size)
+        model.subtasks = subtasksProvider?(receiptID) ?? []
+        model.subtaskVisibleCap = max(1, tuning.document.sticky.subtaskVisibleCap)
         model.onResize = { [weak self] newSize in self?.resize(receiptID, to: newSize) }
         model.onReturnHome = { [weak self] in self?.sendHome(receiptID) }
+        model.onLayoutChanged = { [weak self] in self?.refit(receiptID) }
+        model.onCommitTitle = { [weak self] newTitle in self?.onCommitTitle?(receiptID, newTitle) }
+        model.onCommitSubtasks = { [weak self] lines in self?.onCommitSubtasks?(receiptID, lines) }
 
         let host = makePanel(Spawn(
             receiptID: receiptID,
             model: model,
             origin: origin,
-            size: StickyMetrics.size(size)
+            size: StickyMetrics.size(for: model)
         ))
         panels[receiptID] = host
         models[receiptID] = model
@@ -189,8 +199,15 @@ final class StickyPanelManager {
 
     private func resize(_ id: UUID, to size: StickySize) {
         guard let host = panels[id] else { return }
-        host.contentSize = StickyMetrics.size(size)
+        refit(id)
         persist(id, state: .sticky, origin: host.frameOrigin, size: size)
+    }
+
+    /// Refits the panel to what the model shows now (size cycle, subtask rows
+    /// appearing, "+N more" expansion).
+    private func refit(_ id: UUID) {
+        guard let host = panels[id], let model = models[id] else { return }
+        host.contentSize = StickyMetrics.size(for: model)
     }
 
     private func persist(_ id: UUID, state: ReceiptState, origin: CGPoint, size: StickySize) {

@@ -51,6 +51,9 @@ public final class BureauFeature: ObservableObject {
         // sticky return path, all through the facade so the one owner holds the
         // scene, the store, the textures, and the panels.
         stickies.onReturnToDrawer = { [weak self] link in self?.spawnSprite(for: link) }
+        stickies.subtasksProvider = { [weak self] id in self?.subtasks(for: id) ?? [] }
+        stickies.onCommitTitle = { [weak self] id, title in self?.renameSticky(id, to: title) }
+        stickies.onCommitSubtasks = { [weak self] id, lines in self?.setSubtasks(id, lines) }
         scene.onSpriteDraggedPastBounds = { [weak self] sprite, cursor in
             self?.handleDragHandoff(sprite, cursorInScene: cursor)
         }
@@ -94,6 +97,48 @@ public final class BureauFeature: ObservableObject {
             changes[id] = (ReceiptPosition(x: Double(value.0.x), y: Double(value.0.y)), Double(value.1))
         }
         receipts.updatePositions(changes)
+    }
+
+    // MARK: sticky writeback (R3, spec flow e)
+
+    /// The live task a receipt points at: the exact section/occurrence/title
+    /// triple first, else a fuzzy re-link (which refreshes the snapshot on a
+    /// match and expires the receipt on a miss). All edits resolve through
+    /// here so a receipt never writes to a task it no longer represents.
+    func liveItem(for receiptID: UUID) -> TodoItem? {
+        guard var link = receipts.document.receipts.first(where: { $0.id == receiptID }) else { return nil }
+        let candidates = store.todayItems + store.carriedItems + store.upcomingItems + store.backlogItems
+        if let exact = candidates.first(where: { matches(link, $0) }) { return exact }
+        let item = link.relink(against: candidates)
+        receipts.update(link)
+        return item
+    }
+
+    /// Sticky title edit: writes through `TodoStore.rename` (content-CAS, no
+    /// watcher loop) and refreshes the receipt snapshot so the slip texture
+    /// and future re-links follow the new title.
+    func renameSticky(_ receiptID: UUID, to newTitle: String) {
+        let trimmed = newTitle.trimmingCharacters(in: .whitespaces)
+        guard !trimmed.isEmpty, let item = liveItem(for: receiptID) else { return }
+        store.rename(item, to: trimmed)
+        guard var link = receipts.document.receipts.first(where: { $0.id == receiptID }) else { return }
+        link.textSnapshot = trimmed
+        receipts.update(link)
+    }
+
+    /// Subtasks are the task's indented note lines (spec "Pull-out"), not a
+    /// modeled array; reading splits, writing joins through `TodoStore.setNote`.
+    func subtasks(for receiptID: UUID) -> [String] {
+        guard let note = liveItem(for: receiptID)?.note, !note.isEmpty else { return [] }
+        return note.components(separatedBy: "\n")
+    }
+
+    func setSubtasks(_ receiptID: UUID, _ lines: [String]) {
+        guard let item = liveItem(for: receiptID) else { return }
+        let cleaned = lines
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+        store.setNote(item, cleaned.joined(separator: "\n"))
     }
 
     // MARK: transition (read by DrawerView to build the push animation)
