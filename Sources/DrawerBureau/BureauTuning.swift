@@ -318,6 +318,13 @@ public final class BureauTuning: ObservableObject {
         watcher = nil
     }
 
+    /// A live edit from the tuning panel (R5): publish it and write it to the
+    /// json, so a hand edit and a slider drag are the same one path.
+    public func update(_ doc: BureauTuningDocument) {
+        document = doc
+        write(doc)
+    }
+
     private func write(_ doc: BureauTuningDocument) {
         guard let data = try? Self.encoder.encode(doc) else { return }
         try? writeData(data, tuningFile)
