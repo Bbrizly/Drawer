@@ -67,7 +67,9 @@ final class StickyPanelManager {
             windowUnder: { [weak self] event in self?.stickyWindow(under: event) }
         )
         mover.onSettled = { [weak self] window in self?.stickySettled(window) }
-        mover.clampOnScreen = { origin, size in StickyPanelManager.clampOnScreen(origin: origin, size: size) }
+        mover.clampOnScreen = { [weak self] origin, size in
+            self?.clamp(origin: origin, size: size) ?? StickyPanelManager.clampOnScreen(origin: origin, size: size)
+        }
         return mover
     }()
 
@@ -82,6 +84,17 @@ final class StickyPanelManager {
     }
 
     private var cap: Int { max(1, tuning.document.sticky.liveCap) }
+
+    /// The tuned drawer slip size, shared by the panel metrics and the drag
+    /// follow so a slider edit resizes every note.
+    private var tunedSlip: CGSize {
+        CGSize(width: tuning.document.sticky.slipWidth, height: tuning.document.sticky.slipHeight)
+    }
+
+    /// Clamps a note on screen keeping the tuned minimum visible edge.
+    private func clamp(origin: CGPoint, size: CGSize) -> CGPoint {
+        Self.clampOnScreen(origin: origin, size: size, minVisible: CGFloat(tuning.document.sticky.clampMinVisible))
+    }
 
     var liveCount: Int { panels.count }
     func isLive(_ id: UUID) -> Bool { panels[id] != nil }
@@ -98,7 +111,7 @@ final class StickyPanelManager {
     @discardableResult
     func spawn(receiptID: UUID, title: String, at origin: CGPoint, size: StickySize = .full, growIn: Bool = false) -> StickyPanelHosting {
         if let existing = panels[receiptID] {
-            let clamped = Self.clampOnScreen(origin: origin, size: existing.contentSize)
+            let clamped = clamp(origin: origin, size: existing.contentSize)
             existing.frameOrigin = clamped
             existing.present()
             roster.insert(receiptID, cap: cap) // move to newest
@@ -108,13 +121,26 @@ final class StickyPanelManager {
 
         let model = StickyModel(receiptID: receiptID, title: title, size: size)
         // A filed receipt pulled back out carries its APPROVED ink, so the note
-        // visibly shows it was already stamped.
+        // visibly shows it was already stamped. Same tuned bounds as a fresh
+        // slam (BureauFeature.slam), rolled here since the original angle was
+        // never stored.
         if receipts.document.receipts.first(where: { $0.id == receiptID })?.state == .filed {
-            model.stamp = StickyModel.AppliedStamp(kind: .done, rotationDeg: -3, ghostOffsetPx: 1.5)
+            let stamp = tuning.document.stamp
+            model.stamp = StickyModel.AppliedStamp(
+                kind: .done,
+                rotationDeg: Double.random(
+                    in: stamp.inkRotationMinDeg...max(stamp.inkRotationMinDeg, stamp.inkRotationMaxDeg)
+                ) * (Bool.random() ? 1 : -1),
+                ghostOffsetPx: stamp.doubleStrikeOffsetPx
+            )
         }
         model.subtasks = subtasksProvider?(receiptID) ?? []
         model.subtaskVisibleCap = max(1, tuning.document.sticky.subtaskVisibleCap)
         model.pullOutScale = tuning.document.sticky.pullOutScale
+        model.slipSize = tunedSlip
+        model.growSpringResponse = tuning.document.sticky.growSpringResponse
+        model.growSpringDamping = tuning.document.sticky.growSpringDamping
+        model.growStart = tuning.document.sticky.growStart
         model.growsIn = growIn
         model.onResize = { [weak self] newSize in self?.resize(receiptID, to: newSize) }
         model.onReturnHome = { [weak self] in self?.sendHome(receiptID) }
@@ -123,7 +149,7 @@ final class StickyPanelManager {
         model.onCommitSubtasks = { [weak self] lines in self?.onCommitSubtasks?(receiptID, lines) }
 
         let panelSize = StickyMetrics.size(for: model)
-        let clamped = Self.clampOnScreen(origin: origin, size: panelSize)
+        let clamped = clamp(origin: origin, size: panelSize)
         let host = makePanel(Spawn(
             receiptID: receiptID,
             model: model,
@@ -175,7 +201,7 @@ final class StickyPanelManager {
 
     /// The pulled-out `.full` size at the live scale, used by the drag follow.
     private var pullOutFullSize: CGSize {
-        StickyMetrics.size(.full, pullOutScale: CGFloat(tuning.document.sticky.pullOutScale))
+        StickyMetrics.size(.full, pullOutScale: CGFloat(tuning.document.sticky.pullOutScale), slip: tunedSlip)
     }
 
     /// The continuous drag handoff (spec flow c): spawn the sticky (grown from
@@ -193,7 +219,7 @@ final class StickyPanelManager {
         followToken = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDragged, .leftMouseUp]) { [weak self, weak host] event in
             guard let self, let host else { return event }
             let m = NSEvent.mouseLocation
-            host.frameOrigin = Self.clampOnScreen(
+            host.frameOrigin = self.clamp(
                 origin: CGPoint(x: m.x - size.width / 2, y: m.y - size.height / 2),
                 size: size
             )
@@ -360,7 +386,8 @@ final class StickyPanelManager {
             }
         }
         settleWork[key] = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35, execute: work)
+        let debounce = max(0.05, tuning.document.sticky.settleDebounceMs / 1000)
+        DispatchQueue.main.asyncAfter(deadline: .now() + debounce, execute: work)
     }
 
     // MARK: hover-scroll resolution

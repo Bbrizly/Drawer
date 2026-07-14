@@ -37,10 +37,12 @@ public final class BureauFeature: ObservableObject {
     /// The stamp rack (R4): the right-edge tab, the two stamp heads, and the
     /// press consequences.
     let stamps = StampController()
-    /// The portrait drawer slip size, shared by the sprites and the printer
-    /// (single source: `StickyMetrics.drawerSlip`). The pulled-out sticky is
-    /// bigger than this by `sticky.pullOutScale`.
-    let slipSize = StickyMetrics.drawerSlip
+    /// The portrait drawer slip size, shared by the sprites and the printer.
+    /// Computed from tuning (`sticky.slipWidth`/`slipHeight`) so a slider edit
+    /// resizes every slip. The pulled-out sticky is bigger by `pullOutScale`.
+    var slipSize: CGSize {
+        CGSize(width: tuning.document.sticky.slipWidth, height: tuning.document.sticky.slipHeight)
+    }
 
     private var scale: CGFloat { NSScreen.main?.backingScaleFactor ?? 2 }
 
@@ -82,6 +84,9 @@ public final class BureauFeature: ObservableObject {
         }
         stickies.onLiveCountChanged = { [weak self] count in self?.stamps.setWatching(count > 0) }
         stamps.stickyFrames = { [weak self] in self?.stickies.stickyFrames() ?? [] }
+        stamps.tuningProvider = { [weak self] in
+            self?.tuning.document.stamp ?? BureauTuningDocument.defaults.stamp
+        }
         stamps.onSlam = { [weak self] id, kind in self?.slam(id, kind) }
         stamps.onStamp = { [weak self] id, kind in self?.applyStamp(id, kind) }
         stamps.onPressMiss = { [weak self] in
@@ -140,7 +145,9 @@ public final class BureauFeature: ObservableObject {
         let id = sprite.receiptID
         let title = receipts.document.receipts.first(where: { $0.id == id })?.textSnapshot ?? ""
         sprite.removeFromParent()
-        let full = StickyMetrics.size(.full, pullOutScale: CGFloat(tuning.document.sticky.pullOutScale))
+        let full = StickyMetrics.size(
+            .full, pullOutScale: CGFloat(tuning.document.sticky.pullOutScale), slip: slipSize
+        )
         let mouse = NSEvent.mouseLocation
         let origin = CGPoint(x: mouse.x - full.width / 2, y: mouse.y - full.height / 2)
         stickies.spawnFromDrag(receiptID: id, title: title, at: origin)
@@ -150,7 +157,7 @@ public final class BureauFeature: ObservableObject {
     /// (bureau-receipts.json); the task in Drawer.md is never touched. Plays the
     /// shred sound as the tear-down animation runs in the scene.
     private func shredReceipt(_ id: UUID) {
-        sounds.shred(volume: 0.7) // topic 5 lifts the shredder volume into tuning
+        sounds.shred(volume: tuning.document.shredder.volume)
         receipts.remove(id)
     }
 

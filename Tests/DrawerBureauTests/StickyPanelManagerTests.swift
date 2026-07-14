@@ -44,7 +44,7 @@ final class StickyPanelManagerTests: XCTestCase {
     /// panels are fakes we can inspect.
     private func makeManager(cap: Int) throws -> (StickyPanelManager, ReceiptStore, () -> [UUID: FakePanel]) {
         var doc = BureauTuningDocument.defaults
-        doc.sticky = BureauStickyTuning(liveCap: cap, subtaskVisibleCap: 6, pullOutScale: 1.5)
+        doc.sticky.liveCap = cap
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         try encoder.encode(doc).write(to: dir.appendingPathComponent("bureau-tuning.json"))
@@ -179,6 +179,26 @@ final class StickyPanelManagerTests: XCTestCase {
         // Idempotent: a second restore opens nothing new.
         manager.restore()
         XCTAssertEqual(manager.liveCount, 1)
+    }
+
+    /// A filed slip pulled out and sent home stays filed (so the facade files
+    /// it back into the tray instead of the pile), unlike a normal slip which
+    /// becomes in-drawer.
+    func testSendHomeKeepsFiledSlipFiled() throws {
+        let (manager, store, fakes) = try makeManager(cap: 12)
+        var returnedStates: [ReceiptState] = []
+        manager.onReturnToDrawer = { link, _ in returnedStates.append(link.state) }
+
+        let link = ReceiptLink(textSnapshot: "done thing", sectionDate: "2026-07-13", state: .filed)
+        store.add(link)
+        manager.spawn(receiptID: link.id, title: "done thing", at: .zero, size: .full)
+        // Pulling a filed slip out does not lose its filed state.
+        XCTAssertEqual(state(store, link.id), .filed)
+
+        manager.sendHome(link.id)
+        XCTAssertEqual(state(store, link.id), .filed)
+        XCTAssertEqual(returnedStates, [.filed])
+        XCTAssertTrue(fakes()[link.id]?.dismissed ?? false)
     }
 }
 

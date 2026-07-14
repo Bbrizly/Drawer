@@ -7,16 +7,17 @@ import SwiftUI
 /// scaled up by `sticky.pullOutScale`, so the pull-out reads as the same paper
 /// grown in the hand (flow c).
 enum StickyMetrics {
-    /// The portrait slip drawn in the drawer scene and printed at the seam.
+    /// The portrait slip default, used when no tuned size is threaded in (bare
+    /// tests). The live size comes from `sticky.slipWidth`/`slipHeight`.
     static let drawerSlip = CGSize(width: 96, height: 144)
     static let subtaskRowHeight: CGFloat = 16
 
-    static func size(_ s: StickySize, pullOutScale: CGFloat = 1) -> CGSize {
+    static func size(_ s: StickySize, pullOutScale: CGFloat = 1, slip: CGSize = drawerSlip) -> CGSize {
         switch s {
         case .full:
-            return CGSize(width: drawerSlip.width * pullOutScale, height: drawerSlip.height * pullOutScale)
-        case .title: return CGSize(width: 96, height: 46)
-        case .chip: return CGSize(width: 96, height: 34)
+            return CGSize(width: slip.width * pullOutScale, height: slip.height * pullOutScale)
+        case .title: return CGSize(width: slip.width, height: 46)
+        case .chip: return CGSize(width: slip.width, height: 34)
         }
     }
 
@@ -26,7 +27,7 @@ enum StickyMetrics {
     /// fixed.
     @MainActor
     static func size(for model: StickyModel) -> CGSize {
-        var s = size(model.size, pullOutScale: CGFloat(model.pullOutScale))
+        var s = size(model.size, pullOutScale: CGFloat(model.pullOutScale), slip: model.slipSize)
         if model.size == .full {
             let rows = model.visibleSubtaskCount + (model.overflowCount > 0 ? 1 : 0)
             s.height += CGFloat(rows) * subtaskRowHeight
@@ -67,6 +68,12 @@ final class StickyModel: ObservableObject {
     /// How much bigger the `.full` pull-out is than the drawer slip, set at
     /// spawn from `sticky.pullOutScale`. Drives the panel size and the grow-in.
     var pullOutScale: Double = 1.5
+    /// The drawer slip size, set at spawn from `sticky.slipWidth`/`slipHeight`.
+    var slipSize: CGSize = StickyMetrics.drawerSlip
+    /// The grow-from-slip spring and its start scale, set at spawn from tuning.
+    var growSpringResponse: Double = 0.28
+    var growSpringDamping: Double = 0.72
+    var growStart: Double = 0.667
     /// True only for a sticky just pulled out of the drawer, so `StickyView`
     /// plays the grow-from-slip animation once. A restored sticky opens at size.
     var growsIn = false
@@ -168,11 +175,12 @@ struct StickyView: View {
 
     private var metrics: CGSize { StickyMetrics.size(for: model) }
     private var titleFontSize: CGFloat { model.size == .chip ? 11 : 15 }
-    /// The scale a freshly pulled-out sticky starts at: the drawer slip relative
-    /// to the grown pull-out, so it appears to swell up out of the drawer.
+    /// The scale a freshly pulled-out sticky starts at: the tuned start (about
+    /// the drawer slip relative to the grown pull-out) so it swells up out of
+    /// the drawer.
     private var growStart: CGFloat {
         guard model.growsIn, model.size == .full else { return 1 }
-        return 1 / CGFloat(model.pullOutScale)
+        return CGFloat(model.growStart)
     }
 
     var body: some View {
@@ -198,7 +206,7 @@ struct StickyView: View {
             // A pulled-out sticky swells from the drawer-slip scale up to full;
             // any other spawn (restore at launch) just opens at size.
             if model.growsIn, model.size == .full {
-                withAnimation(.spring(response: 0.28, dampingFraction: 0.72)) { grown = true }
+                withAnimation(.spring(response: model.growSpringResponse, dampingFraction: model.growSpringDamping)) { grown = true }
             } else {
                 grown = true
             }
