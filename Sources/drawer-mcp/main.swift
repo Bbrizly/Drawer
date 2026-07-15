@@ -21,7 +21,7 @@ func logError(_ message: String) {
 let drawerPath = DrawerFilePath.resolve(
     arguments: CommandLine.arguments,
     environment: ProcessInfo.processInfo.environment,
-    storedDefault: DrawerFilePath.storedAppDefault(bundleID: "com.bassam.drawer")
+    storedDefault: DrawerFilePath.storedAppDefault(bundleID: "com.bbrizly.drawer")
 )
 let drawerURL = URL(fileURLWithPath: drawerPath)
 

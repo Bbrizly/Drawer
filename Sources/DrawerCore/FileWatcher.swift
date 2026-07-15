@@ -11,7 +11,7 @@ import Foundation
 public final class FileWatcher {
     private let dirURL: URL
     private let retryInterval: TimeInterval
-    private let queue = DispatchQueue(label: "com.bassam.drawer.watcher")
+    private let queue = DispatchQueue(label: "com.bbrizly.drawer.watcher")
     private var source: DispatchSourceFileSystemObject?
     private var pending: DispatchWorkItem?
     private var retryWork: DispatchWorkItem?
