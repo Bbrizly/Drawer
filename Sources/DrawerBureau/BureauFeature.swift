@@ -274,6 +274,10 @@ public final class BureauFeature: ObservableObject {
 
     public func setPanelVisible(_ visible: Bool) { panelVisible = visible }
 
+    /// True when the cursor sits over a floating sticky, so the drawer's swipe
+    /// monitor treats a two-finger pan there as a note move, not a page swipe.
+    public var pointerOverSticky: Bool { stickies.pointerOverSticky }
+
     // MARK: tuning panel (R5)
 
     private let tuningPanel = BureauTuningPanel()
