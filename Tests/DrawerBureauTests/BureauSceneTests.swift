@@ -1,3 +1,4 @@
+import SpriteKit
 import XCTest
 @testable import DrawerBureau
 
@@ -28,5 +29,57 @@ final class BureauSceneTests: XCTestCase {
     func testClampTiltZeroForcesUpright() {
         XCTAssertEqual(BureauScene.clampTilt(deg(30), maxDeg: 0), 0, accuracy: 1e-6)
         XCTAssertEqual(BureauScene.clampTilt(deg(-120), maxDeg: 0), 0, accuracy: 1e-6)
+    }
+
+    private let floor = CGRect(x: 0, y: 34, width: 200, height: 300)
+
+    /// A slip already inside the inset rect needs no rescue, so nil comes back.
+    func testRescuePositionInsideReturnsNil() {
+        XCTAssertNil(BureauScene.rescuePosition(CGPoint(x: 100, y: 200), in: floor, margin: 4))
+        // Just inside the inset edge still counts as inside.
+        XCTAssertNil(BureauScene.rescuePosition(CGPoint(x: 5, y: 40), in: floor, margin: 4))
+    }
+
+    /// Out past one axis clamps that axis to the inset edge and leaves the other.
+    func testRescuePositionClampsSingleAxis() {
+        let left = BureauScene.rescuePosition(CGPoint(x: -20, y: 200), in: floor, margin: 4)
+        XCTAssertEqual(left, CGPoint(x: 4, y: 200))
+
+        let right = BureauScene.rescuePosition(CGPoint(x: 260, y: 200), in: floor, margin: 4)
+        XCTAssertEqual(right, CGPoint(x: 196, y: 200))
+
+        let below = BureauScene.rescuePosition(CGPoint(x: 100, y: 10), in: floor, margin: 4)
+        XCTAssertEqual(below, CGPoint(x: 100, y: 38))
+
+        let above = BureauScene.rescuePosition(CGPoint(x: 100, y: 500), in: floor, margin: 4)
+        XCTAssertEqual(above, CGPoint(x: 100, y: 330))
+    }
+
+    /// Far outside both axes clamps both corners back to the inset rect.
+    func testRescuePositionClampsBothAxes() {
+        let out = BureauScene.rescuePosition(CGPoint(x: -50, y: -50), in: floor, margin: 4)
+        XCTAssertEqual(out, CGPoint(x: 4, y: 38))
+
+        let farCorner = BureauScene.rescuePosition(CGPoint(x: 999, y: 999), in: floor, margin: 4)
+        XCTAssertEqual(farCorner, CGPoint(x: 196, y: 330))
+    }
+
+    /// Setting the scene's tuning with a changed physics block updates a slip
+    /// already in the drawer, live: its body picks up the new linear damping.
+    func testTuningChangeReappliesPhysicsToSlips() {
+        let scene = BureauScene(size: CGSize(width: 200, height: 400))
+        var doc = BureauTuningDocument.defaults
+        scene.tuning = doc
+
+        let texture = SKTexture()
+        let sprite = ReceiptSprite(
+            receiptID: UUID(), texture: texture, size: CGSize(width: 96, height: 144)
+        )
+        scene.addExisting(sprite, at: CGPoint(x: 100, y: 200))
+        XCTAssertEqual(sprite.physicsBody?.linearDamping ?? -1, doc.physics.linearDamping, accuracy: 1e-4)
+
+        doc.physics.linearDamping = 7.5
+        scene.tuning = doc
+        XCTAssertEqual(sprite.physicsBody?.linearDamping ?? -1, 7.5, accuracy: 1e-4)
     }
 }

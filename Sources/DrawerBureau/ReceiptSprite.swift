@@ -43,6 +43,9 @@ final class ReceiptSprite: SKSpriteNode {
         // ponytail: fixed light mass. Fine for uniform slips; if receipts ever
         // vary in size enough to want different heft, derive mass from area.
         body.mass = 0.05
+        // Few bodies, so precise (swept) collision is cheap and stops a fast
+        // slip tunneling through the thin drawer edge loop.
+        body.usesPreciseCollisionDetection = true
         physicsBody = body
     }
 }
