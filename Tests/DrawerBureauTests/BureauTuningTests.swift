@@ -64,7 +64,7 @@ final class BureauTuningTests: XCTestCase {
 
     func testDefaultsMatchTheSchemaInBureauImplDoc() {
         let d = BureauTuningDocument.defaults
-        XCTAssertEqual(d.version, 4)
+        XCTAssertEqual(d.version, 5)
         XCTAssertEqual(d.transition.pushMs, 320)
         XCTAssertEqual(d.transition.easing, [0.16, 1.0, 0.3, 1.0])
         // Top-down drawer: no gravity, so receipts do not fall to the bottom.
@@ -78,10 +78,14 @@ final class BureauTuningTests: XCTestCase {
         XCTAssertEqual(d.rustle.speedRef, 200)
         XCTAssertEqual(d.print.stepMs, 55)
         XCTAssertEqual(d.print.queueStaggerMs, 250)
-        XCTAssertEqual(d.print.spreadDeg, 70)
-        XCTAssertEqual(d.print.spin, 0.15)
-        XCTAssertEqual(d.stamp.rackWidthPx, 200)
-        XCTAssertEqual(d.stamp.stampSizePx, 64)
+        // v5 art pass: gentle spawn, big stamps.
+        XCTAssertEqual(d.print.spreadDeg, 40)
+        XCTAssertEqual(d.print.spin, 0.08)
+        XCTAssertEqual(d.print.dropImpulse, 3)
+        XCTAssertEqual(d.stamp.rackWidthPx, 280)
+        XCTAssertEqual(d.stamp.stampSizePx, 96)
+        XCTAssertEqual(d.stamp.tabWidthPx, 30)
+        XCTAssertEqual(d.stamp.rackHeightPx, 170)
         XCTAssertEqual(d.stamp.pressMs, 90)
         XCTAssertEqual(d.stamp.slideVolume, 0.5)
         XCTAssertEqual(d.stamp.inkRotationMinDeg, 2)
@@ -101,10 +105,18 @@ final class BureauTuningTests: XCTestCase {
         XCTAssertEqual(d.shredder.widthPx, 56)
         XCTAssertEqual(d.shredder.overlayWidthPx, 170)
         XCTAssertEqual(d.shredder.overlayHeightPx, 72)
+        // v5: the shredder ships off and the stub line is gone.
+        XCTAssertFalse(d.shredder.enabled)
         XCTAssertTrue(d.texture.rerenderOnEditOnly)
-        XCTAssertTrue(d.texture.showStubLine)
+        XCTAssertFalse(d.texture.showStubLine)
         XCTAssertEqual(d.texture.vignetteAlpha, 0.25)
         XCTAssertTrue(d.filedTray.clearsMonday)
+        // v5 art block: the pixel look and its font.
+        XCTAssertEqual(d.art.fontFamily, "Pixelify Sans")
+        XCTAssertEqual(d.art.pixelScale, 2)
+        XCTAssertEqual(d.art.titleFontSize, 15)
+        XCTAssertEqual(d.art.detailFontSize, 8)
+        XCTAssertEqual(d.art.paper, "#E3D6B8")
     }
 
     /// A texture block from before the Papers-Please look pass has neither
@@ -162,19 +174,20 @@ final class BureauTuningTests: XCTestCase {
 
         let tuning = BureauTuning(directory: dir)
         XCTAssertEqual(tuning.document, BureauTuningDocument.defaults)
-        XCTAssertEqual(tuning.document.version, 4)
+        XCTAssertEqual(tuning.document.version, 5)
         XCTAssertEqual(tuning.document.physics.gravity, 0)
 
-        // The stale file was replaced on disk: a fresh load reads version 4.
+        // The stale file was replaced on disk: a fresh load reads version 5.
         let reloaded = BureauTuning(directory: dir)
-        XCTAssertEqual(reloaded.document.version, 4)
+        XCTAssertEqual(reloaded.document.version, 5)
         XCTAssertEqual(reloaded.document.physics.gravity, 0)
     }
 
     /// A version-2 file only added fields at later versions, so it is a valid
-    /// tuned file, not stale. It must migrate to 4 in place: the user's v2
-    /// values are preserved and every new field is filled with its default.
-    func testVersion2FileMigratesToV4PreservingValues() throws {
+    /// tuned file, not stale. It must migrate to the current version in one
+    /// load (the chain, not one bump per launch): the user's v2 values are
+    /// preserved, new fields fill with defaults, and the v5 art pass lands.
+    func testVersion2FileMigratesToCurrentPreservingValues() throws {
         let v2 = """
         {
           "version": 2,
@@ -193,7 +206,7 @@ final class BureauTuningTests: XCTestCase {
         try Data(v2.utf8).write(to: dir.appendingPathComponent("bureau-tuning.json"))
 
         let tuning = BureauTuning(directory: dir)
-        XCTAssertEqual(tuning.document.version, 4)
+        XCTAssertEqual(tuning.document.version, 5)
         // Preserved v2 values.
         XCTAssertEqual(tuning.document.physics.repulsionStrength, 42)
         XCTAssertEqual(tuning.document.sticky.liveCap, 7)
@@ -201,25 +214,29 @@ final class BureauTuningTests: XCTestCase {
         // New fields filled with defaults.
         XCTAssertEqual(tuning.document.physics.pushScale, 0.02)
         XCTAssertEqual(tuning.document.rustle.speedRef, 200)
-        XCTAssertEqual(tuning.document.print.spin, 0.15)
-        XCTAssertEqual(tuning.document.stamp.rackWidthPx, 200)
         XCTAssertEqual(tuning.document.sticky.slipWidth, 96)
         XCTAssertEqual(tuning.document.drawer.trayScale, 0.45)
         XCTAssertEqual(tuning.document.returnDrop.impulse, 2)
         XCTAssertEqual(tuning.document.shredder.volume, 0.7)
         XCTAssertEqual(tuning.document.shredder.overlayWidthPx, 170)
+        // The v5 art pass landed on top of the chain.
+        XCTAssertEqual(tuning.document.print.spin, 0.08)
+        XCTAssertEqual(tuning.document.stamp.rackWidthPx, 280)
+        XCTAssertEqual(tuning.document.stamp.stampSizePx, 96)
+        XCTAssertFalse(tuning.document.texture.showStubLine)
+        XCTAssertFalse(tuning.document.shredder.enabled)
 
-        // Written back at version 4: a fresh load reads 4 and keeps the values.
+        // Written back at version 5: a fresh load reads 5 and keeps the values.
         let reloaded = BureauTuning(directory: dir)
-        XCTAssertEqual(reloaded.document.version, 4)
+        XCTAssertEqual(reloaded.document.version, 5)
         XCTAssertEqual(reloaded.document.physics.repulsionStrength, 42)
         XCTAssertEqual(reloaded.document.sticky.liveCap, 7)
     }
 
     /// A version-3 file added the overlay/rotation/slide fields at version 4, so
-    /// it is a valid tuned file. It migrates to 4 in place: the user's v3 values
-    /// are preserved and the new fields default.
-    func testVersion3FileMigratesToV4PreservingValues() throws {
+    /// it is a valid tuned file. It migrates to the current version in place:
+    /// the user's v3 values are preserved and the new fields default.
+    func testVersion3FileMigratesToCurrentPreservingValues() throws {
         var v3 = BureauTuningDocument.defaults
         v3.version = 3
         v3.physics.repulsionStrength = 33
@@ -237,7 +254,7 @@ final class BureauTuningTests: XCTestCase {
         try data.write(to: dir.appendingPathComponent("bureau-tuning.json"))
 
         let tuning = BureauTuning(directory: dir)
-        XCTAssertEqual(tuning.document.version, 4)
+        XCTAssertEqual(tuning.document.version, 5)
         // Preserved v3 values.
         XCTAssertEqual(tuning.document.physics.repulsionStrength, 33)
         XCTAssertEqual(tuning.document.sticky.liveCap, 9)
@@ -245,9 +262,9 @@ final class BureauTuningTests: XCTestCase {
         XCTAssertEqual(tuning.document.shredder.overlayWidthPx, 170)
         XCTAssertEqual(tuning.document.shredder.overlayHeightPx, 72)
 
-        // Written back at version 4: a fresh load reads 4 and keeps the values.
+        // Written back at version 5: a fresh load reads 5 and keeps the values.
         let reloaded = BureauTuning(directory: dir)
-        XCTAssertEqual(reloaded.document.version, 4)
+        XCTAssertEqual(reloaded.document.version, 5)
         XCTAssertEqual(reloaded.document.physics.repulsionStrength, 33)
     }
 }

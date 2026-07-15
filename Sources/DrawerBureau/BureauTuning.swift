@@ -184,12 +184,16 @@ public struct BureauStampTuning: Codable, Equatable, Sendable {
     public var hapticEnabled: Bool
     /// The mechanical rail sound as the rack slides out or back.
     public var slideVolume: Double
+    /// Width of the collapsed right-edge tab (was hardcoded 30).
+    public var tabWidthPx: Double
+    /// Height of the whole rack panel (was hardcoded 130).
+    public var rackHeightPx: Double
 
     public init(
         rackWidthPx: Double, stampSizePx: Double, extendMs: Double, pressMs: Double,
         liftMs: Double, inkRotationMinDeg: Double, inkRotationMaxDeg: Double,
         doubleStrikeOffsetPx: Double, thunkVolume: Double, hapticEnabled: Bool,
-        slideVolume: Double
+        slideVolume: Double, tabWidthPx: Double = 30, rackHeightPx: Double = 170
     ) {
         self.rackWidthPx = rackWidthPx
         self.stampSizePx = stampSizePx
@@ -202,6 +206,8 @@ public struct BureauStampTuning: Codable, Equatable, Sendable {
         self.thunkVolume = thunkVolume
         self.hapticEnabled = hapticEnabled
         self.slideVolume = slideVolume
+        self.tabWidthPx = tabWidthPx
+        self.rackHeightPx = rackHeightPx
     }
 
     // A version-2 file carries the old arm keys and none of the rack ones, and a
@@ -220,6 +226,8 @@ public struct BureauStampTuning: Codable, Equatable, Sendable {
         thunkVolume = try c.decode(Double.self, forKey: .thunkVolume)
         hapticEnabled = try c.decode(Bool.self, forKey: .hapticEnabled)
         slideVolume = try c.decodeIfPresent(Double.self, forKey: .slideVolume) ?? 0.5
+        tabWidthPx = try c.decodeIfPresent(Double.self, forKey: .tabWidthPx) ?? 30
+        rackHeightPx = try c.decodeIfPresent(Double.self, forKey: .rackHeightPx) ?? 170
     }
 }
 
@@ -400,6 +408,10 @@ public struct BureauReturnDropTuning: Codable, Equatable, Sendable {
 /// `overlay` sizes are the screen-level shredder panel pinned bottom-right,
 /// separate from `widthPx` which is the in-drawer slot inside the scene.
 public struct BureauShredderTuning: Codable, Equatable, Sendable {
+    /// Whether the shredder exists at all: the slot in the tray corner and the
+    /// screen overlay both. Off hides them and nothing can shred; a receipt
+    /// leaves only by being stamped.
+    public var enabled: Bool
     public var widthPx: Double
     public var shredMs: Double
     public var volume: Double
@@ -408,9 +420,10 @@ public struct BureauShredderTuning: Codable, Equatable, Sendable {
     public var overlayHeightPx: Double
 
     public init(
-        widthPx: Double, shredMs: Double, volume: Double,
+        enabled: Bool = false, widthPx: Double, shredMs: Double, volume: Double,
         overlayWidthPx: Double, overlayHeightPx: Double
     ) {
+        self.enabled = enabled
         self.widthPx = widthPx
         self.shredMs = shredMs
         self.volume = volume
@@ -418,15 +431,116 @@ public struct BureauShredderTuning: Codable, Equatable, Sendable {
         self.overlayHeightPx = overlayHeightPx
     }
 
-    // A version-3 file has no overlay sizes; decode them tolerantly so the
-    // migration fills them without discarding tuned values.
+    // A version-3 file has no overlay sizes and a version-4 file has no
+    // enabled flag; decode them tolerantly so the migration fills them
+    // without discarding tuned values.
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
+        enabled = try c.decodeIfPresent(Bool.self, forKey: .enabled) ?? false
         widthPx = try c.decode(Double.self, forKey: .widthPx)
         shredMs = try c.decode(Double.self, forKey: .shredMs)
         volume = try c.decode(Double.self, forKey: .volume)
         overlayWidthPx = try c.decodeIfPresent(Double.self, forKey: .overlayWidthPx) ?? 170
         overlayHeightPx = try c.decodeIfPresent(Double.self, forKey: .overlayHeightPx) ?? 72
+    }
+}
+
+/// Every color, font, and pixelation choice in the Bureau, hand-editable in
+/// bureau-tuning.json and hot-reloaded (see Docs/BUREAU.md, the artist guide).
+/// Colors are "#RRGGBB" or "#RRGGBBAA" hex strings. A bad hex string falls
+/// back to that color's default instead of failing the whole document.
+public struct BureauArtTuning: Codable, Equatable, Sendable {
+    /// Receipt paper.
+    public var paper: String
+    /// Paper shading: the bottom band, aging yellow.
+    public var paperShade: String
+    /// Title ink.
+    public var ink: String
+    /// Faint ink: details, stub line.
+    public var inkFaint: String
+    /// The one red accent: the rule under the title, the DENIED stamp.
+    public var accent: String
+    /// The APPROVED stamp green.
+    public var approve: String
+    /// The drawer floor behind the slips.
+    public var drawerFloor: String
+    /// The drawer lip and dark slots.
+    public var drawerLip: String
+    /// The FILED tray band.
+    public var tray: String
+    /// Light ink on tray-dark surfaces (tray label, shredder teeth).
+    public var trayInk: String
+    /// The stamp rack metal slab.
+    public var metal: String
+    /// The rack's lighter edge stroke.
+    public var metalEdge: String
+    /// The rivet dots on the rack corners.
+    public var rivet: String
+    /// Font family for every Bureau text surface. Any family registered with
+    /// the app works: drop a .ttf into Sources/Drawer/Resources/Fonts and name
+    /// its family here.
+    public var fontFamily: String
+    /// Slip title size in points.
+    public var titleFontSize: Double
+    /// Slip detail / stub size in points.
+    public var detailFontSize: Double
+    /// Chunkiness: slips render at 1/pixelScale resolution and scale up with
+    /// nearest-neighbor, so 1 is crisp and 2-4 is progressively chunkier
+    /// Papers-Please pixels.
+    public var pixelScale: Double
+
+    public init(
+        paper: String = "#E3D6B8", paperShade: String = "#CCBD9C",
+        ink: String = "#292621", inkFaint: String = "#2926218C",
+        accent: String = "#9E3326", approve: String = "#3D6B38",
+        drawerFloor: String = "#3D3624", drawerLip: String = "#292417",
+        tray: String = "#5E523D", trayInk: String = "#DED4BA",
+        metal: String = "#262626", metalEdge: String = "#525252",
+        rivet: String = "#6B6B6B", fontFamily: String = "Pixelify Sans",
+        titleFontSize: Double = 15, detailFontSize: Double = 8,
+        pixelScale: Double = 2
+    ) {
+        self.paper = paper
+        self.paperShade = paperShade
+        self.ink = ink
+        self.inkFaint = inkFaint
+        self.accent = accent
+        self.approve = approve
+        self.drawerFloor = drawerFloor
+        self.drawerLip = drawerLip
+        self.tray = tray
+        self.trayInk = trayInk
+        self.metal = metal
+        self.metalEdge = metalEdge
+        self.rivet = rivet
+        self.fontFamily = fontFamily
+        self.titleFontSize = titleFontSize
+        self.detailFontSize = detailFontSize
+        self.pixelScale = pixelScale
+    }
+
+    // Field-tolerant: an art block missing any key gets that key's default, so
+    // a hand-edited file never breaks on a partial block.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        let d = BureauArtTuning()
+        paper = try c.decodeIfPresent(String.self, forKey: .paper) ?? d.paper
+        paperShade = try c.decodeIfPresent(String.self, forKey: .paperShade) ?? d.paperShade
+        ink = try c.decodeIfPresent(String.self, forKey: .ink) ?? d.ink
+        inkFaint = try c.decodeIfPresent(String.self, forKey: .inkFaint) ?? d.inkFaint
+        accent = try c.decodeIfPresent(String.self, forKey: .accent) ?? d.accent
+        approve = try c.decodeIfPresent(String.self, forKey: .approve) ?? d.approve
+        drawerFloor = try c.decodeIfPresent(String.self, forKey: .drawerFloor) ?? d.drawerFloor
+        drawerLip = try c.decodeIfPresent(String.self, forKey: .drawerLip) ?? d.drawerLip
+        tray = try c.decodeIfPresent(String.self, forKey: .tray) ?? d.tray
+        trayInk = try c.decodeIfPresent(String.self, forKey: .trayInk) ?? d.trayInk
+        metal = try c.decodeIfPresent(String.self, forKey: .metal) ?? d.metal
+        metalEdge = try c.decodeIfPresent(String.self, forKey: .metalEdge) ?? d.metalEdge
+        rivet = try c.decodeIfPresent(String.self, forKey: .rivet) ?? d.rivet
+        fontFamily = try c.decodeIfPresent(String.self, forKey: .fontFamily) ?? d.fontFamily
+        titleFontSize = try c.decodeIfPresent(Double.self, forKey: .titleFontSize) ?? d.titleFontSize
+        detailFontSize = try c.decodeIfPresent(Double.self, forKey: .detailFontSize) ?? d.detailFontSize
+        pixelScale = try c.decodeIfPresent(Double.self, forKey: .pixelScale) ?? d.pixelScale
     }
 }
 
@@ -447,13 +561,15 @@ public struct BureauTuningDocument: Codable, Equatable, Sendable {
     public var drawer: BureauDrawerTuning
     public var returnDrop: BureauReturnDropTuning
     public var shredder: BureauShredderTuning
+    public var art: BureauArtTuning
 
     public init(
         version: Int, transition: BureauTransitionTuning, physics: BureauPhysicsTuning,
         rustle: BureauRustleTuning, print: BureauPrintTuning, stamp: BureauStampTuning,
         crumple: BureauCrumpleTuning, hoverScroll: BureauHoverScrollTuning,
         sticky: BureauStickyTuning, texture: BureauTextureTuning, filedTray: BureauFiledTrayTuning,
-        drawer: BureauDrawerTuning, returnDrop: BureauReturnDropTuning, shredder: BureauShredderTuning
+        drawer: BureauDrawerTuning, returnDrop: BureauReturnDropTuning, shredder: BureauShredderTuning,
+        art: BureauArtTuning = BureauArtTuning()
     ) {
         self.version = version
         self.transition = transition
@@ -469,6 +585,7 @@ public struct BureauTuningDocument: Codable, Equatable, Sendable {
         self.drawer = drawer
         self.returnDrop = returnDrop
         self.shredder = shredder
+        self.art = art
     }
 
     // Version-2 files carry none of the drawer/returnDrop/shredder blocks, so
@@ -493,12 +610,13 @@ public struct BureauTuningDocument: Codable, Equatable, Sendable {
             ?? BureauTuningDocument.defaults.returnDrop
         shredder = try c.decodeIfPresent(BureauShredderTuning.self, forKey: .shredder)
             ?? BureauTuningDocument.defaults.shredder
+        art = try c.decodeIfPresent(BureauArtTuning.self, forKey: .art) ?? BureauArtTuning()
     }
 
     /// The values in `bureau-impl.md` section 5, written to disk the first
     /// time the app looks for the tuning file.
     public static let defaults = BureauTuningDocument(
-        version: 4,
+        version: 5,
         transition: BureauTransitionTuning(
             pushMs: 320, easing: [0.16, 1.0, 0.3, 1.0], reduceMotionCrossfadeMs: 160
         ),
@@ -513,14 +631,14 @@ public struct BureauTuningDocument: Codable, Equatable, Sendable {
         ),
         print: BureauPrintTuning(
             stepMs: 55, stepPx: 6, chatterVolume: 0.4, dingVolume: 0.7,
-            tearMs: 180, dropImpulse: 8, queueStaggerMs: 250,
-            spreadDeg: 70, impulseVariance: 0.3, spin: 0.15
+            tearMs: 180, dropImpulse: 3, queueStaggerMs: 250,
+            spreadDeg: 40, impulseVariance: 0.3, spin: 0.08
         ),
         stamp: BureauStampTuning(
-            rackWidthPx: 200, stampSizePx: 64, extendMs: 220, pressMs: 90, liftMs: 130,
+            rackWidthPx: 280, stampSizePx: 96, extendMs: 220, pressMs: 90, liftMs: 130,
             inkRotationMinDeg: 2, inkRotationMaxDeg: 4,
             doubleStrikeOffsetPx: 1.5, thunkVolume: 0.8, hapticEnabled: true,
-            slideVolume: 0.5
+            slideVolume: 0.5, tabWidthPx: 30, rackHeightPx: 170
         ),
         crumple: BureauCrumpleTuning(frames: 8, flyToTrayMs: 260),
         hoverScroll: BureauHoverScrollTuning(
@@ -532,7 +650,7 @@ public struct BureauTuningDocument: Codable, Equatable, Sendable {
             slipWidth: 96, slipHeight: 144, growSpringResponse: 0.28, growSpringDamping: 0.72,
             growStart: 0.667, clampMinVisible: 40, settleDebounceMs: 350
         ),
-        texture: BureauTextureTuning(rerenderOnEditOnly: true),
+        texture: BureauTextureTuning(rerenderOnEditOnly: true, showStubLine: false),
         filedTray: BureauFiledTrayTuning(clearsMonday: true),
         drawer: BureauDrawerTuning(
             trayHeightFraction: 0.14, trayMinHeight: 34, lipHeightPx: 6,
@@ -540,8 +658,10 @@ public struct BureauTuningDocument: Codable, Equatable, Sendable {
         ),
         returnDrop: BureauReturnDropTuning(impulse: 2, spin: 0.1),
         shredder: BureauShredderTuning(
-            widthPx: 56, shredMs: 240, volume: 0.7, overlayWidthPx: 170, overlayHeightPx: 72
-        )
+            enabled: false, widthPx: 56, shredMs: 240, volume: 0.7,
+            overlayWidthPx: 170, overlayHeightPx: 72
+        ),
+        art: BureauArtTuning()
     )
 }
 
@@ -619,14 +739,35 @@ public final class BureauTuning: ObservableObject {
         // above, filling the new fields with defaults while keeping the user's
         // tuned values. Bump it to 4 and write it back so the whole schema is on
         // disk for the slider panel.
-        if doc.version == 2 || doc.version == 3 {
-            var migrated = doc
+        // The migrations chain, so a file at any old version reaches the
+        // current schema in one load, not one bump per launch.
+        var migrated = doc
+        // Versions 3 and 4 only added fields (v3: stamp rack, shredder, drawer
+        // geometry, return drop; v4: shredder overlay, rotation control, stamp
+        // slide sound). A version-2 or version-3 file already decoded
+        // tolerantly above, filling the new fields with defaults while keeping
+        // the user's tuned values.
+        if migrated.version == 2 || migrated.version == 3 {
             migrated.version = 4
-            document = migrated
-            write(migrated)
-            return
         }
-        document = doc
+        // Version 5 is the art pass: the stub line goes away, the stamps get
+        // big enough to read as Papers-Please stamps, the printer lays slips
+        // down gently instead of flinging them, and the shredder ships off.
+        // These override the stored values once, deliberately (they answer
+        // direct feedback); everything else the user tuned is preserved, and
+        // every one of them has a slider or a json key to change back.
+        if migrated.version == 4 {
+            migrated.version = 5
+            migrated.texture.showStubLine = false
+            migrated.stamp.stampSizePx = max(migrated.stamp.stampSizePx, 96)
+            migrated.stamp.rackWidthPx = max(migrated.stamp.rackWidthPx, 280)
+            migrated.print.dropImpulse = min(migrated.print.dropImpulse, 3)
+            migrated.print.spreadDeg = min(migrated.print.spreadDeg, 40)
+            migrated.print.spin = min(migrated.print.spin, 0.08)
+            migrated.shredder.enabled = false
+        }
+        document = migrated
+        if migrated != doc { write(migrated) }
     }
 
     /// Watches the data directory and reloads whenever bureau-tuning.json

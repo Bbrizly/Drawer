@@ -5,32 +5,38 @@ import SpriteKit
 /// active (spec Decision 5, risk 10), so it owns its own muted palette rather
 /// than reading `DrawerTheme` (which lives in the `Drawer` target anyway).
 /// Gritty paper, one red accent, dark ink.
+///
+/// Every value here loads from the `art` block of bureau-tuning.json via
+/// `apply(_:)`, so an artist edits hex strings in the json (hot-reloaded) and
+/// the whole Bureau recolors. The statics keep every call site a plain
+/// `BureauPalette.cream` read. See Docs/BUREAU.md for the full editing guide.
 enum BureauPalette {
-    static let cream = NSColor(calibratedRed: 0.89, green: 0.84, blue: 0.72, alpha: 1)
-    static let creamShade = NSColor(calibratedRed: 0.80, green: 0.74, blue: 0.61, alpha: 1)
-    static let ink = NSColor(calibratedRed: 0.16, green: 0.15, blue: 0.13, alpha: 1)
-    static let inkFaint = NSColor(calibratedRed: 0.16, green: 0.15, blue: 0.13, alpha: 0.55)
-    static let red = NSColor(calibratedRed: 0.62, green: 0.20, blue: 0.15, alpha: 1)
+    static private(set) var cream = color("#E3D6B8")
+    static private(set) var creamShade = color("#CCBD9C")
+    static private(set) var ink = color("#292621")
+    static private(set) var inkFaint = color("#2926218C")
+    static private(set) var red = color("#9E3326")
     /// The DONE stamp die and its ink (spec "The stamp"): a muted approval
     /// green sitting beside `red`'s POSTPONED in the same dusty register.
-    static let stampGreen = NSColor(calibratedRed: 0.24, green: 0.42, blue: 0.22, alpha: 1)
-    static let drawerFloor = NSColor(calibratedRed: 0.24, green: 0.21, blue: 0.14, alpha: 1)
-    static let drawerLip = NSColor(calibratedRed: 0.16, green: 0.14, blue: 0.09, alpha: 1)
-    static let tray = NSColor(calibratedRed: 0.37, green: 0.32, blue: 0.24, alpha: 1)
-    static let trayInk = NSColor(calibratedRed: 0.87, green: 0.83, blue: 0.73, alpha: 1)
+    static private(set) var stampGreen = color("#3D6B38")
+    static private(set) var drawerFloor = color("#3D3624")
+    static private(set) var drawerLip = color("#292417")
+    static private(set) var tray = color("#5E523D")
+    static private(set) var trayInk = color("#DED4BA")
 
     /// The Papers-Please stamp bar: near-black metal, a lighter edge, and the
     /// rivet dots at its corners.
-    static let metal = NSColor(calibratedWhite: 0.15, alpha: 1)
-    static let metalEdge = NSColor(calibratedWhite: 0.32, alpha: 1)
-    static let rivet = NSColor(calibratedWhite: 0.42, alpha: 1)
+    static private(set) var metal = color("#262626")
+    static private(set) var metalEdge = color("#525252")
+    static private(set) var rivet = color("#6B6B6B")
 
-    /// The bundled pixel face the Pixel theme ships (registered process-wide by
-    /// the app at launch via `FontLoader.registerBundledFonts`). DrawerBureau
-    /// cannot import `Drawer`, so the family is named directly here; a missing
-    /// registration (e.g. a bare unit test) falls back to a system face so the
-    /// slip still renders legible ink.
-    static let pixelFamily = "Pixelify Sans"
+    /// The Bureau text face, from `art.fontFamily`. Defaults to the bundled
+    /// pixel font the Pixel theme ships (registered process-wide at launch via
+    /// `FontLoader.registerBundledFonts`). DrawerBureau cannot import `Drawer`,
+    /// so the family is named directly; a missing registration (e.g. a bare
+    /// unit test) falls back to a system face so the slip still renders
+    /// legible ink.
+    static private(set) var pixelFamily = "Pixelify Sans"
 
     static func titleFont(_ size: CGFloat) -> NSFont {
         NSFont(name: pixelFamily, size: size) ?? NSFont.boldSystemFont(ofSize: size)
@@ -39,6 +45,41 @@ enum BureauPalette {
     static func detailFont(_ size: CGFloat) -> NSFont {
         NSFont(name: pixelFamily, size: size)
             ?? NSFont.monospacedSystemFont(ofSize: size, weight: .regular)
+    }
+
+    /// Loads the palette from the tuning's art block. A hex string that fails
+    /// to parse leaves that color at its default rather than failing the load.
+    static func apply(_ art: BureauArtTuning) {
+        cream = color(art.paper)
+        creamShade = color(art.paperShade)
+        ink = color(art.ink)
+        inkFaint = color(art.inkFaint)
+        red = color(art.accent)
+        stampGreen = color(art.approve)
+        drawerFloor = color(art.drawerFloor)
+        drawerLip = color(art.drawerLip)
+        tray = color(art.tray)
+        trayInk = color(art.trayInk)
+        metal = color(art.metal)
+        metalEdge = color(art.metalEdge)
+        rivet = color(art.rivet)
+        pixelFamily = art.fontFamily
+    }
+
+    /// "#RRGGBB" or "#RRGGBBAA" (leading # optional) to NSColor. Magenta on a
+    /// bad string so a typo is visible in the scene instead of silently black.
+    static func color(_ hex: String) -> NSColor {
+        var s = hex.trimmingCharacters(in: .whitespaces)
+        if s.hasPrefix("#") { s.removeFirst() }
+        guard s.count == 6 || s.count == 8, let v = UInt64(s, radix: 16) else {
+            return .magenta
+        }
+        let hasAlpha = s.count == 8
+        let r = CGFloat((v >> (hasAlpha ? 24 : 16)) & 0xFF) / 255
+        let g = CGFloat((v >> (hasAlpha ? 16 : 8)) & 0xFF) / 255
+        let b = CGFloat((v >> (hasAlpha ? 8 : 0)) & 0xFF) / 255
+        let a = hasAlpha ? CGFloat(v & 0xFF) / 255 : 1
+        return NSColor(calibratedRed: r, green: g, blue: b, alpha: a)
     }
 }
 
@@ -60,6 +101,14 @@ final class TextureRenderer {
     }
 
     private var cache: [Key: NSImage] = [:]
+
+    /// The live art block: font sizes and pixel chunkiness. The palette part
+    /// is applied globally via `BureauPalette.apply`; this copy drives the
+    /// values baked into each slip render. Setting a changed art drops the
+    /// cache, so every slip re-renders in the new style on its next read.
+    var art = BureauArtTuning() {
+        didSet { if art != oldValue { cache.removeAll() } }
+    }
 
     /// The slip image at `size` points, backed by a `size * scale` pixel
     /// buffer. `age` is 0 (fresh off the printer) to 1 (weeks in the drawer);
@@ -94,8 +143,12 @@ final class TextureRenderer {
     func invalidate() { cache.removeAll() }
 
     private func render(title: String, details: String, size: CGSize, scale: CGFloat, age: Double = 0, showStubLine: Bool = true) -> NSImage {
-        let pxW = max(1, Int((size.width * scale).rounded()))
-        let pxH = max(1, Int((size.height * scale).rounded()))
+        // The pixelation knob: art.pixelScale divides the pixel density, and
+        // the nearest-neighbor filtering in `texture` scales the small buffer
+        // back up into chunky Papers-Please pixels. 1 renders crisp.
+        let renderScale = max(0.25, scale / CGFloat(max(1, art.pixelScale)))
+        let pxW = max(1, Int((size.width * renderScale).rounded()))
+        let pxH = max(1, Int((size.height * renderScale).rounded()))
         guard let rep = NSBitmapImageRep(
             bitmapDataPlanes: nil, pixelsWide: pxW, pixelsHigh: pxH,
             bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
@@ -154,12 +207,13 @@ final class TextureRenderer {
         let inset: CGFloat = 10
         let contentWidth = size.width - inset * 2
 
-        // BIG readable title (legibility beats flavor at drawer scale). 15pt
-        // reads big but still wraps cleanly on the narrow 96pt portrait slip.
+        // BIG readable title (legibility beats flavor at drawer scale). The
+        // default 15pt reads big but still wraps cleanly on the narrow 96pt
+        // portrait slip; art.titleFontSize tunes it.
         let titleStyle = NSMutableParagraphStyle()
         titleStyle.lineBreakMode = .byWordWrapping
         let titleAttrs: [NSAttributedString.Key: Any] = [
-            .font: BureauPalette.titleFont(15),
+            .font: BureauPalette.titleFont(CGFloat(art.titleFontSize)),
             .foregroundColor: BureauPalette.ink,
             .paragraphStyle: titleStyle,
         ]
@@ -179,7 +233,7 @@ final class TextureRenderer {
         if showStubLine {
             let detail = details.isEmpty ? defaultDetail(&rng) : details
             let detailAttrs: [NSAttributedString.Key: Any] = [
-                .font: BureauPalette.detailFont(8),
+                .font: BureauPalette.detailFont(CGFloat(art.detailFontSize)),
                 .foregroundColor: BureauPalette.inkFaint,
             ]
             (detail as NSString).draw(
