@@ -69,30 +69,54 @@ final class BureauSounds {
 
     private static func render(_ sound: Sound) -> AVAudioPCMBuffer? {
         switch sound {
-        case .chatter: return buffer(duration: 0.02) { t, rng in
-            // A pin strike: a hard noise tick with an instant decay.
-            rng() * exp(-t * 300)
+        case .chatter: return buffer(duration: 0.03) { t, rng in
+            // A dot-matrix pin strike. Quantize time into 1 ms steps so the
+            // tone grinds like a stepper motor instead of ringing smooth.
+            let step = (t * 1000).rounded(.down) / 1000
+            let pin = sin(2 * .pi * 1600 * step) * exp(-t * 250)
+            let grit = rng() * exp(-t * 400) * 0.4
+            // A faint motor hum sits under the strike.
+            let hum = sin(2 * .pi * 55 * t) * 0.15 * exp(-t * 60)
+            return (pin + grit) * 0.7 + hum
         }
         case .ding: return buffer(duration: 0.4) { t, _ in
             // A small terminal bell: a bright pair a fifth apart, rung once.
             (sin(2 * .pi * 1244.5 * t) + 0.5 * sin(2 * .pi * 1864.7 * t))
                 * exp(-t * 9) * min(1, t * 400)
         }
-        case .thunk: return buffer(duration: 0.22) { t, rng in
-            // Weight: a low body dropping in pitch plus a leather-ish slap.
-            let body = sin(2 * .pi * (82 - 60 * t) * t) * exp(-t * 22)
-            let slap = rng() * exp(-t * 120) * 0.4
-            return body + slap
+        case .thunk: return buffer(duration: 0.24) { t, rng in
+            // Stamp: a two-stage ka-CHUNK. Stage one is a hard mechanical click
+            // that dies in about 15 ms.
+            let click = t < 0.015 ? rng() * exp(-t * 400) * 0.6 : 0
+            // A short gap, then stage two: a deep punchy thud that slides from
+            // about 120 Hz down to 80 Hz and decays fast, no ring-out.
+            let u = t - 0.03
+            let thud = u > 0 ? sin(2 * .pi * (120 - 260 * u) * u) * exp(-u * 18) : 0
+            return click + thud
         }
-        case .rustle: return buffer(duration: 0.12) { t, rng in
-            // Paper: soft noise swelling in and out, no tonal center.
-            rng() * 0.35 * sin(.pi * min(1, t / 0.12))
-        }
-        case .shred: return buffer(duration: 0.26) { t, rng in
-            // Teeth chewing paper: harsh noise plus a buzz that sweeps down in
-            // pitch as the slip is pulled under, decaying over the burst.
-            let buzz = sin(2 * .pi * (240 - 700 * t) * t)
-            return (rng() * 0.7 + buzz * 0.3) * exp(-t * 7)
+        case .rustle:
+            var prev = 0.0
+            return buffer(duration: 0.14) { t, rng in
+                let n = rng()
+                // High-pass feel without a filter: the difference of successive
+                // noise samples drops the low rumble and leaves a dry edge.
+                let hp = n - prev
+                prev = n
+                // A quiet crackle bed plus sparse spikes so it reads as dry
+                // paper catching, not smooth hiss. hp spans -2...2, so the
+                // gains keep the worst case at 2*0.10 + 2*0.40 = 1.0, and the
+                // clamp guarantees no clipping.
+                let spike = rng() > 0.985 ? hp * 0.40 : 0
+                let env = sin(.pi * min(1, t / 0.14))
+                return max(-0.95, min(0.95, (hp * 0.10 + spike) * env))
+            }
+        case .shred: return buffer(duration: 0.4) { t, rng in
+            // Shredder teeth: a low grind that sweeps down slowly as the slip is
+            // pulled under. Two incommensurate sines give an irregular amplitude
+            // wobble, like the paper catching and slipping.
+            let grind = sin(2 * .pi * (140 - 180 * t) * t)
+            let wobble = 0.6 + 0.4 * sin(2 * .pi * 11 * t) * sin(2 * .pi * 7 * t)
+            return (rng() * 0.6 + grind * 0.4) * wobble * exp(-t * 3)
         }
         case .slide: return buffer(duration: 0.12) { t, rng in
             // A drawer rail: filtered noise under a soft swell, with a faint low
