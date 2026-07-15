@@ -29,6 +29,14 @@ final class FeatureFlagTests: XCTestCase {
         XCTAssertFalse(FeatureFlag.attribution.defaultValue)
     }
 
+    func testAttributionExistsOnlyOutsideAppStoreBuild() {
+        // Runs in both flavors: `swift test` and `swift test -Xswiftc -DAPPSTORE`.
+        XCTAssertEqual(FeatureFlag.availableCases.contains(.attribution), !appStoreBuild)
+        XCTAssertEqual(
+            Set(FeatureFlag.availableCases).symmetricDifference(FeatureFlag.allCases),
+            appStoreBuild ? [.attribution] : [])
+    }
+
     func testFinickyFeaturesShipOff() {
         for flag in [FeatureFlag.planner, .history, .workMode, .ideaCapture] {
             XCTAssertFalse(flag.defaultValue, "\(flag.rawValue) should default off")

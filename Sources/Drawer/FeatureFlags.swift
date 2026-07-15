@@ -1,5 +1,15 @@
 import SwiftUI
 
+/// True in the Mac App Store flavor (`make appstore`, i.e. -DAPPSTORE). The
+/// sandbox denies the Accessibility API, so the AX-dependent surface
+/// (attribution sampling, the right-Command tap) is unreachable in that build:
+/// no toggle, no prompt, no monitor.
+#if APPSTORE
+    let appStoreBuild = true
+#else
+    let appStoreBuild = false
+#endif
+
 /// Every switchable feature in the app. One source of truth so the Settings
 /// list and the Minimal/Everything presets iterate generically, while each
 /// view reads a single key via @AppStorage. The four pre-existing toggles
@@ -150,9 +160,15 @@ enum FeatureFlag: String, CaseIterable, Identifiable {
         "Feedback", "Swipe gestures", "Task rows", "Sections", "Controls", "Automation",
     ]
 
+    /// The flags that exist in this build. The App Store build drops
+    /// attribution: its AX sampling is denied by the sandbox.
+    static var availableCases: [FeatureFlag] {
+        appStoreBuild ? allCases.filter { $0 != .attribution } : allCases
+    }
+
     static func registerDefaults() {
         var defaults: [String: Any] = [:]
-        for flag in allCases { defaults[flag.key] = flag.defaultValue }
+        for flag in availableCases { defaults[flag.key] = flag.defaultValue }
         UserDefaults.standard.register(defaults: defaults)
     }
 }
@@ -173,14 +189,14 @@ final class FeatureFlagsModel: ObservableObject {
     }
 
     func applyMinimal() {
-        for flag in FeatureFlag.allCases {
+        for flag in FeatureFlag.availableCases {
             UserDefaults.standard.set(flag.minimalValue, forKey: flag.key)
         }
         objectWillChange.send()
     }
 
     func applyEverything() {
-        for flag in FeatureFlag.allCases {
+        for flag in FeatureFlag.availableCases {
             UserDefaults.standard.set(true, forKey: flag.key)
         }
         objectWillChange.send()

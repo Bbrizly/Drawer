@@ -20,6 +20,9 @@ struct SettingsPathRow: View {
     let caption: String
     @Binding var storedPath: String
     let defaultPath: String
+    /// The UserDefaults key behind `storedPath`, so the sandboxed App Store
+    /// build can persist a security-scoped bookmark for the pick.
+    let settingKey: String
     var pickKind: SettingsPickKind = .markdownFile
 
     private var effectivePath: String {
@@ -72,6 +75,7 @@ struct SettingsPathRow: View {
 
     private func choose() {
         guard let picked = SettingsPickers.run(pickKind, startingAt: effectivePath) else { return }
+        SandboxBookmarks.save(url: URL(fileURLWithPath: picked), forSetting: settingKey)
         storedPath = picked
     }
 }

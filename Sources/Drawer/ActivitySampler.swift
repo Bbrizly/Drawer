@@ -28,6 +28,8 @@ final class ActivitySampler {
     /// already trusted (sampling only proceeds when true).
     @discardableResult
     static func ensureAccessibilityTrust(prompt: Bool) -> Bool {
+        // The sandbox denies AX; the App Store build must never prompt or sample.
+        guard !appStoreBuild else { return false }
         let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue(): prompt] as CFDictionary
         return AXIsProcessTrustedWithOptions(options)
     }

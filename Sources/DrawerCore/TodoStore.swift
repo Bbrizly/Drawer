@@ -43,7 +43,8 @@ public final class TodoStore: ObservableObject {
         writeData: @escaping (Data, URL) throws -> Void
     ) {
         self.fileURL = fileURL
-        self.watcher = FileWatcher(directory: fileURL.deletingLastPathComponent())
+        self.watcher = FileWatcher(
+            directory: fileURL.deletingLastPathComponent(), pollFile: fileURL)
         self.todayProvider = todayProvider
         self.readData = readData
         self.writeData = writeData
@@ -57,7 +58,7 @@ public final class TodoStore: ObservableObject {
         fileURL = url
         lastWrittenData = nil
         lastAppliedData = nil
-        watcher = FileWatcher(directory: url.deletingLastPathComponent())
+        watcher = FileWatcher(directory: url.deletingLastPathComponent(), pollFile: url)
         watcher.onChange = { [weak self] in self?.reload() }
         watcher.start()
         reload()

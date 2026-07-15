@@ -174,7 +174,9 @@ struct DrawerView: View {
     private var availablePanes: [Pane] {
         var panes: [Pane] = []
         if plannerEnabled { panes.append(.plan) }
-        if attributionEnabled { panes.append(.work) }
+        // !appStoreBuild: a stale opt-in from a direct-download install must not
+        // surface the Work pane in the App Store build, which has no attribution.
+        if attributionEnabled, !appStoreBuild { panes.append(.work) }
         if historyEnabled { panes.append(.history) }
         return panes
     }

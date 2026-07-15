@@ -47,6 +47,29 @@ final class FileWatcherTests: XCTestCase {
         watcher.stop()
     }
 
+    func testPollFallbackDetectsChangeWhenDirectoryIsUnopenable() throws {
+        // The sandboxed App Store build can read a user-picked file but not
+        // open its parent directory; the watcher falls back to polling mtime.
+        // Simulate by watching a directory that never exists while pollFile
+        // points at a real file.
+        let file = dir.appendingPathComponent("t.md")
+        try "a".write(to: file, atomically: true, encoding: .utf8)
+
+        let unopenable = dir.appendingPathComponent("never-created")
+        let watcher = FileWatcher(directory: unopenable, retryInterval: 60, pollFile: file)
+        let exp = expectation(description: "poll detected the change")
+        exp.assertForOverFulfill = false
+        watcher.onChange = { exp.fulfill() }
+        watcher.start()
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+            try? "changed content".write(to: file, atomically: true, encoding: .utf8)
+        }
+
+        wait(for: [exp], timeout: 8.0)  // poll cadence is 2s
+        watcher.stop()
+    }
+
     func testDetectsFileCreation() throws {
         let watcher = FileWatcher(directory: dir)
         let exp = expectation(description: "creation detected")

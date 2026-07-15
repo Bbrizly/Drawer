@@ -70,7 +70,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             "teleprompterSpeed": 45.0,
             "teleprompterFontSize": 34.0,
             "notesPaneHeight": 160.0,
-            "exportWorkLogMarkdown": true,
+            "exportWorkLogMarkdown": AppPaths.defaultExportWorkLogMarkdown,
             "rightCommandTapEnabled": false,
         ]
         defaults.merge(PomodoroPreferences.defaults) { current, _ in current }
@@ -80,9 +80,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         FeatureFlag.registerDefaults()
 
         // SMAppService replaces the manually-added login item; register once.
-        if !UserDefaults.standard.bool(forKey: "didRegisterLoginItem") {
+        // Not in the App Store build: auto-adding a login item without consent
+        // is an App Review rejection (guideline 2.4.5(iii)); the Settings
+        // toggle remains.
+        if !appStoreBuild, !UserDefaults.standard.bool(forKey: "didRegisterLoginItem") {
             try? SMAppService.mainApp.register()
             UserDefaults.standard.set(true, forKey: "didRegisterLoginItem")
+        }
+
+        // Reopen security scopes for user-picked files before any store reads
+        // them, and make the sandboxed default drawer location exist.
+        SandboxBookmarks.restoreAll()
+        if appStoreBuild {
+            try? FileManager.default.createDirectory(
+                at: URL(fileURLWithPath: AppPaths.drawerFile).deletingLastPathComponent(),
+                withIntermediateDirectories: true)
         }
 
         let path = AppPaths.drawerFile
@@ -443,8 +455,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// observer, deduped so noise doesn't churn the sampler.
     @objc private func syncAttribution() {
         let wasPermitted = attributionPermitted
-        attributionPermitted =
-            UserDefaults.standard.object(forKey: FeatureFlag.attribution.key) as? Bool ?? false
+        // !appStoreBuild guards a stale opt-in carried over from a direct-download
+        // install's defaults; the App Store build has no attribution.
+        attributionPermitted = !appStoreBuild
+            && UserDefaults.standard.object(forKey: FeatureFlag.attribution.key) as? Bool ?? false
         // Opting out deletes the raw window-title trail right away; the 7-day
         // retention is a ceiling, not a license to keep titles after opt-out.
         if wasPermitted, !attributionPermitted { attribution.eraseRawTrail() }
@@ -545,7 +559,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         rightCommandLog.notice(
             "apply tap enabled=\(enabled) prompt=\(prompt) trusted=\(AccessibilityPermission.isTrusted)"
         )
-        guard enabled else {
+        // The tap needs Accessibility, which the sandboxed App Store build
+        // cannot use; its toggle is also hidden from Settings.
+        guard enabled, !appStoreBuild else {
             rightCommandTap.stop()
             return
         }

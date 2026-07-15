@@ -21,7 +21,8 @@ final class HistoryRecorder: ObservableObject {
     init(store: SnapshotStore, fileURL: URL) {
         self.store = store
         self.fileURL = fileURL
-        watcher = FileWatcher(directory: fileURL.deletingLastPathComponent())
+        watcher = FileWatcher(
+            directory: fileURL.deletingLastPathComponent(), pollFile: fileURL)
         records = store.readRange()
         watcher.onChange = { [weak self] in self?.fileChanged() }
     }
@@ -41,7 +42,8 @@ final class HistoryRecorder: ObservableObject {
         let wasRunning = running
         stop()
         fileURL = newFileURL
-        watcher = FileWatcher(directory: newFileURL.deletingLastPathComponent())
+        watcher = FileWatcher(
+            directory: newFileURL.deletingLastPathComponent(), pollFile: newFileURL)
         watcher.onChange = { [weak self] in self?.fileChanged() }
         if wasRunning { start() }
     }
