@@ -151,7 +151,10 @@ public final class BureauFeature: ObservableObject {
             guard let link = receipts.document.receipts.first(where: { $0.id == id }) else { return }
             stickies.close(id)
             receipts.file(id)
-            let texture = textures.texture(title: link.textSnapshot, size: slipSize, scale: scale)
+            let texture = textures.texture(
+                title: link.textSnapshot, size: slipSize, scale: scale,
+                showStubLine: tuning.document.texture.showStubLine
+            )
             scene.fileIntoTray(ReceiptSprite(receiptID: id, texture: texture, size: slipSize))
             scene.setFiledCount(receipts.document.lifetimeFiled)
         case .postponed:
@@ -191,7 +194,8 @@ public final class BureauFeature: ObservableObject {
     /// is no drop location).
     private func spawnSprite(for link: ReceiptLink, screenPoint: CGPoint?) {
         let texture = textures.texture(
-            title: link.textSnapshot, size: slipSize, scale: scale, age: link.ageFactor()
+            title: link.textSnapshot, size: slipSize, scale: scale, age: link.ageFactor(),
+            showStubLine: tuning.document.texture.showStubLine
         )
         let sprite = ReceiptSprite(receiptID: link.id, texture: texture, size: slipSize)
         if link.state == .filed {

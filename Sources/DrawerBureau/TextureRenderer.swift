@@ -6,16 +6,16 @@ import SpriteKit
 /// than reading `DrawerTheme` (which lives in the `Drawer` target anyway).
 /// Gritty paper, one red accent, dark ink.
 enum BureauPalette {
-    static let cream = NSColor(calibratedRed: 0.91, green: 0.87, blue: 0.77, alpha: 1)
-    static let creamShade = NSColor(calibratedRed: 0.83, green: 0.78, blue: 0.66, alpha: 1)
+    static let cream = NSColor(calibratedRed: 0.89, green: 0.84, blue: 0.72, alpha: 1)
+    static let creamShade = NSColor(calibratedRed: 0.80, green: 0.74, blue: 0.61, alpha: 1)
     static let ink = NSColor(calibratedRed: 0.16, green: 0.15, blue: 0.13, alpha: 1)
     static let inkFaint = NSColor(calibratedRed: 0.16, green: 0.15, blue: 0.13, alpha: 0.55)
     static let red = NSColor(calibratedRed: 0.62, green: 0.20, blue: 0.15, alpha: 1)
     /// The DONE stamp die and its ink (spec "The stamp"): a muted approval
     /// green sitting beside `red`'s POSTPONED in the same dusty register.
     static let stampGreen = NSColor(calibratedRed: 0.24, green: 0.42, blue: 0.22, alpha: 1)
-    static let drawerFloor = NSColor(calibratedRed: 0.30, green: 0.25, blue: 0.18, alpha: 1)
-    static let drawerLip = NSColor(calibratedRed: 0.21, green: 0.17, blue: 0.12, alpha: 1)
+    static let drawerFloor = NSColor(calibratedRed: 0.24, green: 0.21, blue: 0.14, alpha: 1)
+    static let drawerLip = NSColor(calibratedRed: 0.16, green: 0.14, blue: 0.09, alpha: 1)
     static let tray = NSColor(calibratedRed: 0.37, green: 0.32, blue: 0.24, alpha: 1)
     static let trayInk = NSColor(calibratedRed: 0.87, green: 0.83, blue: 0.73, alpha: 1)
 
@@ -56,6 +56,7 @@ final class TextureRenderer {
         let h: Int
         let scale: Int
         let ageBucket: Int
+        let showStubLine: Bool
     }
 
     private var cache: [Key: NSImage] = [:]
@@ -64,16 +65,16 @@ final class TextureRenderer {
     /// buffer. `age` is 0 (fresh off the printer) to 1 (weeks in the drawer);
     /// older paper yellows and foxes (R5 aging). Bucketed in the cache key so
     /// a slip re-renders a handful of times over its life, not per read.
-    func image(title: String, details: String = "", size: CGSize, scale: CGFloat, age: Double = 0) -> NSImage {
+    func image(title: String, details: String = "", size: CGSize, scale: CGFloat, age: Double = 0, showStubLine: Bool = true) -> NSImage {
         let bucket = Int((min(1, max(0, age)) * 4).rounded())
         let key = Key(
             title: title, details: details,
             w: Int(size.width.rounded()), h: Int(size.height.rounded()),
             scale: Int((scale * 100).rounded()),
-            ageBucket: bucket
+            ageBucket: bucket, showStubLine: showStubLine
         )
         if let hit = cache[key] { return hit }
-        let img = render(title: title, details: details, size: size, scale: scale, age: Double(bucket) / 4)
+        let img = render(title: title, details: details, size: size, scale: scale, age: Double(bucket) / 4, showStubLine: showStubLine)
         cache[key] = img
         return img
     }
@@ -81,8 +82,8 @@ final class TextureRenderer {
     /// A nearest-filtered `SKTexture` for a `ReceiptSprite`. The chunky pixel
     /// read comes from `.nearest` filtering when the physics world scales the
     /// sprite, so the slip never smears.
-    func texture(title: String, details: String = "", size: CGSize, scale: CGFloat, age: Double = 0) -> SKTexture {
-        let texture = SKTexture(image: image(title: title, details: details, size: size, scale: scale, age: age))
+    func texture(title: String, details: String = "", size: CGSize, scale: CGFloat, age: Double = 0, showStubLine: Bool = true) -> SKTexture {
+        let texture = SKTexture(image: image(title: title, details: details, size: size, scale: scale, age: age, showStubLine: showStubLine))
         texture.filteringMode = .nearest
         return texture
     }
@@ -92,7 +93,7 @@ final class TextureRenderer {
     /// scale. Called from `viewDidChangeBackingProperties` upstream.
     func invalidate() { cache.removeAll() }
 
-    private func render(title: String, details: String, size: CGSize, scale: CGFloat, age: Double = 0) -> NSImage {
+    private func render(title: String, details: String, size: CGSize, scale: CGFloat, age: Double = 0, showStubLine: Bool = true) -> NSImage {
         let pxW = max(1, Int((size.width * scale).rounded()))
         let pxH = max(1, Int((size.height * scale).rounded()))
         guard let rep = NSBitmapImageRep(
@@ -111,7 +112,7 @@ final class TextureRenderer {
         }
         NSGraphicsContext.saveGraphicsState()
         NSGraphicsContext.current = ctx
-        draw(title: title, details: details, in: size, age: age)
+        draw(title: title, details: details, in: size, age: age, showStubLine: showStubLine)
         NSGraphicsContext.restoreGraphicsState()
 
         let img = NSImage(size: size)
@@ -119,7 +120,7 @@ final class TextureRenderer {
         return img
     }
 
-    private func draw(title: String, details: String, in size: CGSize, age: Double = 0) {
+    private func draw(title: String, details: String, in size: CGSize, age: Double = 0, showStubLine: Bool = true) {
         // Deterministic tears so the same task always looks the same slip.
         var rng = SeededRNG(seed: UInt64(bitPattern: Int64(title.hashValue)))
         let slip = slipPath(in: size, rng: &rng)
@@ -174,15 +175,18 @@ final class TextureRenderer {
         rule.stroke()
 
         // Dot-matrix flavor line: a faint monospaced detail row at the foot.
-        let detail = details.isEmpty ? defaultDetail(&rng) : details
-        let detailAttrs: [NSAttributedString.Key: Any] = [
-            .font: BureauPalette.detailFont(8),
-            .foregroundColor: BureauPalette.inkFaint,
-        ]
-        (detail as NSString).draw(
-            at: CGPoint(x: inset, y: size.height * 0.10),
-            withAttributes: detailAttrs
-        )
+        // Off for the cleaner Papers-Please filed-paper look.
+        if showStubLine {
+            let detail = details.isEmpty ? defaultDetail(&rng) : details
+            let detailAttrs: [NSAttributedString.Key: Any] = [
+                .font: BureauPalette.detailFont(8),
+                .foregroundColor: BureauPalette.inkFaint,
+            ]
+            (detail as NSString).draw(
+                at: CGPoint(x: inset, y: size.height * 0.10),
+                withAttributes: detailAttrs
+            )
+        }
     }
 
     /// A cream slip rectangle with jagged torn edges along the top and bottom.

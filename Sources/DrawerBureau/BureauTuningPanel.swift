@@ -146,6 +146,8 @@ public struct BureauTuningControls: View {
                 }
                 section("Texture / tray") {
                     toggle("Re-render on edit only", \.texture.rerenderOnEditOnly)
+                    toggle("Show stub line", \.texture.showStubLine)
+                    slider("Vignette alpha", \.texture.vignetteAlpha, 0...1)
                     toggle("Tray clears Monday", \.filedTray.clearsMonday)
                 }
                 Text("The transition easing curve stays a hand edit in bureau-tuning.json (a 4-point cubic bezier), hot-reloaded like everything else.")
