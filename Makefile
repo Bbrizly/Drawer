@@ -46,7 +46,7 @@ run: install
 	-pkill -f "Drawer.app/Contents/MacOS/Drawer" 2>/dev/null
 	sleep 1
 	@echo "--- reset accessibility grant for Drawer ---"
-	-tccutil reset Accessibility com.bassam.drawer 2>&1
+	-tccutil reset Accessibility com.bbrizly.drawer 2>&1
 	@echo "--- relaunch installed copy ---"
 	open /Applications/Drawer.app
 	sleep 3
@@ -77,7 +77,7 @@ appstore: app
 #   - an "Apple Distribution" certificate (signs the app)
 #   - a "Mac Installer Distribution" certificate (signs the pkg; its keychain
 #     name is "3rd Party Mac Developer Installer: ...")
-#   - a Mac App Store provisioning profile for com.bassam.drawer saved as
+#   - a Mac App Store provisioning profile for com.bbrizly.drawer saved as
 #     $(MAS_PROFILE). Verify its app-identifier prefix matches the
 #     entitlements: security cms -D -i $(MAS_PROFILE)
 # Then: make masdist, upload Drawer.pkg with Transporter (or
@@ -97,7 +97,14 @@ masdist:
 	cp Resources/PrivacyInfo.xcprivacy $(APP)/Contents/Resources/PrivacyInfo.xcprivacy
 	cp $(MAS_PRODUCTS)/Drawer $(APP)/Contents/MacOS/Drawer
 	cp -R $(MAS_PRODUCTS)/Drawer_Drawer.bundle $(APP)/Contents/Resources/ 2>/dev/null || true
+	# SwiftPM stamps CFBundleExecutable on the resources-only bundle; store
+	# validation rejects a declared executable that does not exist.
+	plutil -remove CFBundleExecutable $(APP)/Contents/Resources/Drawer_Drawer.bundle/Contents/Info.plist
+	plutil -replace CFBundleIdentifier -string com.bbrizly.drawer.resources $(APP)/Contents/Resources/Drawer_Drawer.bundle/Contents/Info.plist
 	cp "$(MAS_PROFILE)" $(APP)/Contents/embedded.provisionprofile
+	# Downloaded files carry com.apple.quarantine; the store rejects any
+	# xattr in the payload. Strip them all before sealing the signature.
+	xattr -cr $(APP)
 	codesign --force --sign "$(MAS_APP_SIGN)" \
 		--entitlements Resources/Drawer-AppStore.entitlements $(APP)
 	codesign --verify --strict --verbose=2 $(APP)

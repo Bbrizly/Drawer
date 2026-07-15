@@ -3,7 +3,7 @@ import ApplicationServices
 import Carbon.HIToolbox
 import os
 
-let rightCommandLog = Logger(subsystem: "com.bassam.drawer", category: "rightCommandTap")
+let rightCommandLog = Logger(subsystem: "com.bbrizly.drawer", category: "rightCommandTap")
 
 /// Decides whether a right Command press counts as a "tap". A tap is a quick
 /// press and release with nothing else touched in between, so a real
