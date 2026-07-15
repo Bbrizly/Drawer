@@ -598,9 +598,13 @@ final class BureauScene: SKScene {
     }
 
     override func update(_ currentTime: TimeInterval) {
-        detectSettle(currentTime)
-        enforceRotationRules()
-        rescueEscapedSlips()
+        // Snapshot the slip list once per frame. It used to be recomputed inside
+        // each helper below (and again in the force loop), scanning and casting
+        // every child three-plus times a frame. One pass, shared.
+        let sprites = receiptSprites
+        detectSettle(currentTime, sprites)
+        enforceRotationRules(sprites)
+        rescueEscapedSlips(sprites)
         guard let mouse = lastMouse else { return }
         // Manual force loop, active ONLY while the cursor is moving. Once it
         // stops the window goes quiet and bodies settle back to sleep, holding
@@ -614,7 +618,7 @@ final class BureauScene: SKScene {
         // every moved slip. Firing per-sprite off cursor proximity let a plain
         // hover machine-gun the sound, so one call per tick at the top speed.
         var maxRustle: CGFloat = 0
-        for sprite in receiptSprites where sprite !== draggingSprite {
+        for sprite in sprites where sprite !== draggingSprite {
             guard let body = sprite.physicsBody else { continue }
             let dx = sprite.position.x - mouse.x
             let dy = sprite.position.y - mouse.y
@@ -642,22 +646,16 @@ final class BureauScene: SKScene {
     /// drawer. Writes only on change so a resting body is not woken needlessly.
     /// When a tilt limit is set, a slip that has spun past it is clamped back and
     /// its spin dampened so it reads as bumping a rotational stop.
-    private func enforceRotationRules() {
-        let p = tuning.physics
-        let rot = p.rotationEnabled
-        let collide = p.papersCollide
-        let target: UInt32 = collide
-            ? (ReceiptSprite.slipCategory | ReceiptSprite.wallCategory)
-            : ReceiptSprite.wallCategory
-        for sprite in receiptSprites {
+    /// Per-frame tilt limit only. The rotation flag and collision masks are set
+    /// by `applyPhysics` and refreshed by `reapplyPhysicsToSlips` on a physics
+    /// slider change, so they no longer need reconciling every frame. When no
+    /// tilt limit is set (the default), this returns at once and touches nothing.
+    private func enforceRotationRules(_ sprites: [ReceiptSprite]) {
+        let maxTiltDeg = tuning.physics.maxTiltDeg
+        guard maxTiltDeg < 180 else { return }
+        for sprite in sprites {
             guard let body = sprite.physicsBody else { continue }
-            if body.allowsRotation != rot { body.allowsRotation = rot }
-            if body.categoryBitMask != ReceiptSprite.slipCategory {
-                body.categoryBitMask = ReceiptSprite.slipCategory
-            }
-            if body.collisionBitMask != target { body.collisionBitMask = target }
-            guard p.maxTiltDeg < 180 else { continue }
-            let clamped = Self.clampTilt(sprite.zRotation, maxDeg: p.maxTiltDeg)
+            let clamped = Self.clampTilt(sprite.zRotation, maxDeg: maxTiltDeg)
             if clamped != sprite.zRotation {
                 sprite.zRotation = clamped
                 // A small negative multiplier so it bounces off the stop rather
@@ -678,9 +676,9 @@ final class BureauScene: SKScene {
     /// resting drawer stays asleep and the 0.0% idle CPU contract holds. Filed
     /// tray slips have no physics body and are skipped; a slip being dragged is
     /// non-dynamic and is skipped too, so the rescue never fights the hand.
-    private func rescueEscapedSlips() {
+    private func rescueEscapedSlips(_ sprites: [ReceiptSprite]) {
         let floor = floorRect
-        for sprite in receiptSprites {
+        for sprite in sprites {
             guard let body = sprite.physicsBody, body.isDynamic else { continue }
             guard let rescued = Self.rescuePosition(
                 sprite.position, in: floor, margin: Self.rescueMargin
@@ -736,8 +734,8 @@ final class BureauScene: SKScene {
     /// receipt's settled center and rotation exactly once. A drag holds a body
     /// non-dynamic (zero velocity), so `mouseDragged`/`mouseUp` mark activity
     /// directly for it.
-    private func detectSettle(_ currentTime: TimeInterval) {
-        let moving = receiptSprites.contains { sprite in
+    private func detectSettle(_ currentTime: TimeInterval, _ sprites: [ReceiptSprite]) {
+        let moving = sprites.contains { sprite in
             guard let b = sprite.physicsBody else { return false }
             return hypot(b.velocity.dx, b.velocity.dy) > 2 || abs(b.angularVelocity) > 0.2
         }
@@ -748,7 +746,7 @@ final class BureauScene: SKScene {
             settleDirty = false
             guard onReceiptsSettled != nil else { return }
             var layout: [UUID: (CGPoint, CGFloat)] = [:]
-            for sprite in receiptSprites where sprite !== draggingSprite {
+            for sprite in sprites where sprite !== draggingSprite {
                 layout[sprite.receiptID] = (sprite.position, sprite.zRotation)
             }
             if !layout.isEmpty { onReceiptsSettled?(layout) }

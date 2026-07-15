@@ -34,8 +34,8 @@ final class ReceiptSprite: SKSpriteNode {
         body.allowsRotation = p.rotationEnabled
         // Category 1 is a slip, category 2 is the drawer wall (the scene edge
         // loop). A slip always collides with the wall; paper-on-paper collision
-        // is optional. The scene re-applies these per frame so a slider toggle
-        // takes effect live.
+        // is optional. The scene re-applies these via reapplyPhysicsToSlips when
+        // a physics slider changes, so a toggle takes effect live.
         body.categoryBitMask = ReceiptSprite.slipCategory
         body.collisionBitMask = p.papersCollide
             ? (ReceiptSprite.slipCategory | ReceiptSprite.wallCategory)
