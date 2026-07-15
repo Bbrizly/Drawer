@@ -1,6 +1,9 @@
 import AppKit
 import DrawerCore
 import SwiftUI
+#if canImport(DrawerBureau)
+import DrawerBureau
+#endif
 
 struct DrawerView: View {
     @ObservedObject var store: TodoStore
@@ -26,6 +29,11 @@ struct DrawerView: View {
     var planner: PlannerController? = nil
     var attribution: AttributionController? = nil
     var history: HistoryRecorder? = nil
+    #if canImport(DrawerBureau)
+    /// The Bureau facade (spec Architecture). Nil unless the app wires it in;
+    /// the whole feature is this one optional property, gated by the flag.
+    var bureau: BureauFeature? = nil
+    #endif
 
     @State private var showingAdd = false
     @State private var showingNotes = false
@@ -58,6 +66,15 @@ struct DrawerView: View {
     @AppStorage("feature.workMode") private var workModeEnabled = false
     @AppStorage("feature.ideas") private var ideasEnabled = true
     @AppStorage("feature.ideaCapture") private var ideaCaptureEnabled = false
+    #if canImport(DrawerBureau)
+    @AppStorage("feature.bureau") private var bureauEnabled = false
+    /// Whether the Bureau drawer is the visible bottom region (vs the list).
+    @State private var inBureauMode = false
+    /// Bumped when a row is queued/un-queued so the list rebuilds and the slip
+    /// icon on that row refreshes right away (the queue lives in ReceiptStore,
+    /// which does not publish through TodoStore).
+    @State private var bureauQueueVersion = 0
+    #endif
     // Companion-pane sections. The pane and its top-bar button only appear when
     // at least one of these is on, so the whole extra panel stays out of the way
     // until a feature that fills it is enabled.
@@ -417,6 +434,15 @@ struct DrawerView: View {
                         openPane()
                     }
                 }
+                #if canImport(DrawerBureau)
+                if let bureau, bureauEnabled {
+                    BureauModeButton(
+                        bureau: bureau,
+                        inBureauMode: inBureauMode,
+                        toggle: { inBureauMode.toggle() }
+                    )
+                }
+                #endif
                 DrawerIconButton(
                     systemName: drawerExpanded
                         ? "arrow.down.right.and.arrow.up.left"
@@ -546,6 +572,58 @@ struct DrawerView: View {
                     .padding(.leading, notebookWritingInset)
                 }
 
+                bottomRegion
+    }
+
+    /// The bottom region: the normal task list, or the Bureau drawer when the
+    /// mode is entered (flag on). The swap is a conditional branch here, not a
+    /// named-view swap (spec "Layout and mode switch"). The list pulls LEFT
+    /// off-panel while the drawer slides in from the RIGHT, same footprint;
+    /// Reduce Motion crossfades. Duration and easing come from BureauTuning.
+    @ViewBuilder
+    private var bottomRegion: some View {
+        #if canImport(DrawerBureau)
+        if let bureau, bureauEnabled {
+            ZStack {
+                if inBureauMode {
+                    bureau.makeView(isActive: true)
+                        .transition(reduceMotion ? .opacity : .move(edge: .trailing))
+                } else {
+                    taskListRegion
+                        .transition(reduceMotion ? .opacity : .move(edge: .leading))
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .clipped()
+            .animation(bureauPushAnimation, value: inBureauMode)
+        } else {
+            taskListRegion
+        }
+        #else
+        taskListRegion
+        #endif
+    }
+
+    #if canImport(DrawerBureau)
+    /// The push transition timing, read live from BureauTuning so it can be
+    /// tuned by hand or (R5) the slider panel.
+    private var bureauPushAnimation: Animation {
+        let t = bureau?.transitionTuning
+        if reduceMotion {
+            return .easeInOut(duration: (t?.reduceMotionCrossfadeMs ?? 160) / 1000)
+        }
+        let easing = t?.easing ?? [0.16, 1.0, 0.3, 1.0]
+        let duration = (t?.pushMs ?? 320) / 1000
+        if easing.count == 4 {
+            return .timingCurve(easing[0], easing[1], easing[2], easing[3], duration: duration)
+        }
+        return .easeOut(duration: duration)
+    }
+    #endif
+
+    /// The task list column body, extracted so the Bureau can swap in beside it
+    /// without disturbing the top strip above (which stays byte-identical).
+    private var taskListRegion: some View {
                 ScrollView {
                     // Lazy so only the rows near the viewport are built. Bounds
                     // every per-row cost (rebuilds, gestures, geometry) to what
@@ -752,8 +830,23 @@ struct DrawerView: View {
     private func taskRow(_ item: TodoItem) -> some View {
         // .equatable() lets SwiftUI skip rows whose item is unchanged when the
         // parent rebuilds, so toggling one task does not re-evaluate the rest.
-        TaskRowView(item: item, store: store, requestKeyboard: onNeedsKeyboard)
+        #if canImport(DrawerBureau)
+        // Reading the version here ties the row list to queue changes so a slip
+        // icon appears the moment a task is queued.
+        _ = bureauQueueVersion
+        return TaskRowView(
+            item: item,
+            store: store,
+            requestKeyboard: onNeedsKeyboard,
+            bureauQueued: bureau?.isQueued(item) ?? false,
+            onQueueBureau: bureau.map { b in { b.queue(item); bureauQueueVersion += 1 } },
+            onUnqueueBureau: bureau.map { b in { b.unqueue(item); bureauQueueVersion += 1 } }
+        )
+        .equatable()
+        #else
+        return TaskRowView(item: item, store: store, requestKeyboard: onNeedsKeyboard)
             .equatable()
+        #endif
     }
 
     private func sectionHeader(
@@ -906,3 +999,44 @@ struct DrawerView: View {
         return out
     }
 }
+
+#if canImport(DrawerBureau)
+/// The drawer-pull mode button plus the queue-counter chip. Split into its own
+/// view so it observes the facade's published `queuedCount` and updates the
+/// chip live, without making the whole DrawerView observe the Bureau.
+private struct BureauModeButton: View {
+    @ObservedObject var bureau: BureauFeature
+    let inBureauMode: Bool
+    let toggle: () -> Void
+    @Environment(\.drawerTheme) private var theme
+
+    var body: some View {
+        HStack(spacing: 3) {
+            DrawerIconButton(
+                systemName: inBureauMode ? "tray.full" : "tray.and.arrow.down",
+                accessibilityLabel: inBureauMode
+                    ? BureauCopy.exitModeButtonTooltip : BureauCopy.modeButtonTooltip,
+                helpText: inBureauMode
+                    ? BureauCopy.exitModeButtonTooltip : BureauCopy.modeButtonTooltip,
+                isSelected: inBureauMode,
+                action: toggle
+            )
+            // The hidden tuning panel (spec "Tuning system"): a long press
+            // where a click flips the mode.
+            .simultaneousGesture(
+                LongPressGesture(minimumDuration: 0.6)
+                    .onEnded { _ in bureau.toggleTuningPanel() }
+            )
+            if !inBureauMode, bureau.queuedCount > 0 {
+                Text("\(bureau.queuedCount)")
+                    .font(.system(size: 10, weight: .bold, design: .rounded))
+                    .foregroundStyle(Palette.onAccent)
+                    .padding(.horizontal, 5)
+                    .padding(.vertical, 1)
+                    .background(Capsule().fill(theme.accent))
+                    .accessibilityLabel("\(bureau.queuedCount) queued for the Bureau")
+            }
+        }
+    }
+}
+#endif

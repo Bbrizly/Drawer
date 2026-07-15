@@ -13,9 +13,16 @@ let package = Package(
             name: "DrawerCore",
             swiftSettings: [.swiftLanguageMode(.v5)]
         ),
+        // Behind feature.bureau; depends only on DrawerCore so dropping this
+        // target and its dependency line below leaves today's app intact.
+        .target(
+            name: "DrawerBureau",
+            dependencies: ["DrawerCore"],
+            swiftSettings: [.swiftLanguageMode(.v5)]
+        ),
         .executableTarget(
             name: "Drawer",
-            dependencies: ["DrawerCore"],
+            dependencies: ["DrawerCore", "DrawerBureau"],
             resources: [.copy("Resources/Fonts"), .copy("Resources/menubar-logo.png")],
             swiftSettings: [.swiftLanguageMode(.v5)]
         ),
@@ -32,8 +39,13 @@ let package = Package(
             swiftSettings: [.swiftLanguageMode(.v5)]
         ),
         .testTarget(
+            name: "DrawerBureauTests",
+            dependencies: ["DrawerBureau"],
+            swiftSettings: [.swiftLanguageMode(.v5)]
+        ),
+        .testTarget(
             name: "DrawerTests",
-            dependencies: ["Drawer"],
+            dependencies: ["Drawer", "DrawerBureau"],
             swiftSettings: [.swiftLanguageMode(.v5)]
         ),
     ]
