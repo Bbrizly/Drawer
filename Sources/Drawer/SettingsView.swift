@@ -414,38 +414,42 @@ private struct GeneralSettingsView: View {
                         applyHotkey(new, revertingTo: old)
                     }
                 }
-                Divider()
-                Toggle("Tap right ⌘ to open", isOn: $rightCommandTapEnabled)
-                    .onChange(of: rightCommandTapEnabled) { _, enabled in
-                        onRightCommandTapChange(enabled)
-                        axTrusted = AccessibilityPermission.isTrusted
+                // The tap rides Accessibility, which the sandboxed App Store
+                // build cannot use; the whole control disappears there.
+                if !appStoreBuild {
+                    Divider()
+                    Toggle("Tap right ⌘ to open", isOn: $rightCommandTapEnabled)
+                        .onChange(of: rightCommandTapEnabled) { _, enabled in
+                            onRightCommandTapChange(enabled)
+                            axTrusted = AccessibilityPermission.isTrusted
+                        }
+                    if rightCommandTapEnabled {
+                        HStack(spacing: 6) {
+                            Image(systemName: axTrusted ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
+                                .foregroundStyle(axTrusted ? Color.green : Color.orange)
+                            Text(axTrusted
+                                 ? "Accessibility granted. Tap the right Command key to open."
+                                 : "Waiting for Accessibility access.")
+                            .font(.caption)
+                            Spacer()
+                            Button("Open Settings") { AccessibilityPermission.openSettings() }
+                                .controlSize(.small)
+                        }
+                        if !axTrusted {
+                            SettingsCaption(
+                                "Turn Drawer on under Privacy & Security → Accessibility, then quit and "
+                                + "reopen Drawer. If Drawer is already listed but off, or shows after an "
+                                + "update, remove it with the minus button and add it again."
+                            )
+                            .foregroundStyle(.orange)
+                        }
                     }
-                if rightCommandTapEnabled {
-                    HStack(spacing: 6) {
-                        Image(systemName: axTrusted ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
-                            .foregroundStyle(axTrusted ? Color.green : Color.orange)
-                        Text(axTrusted
-                             ? "Accessibility granted. Tap the right Command key to open."
-                             : "Waiting for Accessibility access.")
-                        .font(.caption)
-                        Spacer()
-                        Button("Open Settings") { AccessibilityPermission.openSettings() }
-                            .controlSize(.small)
-                    }
-                    if !axTrusted {
-                        SettingsCaption(
-                            "Turn Drawer on under Privacy & Security → Accessibility, then quit and "
-                            + "reopen Drawer. If Drawer is already listed but off, or shows after an "
-                            + "update, remove it with the minus button and add it again."
-                        )
-                        .foregroundStyle(.orange)
-                    }
+                    SettingsCaption(
+                        "A single tap of the right Command key shows or hides the drawer, on top of "
+                        + "the shortcut above. This needs Accessibility access, which the built shortcut "
+                        + "does not."
+                    )
                 }
-                SettingsCaption(
-                    "A single tap of the right Command key shows or hides the drawer, on top of "
-                    + "the shortcut above. This needs Accessibility access, which the built shortcut "
-                    + "does not."
-                )
                 Divider()
                 Toggle("Start typing a new task on open", isOn: $typeOnOpen)
                 SettingsCaption("Opening the drawer drops the cursor into a new task, ready to type.")
@@ -506,7 +510,9 @@ private struct GeneralSettingsView: View {
             axTrusted = AccessibilityPermission.isTrusted
         }
         .task {
-            // Keep the status fresh so it flips right after the user grants access.
+            // Keep the status fresh so it flips right after the user grants
+            // access. The App Store build shows no accessibility UI; skip.
+            guard !appStoreBuild else { return }
             while !Task.isCancelled {
                 axTrusted = AccessibilityPermission.isTrusted
                 try? await Task.sleep(nanoseconds: 1_000_000_000)
@@ -549,6 +555,8 @@ private struct GeneralSettingsView: View {
 
     private func chooseFile() {
         guard let path = SettingsPickers.run(.markdownFile, startingAt: filePath) else { return }
+        SandboxBookmarks.save(
+            url: URL(fileURLWithPath: path), forSetting: AppPaths.drawerFilePathKey)
         filePath = path
         onChooseFile(URL(fileURLWithPath: path))
     }
@@ -994,7 +1002,7 @@ private struct FeatureSettingsView: View {
             }
             ForEach(FeatureFlag.groupsInOrder, id: \.self) { group in
                 Section(group) {
-                    ForEach(FeatureFlag.allCases.filter { $0.group == group }) { flag in
+                    ForEach(FeatureFlag.availableCases.filter { $0.group == group }) { flag in
                         Toggle(isOn: model.binding(flag)) {
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(flag.title)
@@ -1099,7 +1107,8 @@ private struct AdvancedSettingsView: View {
     @AppStorage(AppPaths.workLogMarkdownFilePathKey) private var workLogMarkdownPath = ""
     @AppStorage(AppPaths.ideasDirectoryPathKey) private var ideasDirectoryPath = ""
     @AppStorage(AppPaths.plannerPrioritiesPathKey) private var plannerPrioritiesPath = AppPaths.defaultPrioritiesFile
-    @AppStorage("exportWorkLogMarkdown") private var exportWorkLogMarkdown = true
+    @AppStorage("exportWorkLogMarkdown") private var exportWorkLogMarkdown =
+        AppPaths.defaultExportWorkLogMarkdown
     @AppStorage("teleprompterSpeed") private var teleprompterSpeed = 45.0
     @AppStorage("teleprompterFontSize") private var teleprompterFontSize = 34.0
     @AppStorage("notesPaneHeight") private var notesPaneHeight = 160.0
@@ -1119,13 +1128,15 @@ private struct AdvancedSettingsView: View {
                         title: "Notes scratchpad",
                         caption: "The in-drawer notes pad. Kept out of your task vault by default.",
                         storedPath: $notesFilePath,
-                        defaultPath: AppPaths.defaultNotesFile
+                        defaultPath: AppPaths.defaultNotesFile,
+                        settingKey: AppPaths.notesFilePathKey
                     )
                     SettingsPathRow(
                         title: "Work session log",
                         caption: "Raw JSONL log of work-mode time segments. The summary card reads this.",
                         storedPath: $workLogFilePath,
                         defaultPath: AppPaths.defaultWorkLogFile,
+                        settingKey: AppPaths.workLogFilePathKey,
                         pickKind: .jsonlFile
                     )
                     Toggle("Export work log to markdown", isOn: $exportWorkLogMarkdown)
@@ -1135,7 +1146,8 @@ private struct AdvancedSettingsView: View {
                             caption: "Regenerated when work mode ends or you edit a day summary. "
                                 + "Handy beside your other notes.",
                             storedPath: $workLogMarkdownPath,
-                            defaultPath: AppPaths.defaultWorkLogMarkdownFile
+                            defaultPath: AppPaths.defaultWorkLogMarkdownFile,
+                            settingKey: AppPaths.workLogMarkdownFilePathKey
                         )
                     }
                     SettingsPathRow(
@@ -1143,6 +1155,7 @@ private struct AdvancedSettingsView: View {
                         caption: "board.json and pasted images live here. One folder can hold multiple boards.",
                         storedPath: $ideasDirectoryPath,
                         defaultPath: AppPaths.defaultIdeasDirectory,
+                        settingKey: AppPaths.ideasDirectoryPathKey,
                         pickKind: .directory
                     )
                     SettingsPathRow(
@@ -1150,7 +1163,8 @@ private struct AdvancedSettingsView: View {
                         caption: "The AI day planner reads this file to rank tasks. Clear it to plan "
                             + "without priorities.",
                         storedPath: $plannerPrioritiesPath,
-                        defaultPath: AppPaths.defaultPrioritiesFile
+                        defaultPath: AppPaths.defaultPrioritiesFile,
+                        settingKey: AppPaths.plannerPrioritiesPathKey
                     )
                     Button("Open Drawer data folder") {
                         let dir = AppPaths.drawerDataDirectory
@@ -1213,7 +1227,8 @@ private struct AdvancedSettingsView: View {
         workLogFilePath = ""
         workLogMarkdownPath = ""
         ideasDirectoryPath = ""
-        exportWorkLogMarkdown = true
+        plannerPrioritiesPath = AppPaths.defaultPrioritiesFile
+        exportWorkLogMarkdown = AppPaths.defaultExportWorkLogMarkdown
         teleprompterSpeed = 45.0
         teleprompterFontSize = 34.0
         notesPaneHeight = 160.0

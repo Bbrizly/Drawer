@@ -29,11 +29,16 @@ enum AppPaths {
         drawerDataDirectory.appendingPathComponent("work-sessions.jsonl").path
     }
 
+    // The direct build defaults into the Obsidian iCloud vault; the App Store
+    // build cannot reach outside its container without a user pick, so its
+    // defaults stay inside (or, for the priorities file, empty = off).
     static var defaultWorkLogMarkdownFile: String {
-        FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent("Library/Mobile Documents/iCloud~md~obsidian/Documents")
-            .appendingPathComponent("My life/1 Projects/Work Log.md")
-            .path
+        appStoreBuild
+            ? drawerDataDirectory.appendingPathComponent("Work Log.md").path
+            : FileManager.default.homeDirectoryForCurrentUser
+                .appendingPathComponent("Library/Mobile Documents/iCloud~md~obsidian/Documents")
+                .appendingPathComponent("My life/1 Projects/Work Log.md")
+                .path
     }
 
     static var defaultIdeasDirectory: String {
@@ -42,19 +47,21 @@ enum AppPaths {
 
     // Attribution sidecars (spec 02), all local-only under Application Support.
     static var defaultPrioritiesFile: String {
-        FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent("Library/Mobile Documents/iCloud~md~obsidian/Documents")
-            .appendingPathComponent("My life/0 Focus.md")
-            .path
+        appStoreBuild
+            ? ""  // empty = the planner runs without a priorities file
+            : FileManager.default.homeDirectoryForCurrentUser
+                .appendingPathComponent("Library/Mobile Documents/iCloud~md~obsidian/Documents")
+                .appendingPathComponent("My life/0 Focus.md")
+                .path
     }
 
     /// The planner priorities file, or nil when the user cleared it (empty =
-    /// skip). Absent key = the default focus file.
+    /// skip). Absent key = the default focus file (none in the App Store build).
     static var plannerPrioritiesFile: String? {
         if let stored = UserDefaults.standard.string(forKey: plannerPrioritiesPathKey) {
             return stored.isEmpty ? nil : stored
         }
-        return defaultPrioritiesFile
+        return defaultPrioritiesFile.isEmpty ? nil : defaultPrioritiesFile
     }
 
     static var rawActivityFile: URL { drawerDataDirectory.appendingPathComponent("raw-activity.jsonl") }
@@ -93,8 +100,13 @@ enum AppPaths {
             forKey: ideasDirectoryPathKey, default: defaultIdeasDirectory))
     }
 
+    /// The App Store default is off: the direct build's default target is the
+    /// user's vault, which the sandbox can't write without a pick.
+    static var defaultExportWorkLogMarkdown: Bool { !appStoreBuild }
+
     static var exportsWorkLogMarkdown: Bool {
-        UserDefaults.standard.object(forKey: "exportWorkLogMarkdown") as? Bool ?? true
+        UserDefaults.standard.object(forKey: "exportWorkLogMarkdown") as? Bool
+            ?? defaultExportWorkLogMarkdown
     }
 
     @MainActor

@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!-- Mac App Store entitlements. The application-identifier prefix must
+         match the provisioning profile's; verify with
+         `security cms -D -i Drawer_MAS.provisionprofile` before signing. -->
+    <key>com.apple.security.app-sandbox</key>
+    <true/>
+    <key>com.apple.security.files.user-selected.read-write</key>
+    <true/>
+    <!-- Required to create app-scoped security bookmarks (SandboxBookmarks). -->
+    <key>com.apple.security.files.bookmarks.app-scope</key>
+    <true/>
+    <key>com.apple.application-identifier</key>
+    <string>69NPZWZB47.com.bassam.drawer</string>
+    <key>com.apple.developer.team-identifier</key>
+    <string>69NPZWZB47</string>
+</dict>
+</plist>

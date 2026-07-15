@@ -15,14 +15,24 @@ public final class FileWatcher {
     private var source: DispatchSourceFileSystemObject?
     private var pending: DispatchWorkItem?
     private var retryWork: DispatchWorkItem?
+    private var pollTimer: DispatchSourceTimer?
+    private var pollStamp: (Date, Int)?
 
     /// Called on the main queue, debounced 200ms.
     public var onChange: (() -> Void)?
 
-    public init(directory: URL, retryInterval: TimeInterval = 5) {
+    /// `pollFile` is the file the caller actually cares about inside
+    /// `directory`. When the directory itself can't be opened — the sandboxed
+    /// App Store build's user-selected grant covers the picked file but not
+    /// its parent — changes to that file are detected by polling its
+    /// modification date instead of vnode events.
+    public init(directory: URL, retryInterval: TimeInterval = 5, pollFile: URL? = nil) {
         self.dirURL = directory
         self.retryInterval = retryInterval
+        self.pollFile = pollFile
     }
+
+    private let pollFile: URL?
 
     public func start() {
         stop()
@@ -34,14 +44,17 @@ public final class FileWatcher {
         retryWork = nil
         source?.cancel()
         source = nil
+        stopPolling()
     }
 
     private func attach(notifyOnAttach: Bool) {
         let fd = open(dirURL.path, O_EVTONLY)
         guard fd >= 0 else {
             scheduleRetry()
+            startPollingIfPossible()
             return
         }
+        stopPolling()
         let src = DispatchSource.makeFileSystemObjectSource(
             fileDescriptor: fd,
             eventMask: [.write, .rename, .delete, .attrib],
@@ -75,8 +88,42 @@ public final class FileWatcher {
         queue.asyncAfter(deadline: .now() + 0.2, execute: work)
     }
 
+    // MARK: polling fallback
+
+    // ponytail: 2s mtime+size poll while the directory is unopenable; the
+    // vnode source takes back over the moment a retry attach succeeds.
+    private func startPollingIfPossible() {
+        guard let file = pollFile, pollTimer == nil else { return }
+        pollStamp = Self.stamp(of: file)
+        let timer = DispatchSource.makeTimerSource(queue: queue)
+        timer.schedule(deadline: .now() + 2, repeating: 2)
+        timer.setEventHandler { [weak self] in
+            guard let self else { return }
+            let now = Self.stamp(of: file)
+            if now?.0 != self.pollStamp?.0 || now?.1 != self.pollStamp?.1 {
+                self.pollStamp = now
+                self.scheduleNotify()
+            }
+        }
+        timer.resume()
+        pollTimer = timer
+    }
+
+    private func stopPolling() {
+        pollTimer?.cancel()
+        pollTimer = nil
+    }
+
+    private static func stamp(of url: URL) -> (Date, Int)? {
+        guard let attrs = try? FileManager.default.attributesOfItem(atPath: url.path)
+        else { return nil }
+        return (attrs[.modificationDate] as? Date ?? .distantPast,
+                attrs[.size] as? Int ?? 0)
+    }
+
     deinit {
         retryWork?.cancel()
         source?.cancel()
+        pollTimer?.cancel()
     }
 }
