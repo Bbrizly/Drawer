@@ -324,12 +324,30 @@ public struct BureauStickyTuning: Codable, Equatable, Sendable {
     }
 }
 
-/// `TextureRenderer` re-render policy (spec risk #6).
+/// `TextureRenderer` re-render policy (spec risk #6) plus the Papers-Please look
+/// pass: whether each slip prints its bottom stub line, and the drawer vignette
+/// strength.
 public struct BureauTextureTuning: Codable, Equatable, Sendable {
     public var rerenderOnEditOnly: Bool
+    /// Whether the dot-matrix "NO. 1234 BUREAU FILING" stub prints at the foot
+    /// of every slip. Off reads cleaner, more like a plain filed paper.
+    public var showStubLine: Bool
+    /// Alpha of the dark radial vignette over the whole drawer scene. 0 disables.
+    public var vignetteAlpha: Double
 
-    public init(rerenderOnEditOnly: Bool) {
+    public init(rerenderOnEditOnly: Bool, showStubLine: Bool = true, vignetteAlpha: Double = 0.25) {
         self.rerenderOnEditOnly = rerenderOnEditOnly
+        self.showStubLine = showStubLine
+        self.vignetteAlpha = vignetteAlpha
+    }
+
+    // A file from before the look pass has neither key, so decode them
+    // tolerantly to their defaults while the existing value survives untouched.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        rerenderOnEditOnly = try c.decode(Bool.self, forKey: .rerenderOnEditOnly)
+        showStubLine = try c.decodeIfPresent(Bool.self, forKey: .showStubLine) ?? true
+        vignetteAlpha = try c.decodeIfPresent(Double.self, forKey: .vignetteAlpha) ?? 0.25
     }
 }
 

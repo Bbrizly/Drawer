@@ -51,6 +51,10 @@ final class BureauScene: SKScene {
     private let trayNode = SKNode()
     private var trayLabel: SKLabelNode?
     private var lipNode: SKSpriteNode?
+    /// The dark radial vignette over the whole scene (Papers-Please look). Plain
+    /// sprite, no body, sits far above everything so it dims the drawer without
+    /// taking any mouse or physics.
+    private var vignetteNode: SKSpriteNode?
     private var trayHeight: CGFloat {
         max(CGFloat(tuning.drawer.trayMinHeight), size.height * CGFloat(tuning.drawer.trayHeightFraction))
     }
@@ -174,8 +178,73 @@ final class BureauScene: SKScene {
         addChild(lip)
         lipNode = lip
 
+        // A thin dark gradient strip just above the tray lip, fading up to clear,
+        // so the tray reads recessed below the drawer floor.
+        let shadow = SKSpriteNode(texture: Self.shadowTexture)
+        shadow.anchorPoint = CGPoint(x: 0, y: 0)
+        shadow.size = CGSize(width: max(1, size.width), height: 8)
+        shadow.position = CGPoint(x: 0, y: trayHeight)
+        shadow.zPosition = 6.5
+        trayNode.addChild(shadow)
+
         layoutShredder()
+        layoutVignette()
     }
+
+    /// The full-scene vignette (Papers-Please look): a dark radial gradient that
+    /// stays clear at the center and darkens toward the edges. The shared static
+    /// texture just stretches to the current scene size (layoutDrawerFurniture
+    /// runs per resize tick while the panel animates, so no image rendering
+    /// here); alpha comes from the texture tuning and 0 disables it.
+    private func layoutVignette() {
+        guard size.width > 0, size.height > 0 else { return }
+        vignetteNode?.removeFromParent()
+        let node = SKSpriteNode(texture: Self.vignetteTexture)
+        node.anchorPoint = CGPoint(x: 0, y: 0)
+        node.position = .zero
+        node.size = size
+        node.zPosition = 10_000
+        node.alpha = CGFloat(tuning.texture.vignetteAlpha)
+        addChild(node)
+        vignetteNode = node
+    }
+
+    /// The vignette gradient rendered once at a fixed reference size: clear
+    /// through the middle, ramping to opaque black at the edges. Stretched by
+    /// the sprite to the scene size; a stretched radial reads fine at vignette
+    /// alpha.
+    private static let vignetteTexture: SKTexture = {
+        let size = CGSize(width: 512, height: 512)
+        let img = NSImage(size: size)
+        img.lockFocus()
+        let gradient = NSGradient(colorsAndLocations:
+            (NSColor(calibratedWhite: 0, alpha: 0), 0.0),
+            (NSColor(calibratedWhite: 0, alpha: 0), 0.55),
+            (NSColor(calibratedWhite: 0, alpha: 1), 1.0)
+        )
+        gradient?.draw(
+            in: NSBezierPath(rect: CGRect(origin: .zero, size: size)),
+            relativeCenterPosition: .zero
+        )
+        img.unlockFocus()
+        return SKTexture(image: img)
+    }()
+
+    /// The recessed-tray shadow gradient rendered once, a 1x8 column dark at the
+    /// bottom fading to clear at the top; the sprite stretches it across the
+    /// drawer width.
+    private static let shadowTexture: SKTexture = {
+        let size = CGSize(width: 1, height: 8)
+        let img = NSImage(size: size)
+        img.lockFocus()
+        let gradient = NSGradient(colors: [
+            NSColor(calibratedWhite: 0, alpha: 0.5),
+            NSColor(calibratedWhite: 0, alpha: 0),
+        ])
+        gradient?.draw(in: CGRect(origin: .zero, size: size), angle: 90)
+        img.unlockFocus()
+        return SKTexture(image: img)
+    }()
 
     /// The shredder: a dark slot with a row of teeth at the right end of the
     /// tray strip, in the Bureau palette, pure SKNodes. Drop a slip in to
@@ -319,6 +388,16 @@ final class BureauScene: SKScene {
     private func nextZ() -> CGFloat {
         topZ += 1
         return topZ
+    }
+
+    /// Swaps the pre-rendered texture on a slip already in the scene, so a
+    /// texture-tuning edit (the stub-line toggle) lands on loose drawer slips and
+    /// filed tray slips without a re-spawn. The caller regenerates the image with
+    /// the slip's own title and age; size and scale are untouched.
+    func swapTexture(receiptID: UUID, texture: SKTexture) {
+        for sprite in receiptSprites where sprite.receiptID == receiptID {
+            sprite.texture = texture
+        }
     }
 
     // MARK: FILED tray (R4)

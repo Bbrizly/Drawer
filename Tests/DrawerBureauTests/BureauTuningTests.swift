@@ -102,7 +102,24 @@ final class BureauTuningTests: XCTestCase {
         XCTAssertEqual(d.shredder.overlayWidthPx, 170)
         XCTAssertEqual(d.shredder.overlayHeightPx, 72)
         XCTAssertTrue(d.texture.rerenderOnEditOnly)
+        XCTAssertTrue(d.texture.showStubLine)
+        XCTAssertEqual(d.texture.vignetteAlpha, 0.25)
         XCTAssertTrue(d.filedTray.clearsMonday)
+    }
+
+    /// A texture block from before the Papers-Please look pass has neither
+    /// showStubLine nor vignetteAlpha, so those must decode to their defaults
+    /// while the existing rerenderOnEditOnly value survives untouched.
+    func testTextureDecodesWithoutStubLineAndVignette() throws {
+        let json = """
+        { "rerenderOnEditOnly": false }
+        """
+        let t = try JSONDecoder().decode(
+            BureauTextureTuning.self, from: Data(json.utf8)
+        )
+        XCTAssertTrue(t.showStubLine)
+        XCTAssertEqual(t.vignetteAlpha, 0.25)
+        XCTAssertFalse(t.rerenderOnEditOnly)
     }
 
     /// A hoverScroll block from before cursorFollows has no such key, so it must

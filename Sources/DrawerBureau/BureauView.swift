@@ -50,9 +50,15 @@ struct BureauView: View {
             .frame(maxWidth: .infinity, alignment: .top)
         }
         .onAppear { configure() }
-        .onChange(of: tuning.document) { _, doc in
+        .onChange(of: tuning.document) { old, doc in
             scene.tuning = doc
             feature.stickies.tuningChanged()
+            // Compare with vignetteAlpha neutralized: that slider only drives
+            // the scene's vignette node, so a drag must not retexture every
+            // slip per tick.
+            var neutral = old.texture
+            neutral.vignetteAlpha = doc.texture.vignetteAlpha
+            if doc.texture != neutral { regenerateSlipTextures() }
         }
         .onChange(of: store.todayItems) { old, new in handleTodayItemsChanged(from: old, to: new) }
     }
@@ -150,7 +156,10 @@ struct BureauView: View {
     // MARK: print queue
 
     private func enqueuePrint(receiptID: UUID, title: String) {
-        let image = textures.image(title: title, size: slipSize, scale: scale)
+        let image = textures.image(
+            title: title, size: slipSize, scale: scale,
+            showStubLine: tuning.document.texture.showStubLine
+        )
         jobs.append(PrintingJob(receiptID: receiptID, image: image))
         pumpQueue()
     }
@@ -170,8 +179,31 @@ struct BureauView: View {
 
     // MARK: sprites
 
+    /// Re-renders every slip already in the scene with the current texture
+    /// tuning (the stub-line toggle) and swaps it in, preserving each slip's age.
+    /// Covers loose drawer slips (aged) and filed tray souvenirs (unaged).
+    private func regenerateSlipTextures() {
+        let showStubLine = tuning.document.texture.showStubLine
+        for link in receipts.document.receipts {
+            let age: Double
+            switch link.state {
+            case .inDrawer: age = link.ageFactor()
+            case .filed: age = 0
+            default: continue
+            }
+            let texture = textures.texture(
+                title: link.textSnapshot, size: slipSize, scale: scale, age: age,
+                showStubLine: showStubLine
+            )
+            scene.swapTexture(receiptID: link.id, texture: texture)
+        }
+    }
+
     private func makeSprite(receiptID: UUID, title: String, age: Double = 0) -> ReceiptSprite {
-        let texture = textures.texture(title: title, size: slipSize, scale: scale, age: age)
+        let texture = textures.texture(
+            title: title, size: slipSize, scale: scale, age: age,
+            showStubLine: tuning.document.texture.showStubLine
+        )
         return ReceiptSprite(receiptID: receiptID, texture: texture, size: slipSize)
     }
 
