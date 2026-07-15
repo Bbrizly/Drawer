@@ -12,9 +12,24 @@ import SpriteKit
 /// from `ReceiptStore` + `TextureRenderer` and hands them in; the scene just
 /// runs the world.
 final class BureauScene: SKScene {
-    /// The live feel values. `BureauView` re-assigns this on hot-reload.
+    /// The live feel values. `BureauView` re-assigns this on hot-reload. A
+    /// slider drag fires this every tick, so an identical document is a no-op;
+    /// otherwise the changed sub-blocks reach slips already in the drawer live.
+    /// ponytail: slipWidth/slipHeight changes do not resize slips already in
+    /// the drawer; only newly printed slips pick up a new slip size.
     var tuning: BureauTuningDocument = .defaults {
-        didSet { physicsWorld.gravity = CGVector(dx: 0, dy: tuning.physics.gravity) }
+        didSet {
+            guard tuning != oldValue else { return }
+            physicsWorld.gravity = CGVector(dx: 0, dy: tuning.physics.gravity)
+            let physicsChanged = tuning.physics != oldValue.physics
+            let drawerChanged = tuning.drawer != oldValue.drawer
+            if physicsChanged || drawerChanged { rebuildBoundary() }
+            if physicsChanged { reapplyPhysicsToSlips() }
+            if drawerChanged { layoutDrawerFurniture() }
+            if tuning.texture.vignetteAlpha != oldValue.texture.vignetteAlpha {
+                vignetteNode?.alpha = CGFloat(tuning.texture.vignetteAlpha)
+            }
+        }
     }
 
     // MARK: R2 seam
@@ -112,14 +127,19 @@ final class BureauScene: SKScene {
 
     // MARK: world
 
-    private func rebuildBoundary() {
-        // A physics edge that follows the drawer floor (above the tray) and the
-        // walls, so receipts pile in the drawer and land on the tray shelf.
-        let floor = CGRect(
+    /// The playable drawer floor above the tray: the rect the edge loop follows
+    /// and the region a loose slip must stay inside.
+    private var floorRect: CGRect {
+        CGRect(
             x: 0, y: trayHeight,
             width: size.width, height: max(1, size.height - trayHeight)
         )
-        physicsBody = SKPhysicsBody(edgeLoopFrom: floor)
+    }
+
+    private func rebuildBoundary() {
+        // A physics edge that follows the drawer floor (above the tray) and the
+        // walls, so receipts pile in the drawer and land on the tray shelf.
+        physicsBody = SKPhysicsBody(edgeLoopFrom: floorRect)
         physicsBody?.friction = CGFloat(tuning.physics.friction)
         // The wall category, so a slip's collisionBitMask can keep colliding
         // with the drawer even when paper-on-paper collision is turned off.
@@ -580,6 +600,7 @@ final class BureauScene: SKScene {
     override func update(_ currentTime: TimeInterval) {
         detectSettle(currentTime)
         enforceRotationRules()
+        rescueEscapedSlips()
         guard let mouse = lastMouse else { return }
         // Manual force loop, active ONLY while the cursor is moving. Once it
         // stops the window goes quiet and bodies settle back to sleep, holding
@@ -644,6 +665,60 @@ final class BureauScene: SKScene {
                 body.angularVelocity *= -0.2
             }
         }
+    }
+
+    /// Small inset from the drawer walls the rescue holds a loose slip inside.
+    private static let rescueMargin: CGFloat = 4
+
+    /// Safety net for slips that leave the drawer: a fast slip can tunnel
+    /// through the thin edge loop when shoved, and a shrink resize can rebuild
+    /// the boundary around a smaller rect with slips already outside it. Any
+    /// loose (dynamic, unfiled) slip found outside the floor is clamped back in
+    /// and stopped. Writes only when a body is actually out of bounds so a
+    /// resting drawer stays asleep and the 0.0% idle CPU contract holds. Filed
+    /// tray slips have no physics body and are skipped; a slip being dragged is
+    /// non-dynamic and is skipped too, so the rescue never fights the hand.
+    private func rescueEscapedSlips() {
+        let floor = floorRect
+        for sprite in receiptSprites {
+            guard let body = sprite.physicsBody, body.isDynamic else { continue }
+            guard let rescued = Self.rescuePosition(
+                sprite.position, in: floor, margin: Self.rescueMargin
+            ) else { continue }
+            sprite.position = rescued
+            body.velocity = .zero
+            body.angularVelocity = 0
+        }
+    }
+
+    /// Re-applies the current physics feel to every slip already in the drawer
+    /// so a slider edit lands live. `applyPhysics` rebuilds the body, so the old
+    /// motion state is carried over: a resting slip stays put and asleep, a
+    /// moving one keeps its velocity rather than freezing or getting flung.
+    private func reapplyPhysicsToSlips() {
+        for sprite in receiptSprites {
+            guard let old = sprite.physicsBody else { continue }
+            let velocity = old.velocity
+            let angularVelocity = old.angularVelocity
+            let isDynamic = old.isDynamic
+            let resting = old.isResting
+            sprite.applyPhysics(tuning.physics)
+            guard let body = sprite.physicsBody else { continue }
+            body.isDynamic = isDynamic
+            body.velocity = velocity
+            body.angularVelocity = angularVelocity
+            body.isResting = resting
+        }
+    }
+
+    /// Returns nil when `p` already sits inside `floor` inset by `margin`, else
+    /// the point clamped back to that inset rect. Pure and static so it is
+    /// tested without a scene.
+    static func rescuePosition(_ p: CGPoint, in floor: CGRect, margin: CGFloat) -> CGPoint? {
+        let clampedX = min(max(p.x, floor.minX + margin), floor.maxX - margin)
+        let clampedY = min(max(p.y, floor.minY + margin), floor.maxY - margin)
+        guard clampedX != p.x || clampedY != p.y else { return nil }
+        return CGPoint(x: clampedX, y: clampedY)
     }
 
     /// Normalizes an angle to [-pi, pi] and clamps it to `maxDeg` from upright.

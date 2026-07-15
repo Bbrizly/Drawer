@@ -66,10 +66,12 @@ struct BureauView: View {
     // MARK: setup
 
     private func configure() {
+        // Set every entry, not just the first, so edits made to the tuning while
+        // Bureau mode was closed reach the scene (and its live slips) on re-entry.
+        scene.tuning = tuning.document
         if !scene.isConfigured {
             scene.isConfigured = true
             scene.scaleMode = .resizeFill
-            scene.tuning = tuning.document
             scene.setFiledCount(receipts.document.lifetimeFiled)
             spawnExistingReceipts()
         }
