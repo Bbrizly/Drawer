@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import DrawerCore
 import SpriteKit
 import SwiftUI
@@ -88,8 +89,10 @@ public final class BureauFeature: ObservableObject {
             sounds.rustle(intensity, tuning: tuning.document.rustle)
         }
         stickies.onLiveCountChanged = { [weak self] count in
-            self?.stamps.setWatching(count > 0)
-            self?.shredder.setWatching(count > 0)
+            guard let self else { return }
+            stamps.setWatching(count > 0)
+            // The overlay only exists when the shredder feature is on.
+            shredder.setWatching(count > 0 && tuning.document.shredder.enabled)
         }
         shredder.tuningProvider = { [weak self] in
             self?.tuning.document.shredder ?? BureauTuningDocument.defaults.shredder
@@ -117,6 +120,42 @@ public final class BureauFeature: ObservableObject {
         stamps.onSlide = { [weak self] in
             guard let self else { return }
             sounds.slide(volume: tuning.document.stamp.slideVolume)
+        }
+
+        // Art hot-reload: recolor the palette and re-skin the live scene the
+        // moment the art block of bureau-tuning.json changes (a hand edit is
+        // picked up by the file watcher). See Docs/BUREAU.md.
+        applyArt(tuning.document.art)
+        artCancellable = tuning.$document
+            .map(\.art)
+            .removeDuplicates()
+            .dropFirst()
+            .sink { [weak self] art in self?.applyArt(art) }
+    }
+
+    private var artCancellable: AnyCancellable?
+
+    /// Pushes an art block everywhere it is read: the global palette, the
+    /// texture renderer (which drops its cache), every live slip's texture,
+    /// and the drawer furniture. Stickies and the stamp rack read the palette
+    /// on their next (re)build, so they pick the new art up when reopened.
+    private func applyArt(_ art: BureauArtTuning) {
+        BureauPalette.apply(art)
+        textures.art = art
+        scene.refreshFurniture()
+        let showStubLine = tuning.document.texture.showStubLine
+        for link in receipts.document.receipts {
+            let age: Double
+            switch link.state {
+            case .inDrawer: age = link.ageFactor()
+            case .filed: age = 0
+            default: continue
+            }
+            let texture = textures.texture(
+                title: link.textSnapshot, size: slipSize, scale: scale, age: age,
+                showStubLine: showStubLine
+            )
+            scene.swapTexture(receiptID: link.id, texture: texture)
         }
     }
 

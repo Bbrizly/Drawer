@@ -57,9 +57,8 @@ final class StampController {
     private var extendMs: Double { stamp.extendMs }
     private var pressMs: Double { stamp.pressMs }
     private var liftMs: Double { stamp.liftMs }
-
-    private let tabWidth: CGFloat = 30
-    private let rackHeight: CGFloat = 130
+    private var tabWidth: CGFloat { CGFloat(stamp.tabWidthPx) }
+    private var rackHeight: CGFloat { CGFloat(stamp.rackHeightPx) }
 
     private var rackPanel: NSPanel?
     private var expanded = false
@@ -333,7 +332,7 @@ private struct StampHeadView: View {
     /// stamp handle rather than ink across the die.
     private var plate: some View {
         Text(kind.label)
-            .font(.custom(BureauPalette.pixelFamily, size: 9))
+            .font(.custom(BureauPalette.pixelFamily, size: max(9, size * 0.12)))
             .fontWeight(.black)
             .minimumScaleFactor(0.5)
             .lineLimit(1)

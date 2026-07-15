@@ -25,7 +25,9 @@ final class BureauScene: SKScene {
             let drawerChanged = tuning.drawer != oldValue.drawer
             if physicsChanged || drawerChanged { rebuildBoundary() }
             if physicsChanged { reapplyPhysicsToSlips() }
-            if drawerChanged { layoutDrawerFurniture() }
+            if drawerChanged || tuning.shredder != oldValue.shredder {
+                layoutDrawerFurniture()
+            }
             if tuning.texture.vignetteAlpha != oldValue.texture.vignetteAlpha {
                 vignetteNode?.alpha = CGFloat(tuning.texture.vignetteAlpha)
             }
@@ -271,6 +273,12 @@ final class BureauScene: SKScene {
     /// delete just its receipt.
     private func layoutShredder() {
         shredderTeeth.removeAll()
+        // Off: no slot, no teeth, and a zero zone that contains no point, so
+        // nothing dropped in the tray corner can shred.
+        guard tuning.shredder.enabled else {
+            shredderZone = .zero
+            return
+        }
         let width = shredderWidth
         let zone = CGRect(x: size.width - width - 6, y: 3, width: width, height: trayHeight - 6)
         shredderZone = zone
@@ -542,6 +550,12 @@ final class BureauScene: SKScene {
     private var receiptSprites: [ReceiptSprite] {
         children.compactMap { $0 as? ReceiptSprite }
     }
+
+    // MARK: art hot-reload (see Docs/BUREAU.md)
+
+    /// Rebuilds the tray, lip, labels, and shredder slot so a palette or font
+    /// change lands on the furniture without reopening the drawer.
+    func refreshFurniture() { layoutDrawerFurniture() }
 
     // MARK: shredder
 

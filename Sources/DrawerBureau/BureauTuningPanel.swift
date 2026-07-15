@@ -89,8 +89,10 @@ public struct BureauTuningControls: View {
                     slider("Print spin", \.print.spin, 0...1)
                 }
                 section("Stamp rack") {
-                    slider("Rack width px", \.stamp.rackWidthPx, 120...320)
-                    slider("Stamp size px", \.stamp.stampSizePx, 32...110)
+                    slider("Rack width px", \.stamp.rackWidthPx, 120...420)
+                    slider("Stamp size px", \.stamp.stampSizePx, 32...160)
+                    slider("Rack height px", \.stamp.rackHeightPx, 100...300)
+                    slider("Tab width px", \.stamp.tabWidthPx, 16...60)
                     slider("Extend ms", \.stamp.extendMs, 60...600)
                     slider("Press ms", \.stamp.pressMs, 30...400)
                     slider("Lift ms", \.stamp.liftMs, 30...400)
@@ -138,6 +140,7 @@ public struct BureauTuningControls: View {
                     slider("Spin", \.returnDrop.spin, 0...1)
                 }
                 section("Shredder") {
+                    toggle("Enabled", \.shredder.enabled)
                     slider("Width px", \.shredder.widthPx, 30...120)
                     slider("Shred ms", \.shredder.shredMs, 80...800)
                     slider("Volume", \.shredder.volume, 0...1)
@@ -150,7 +153,13 @@ public struct BureauTuningControls: View {
                     slider("Vignette alpha", \.texture.vignetteAlpha, 0...1)
                     toggle("Tray clears Monday", \.filedTray.clearsMonday)
                 }
-                Text("The transition easing curve stays a hand edit in bureau-tuning.json (a 4-point cubic bezier), hot-reloaded like everything else.")
+                section("Art") {
+                    slider("Pixel scale", \.art.pixelScale, 1...4)
+                    slider("Title font size", \.art.titleFontSize, 8...28)
+                    slider("Detail font size", \.art.detailFontSize, 5...16)
+                    textField("Font family", \.art.fontFamily)
+                }
+                Text("Colors live in the art block of bureau-tuning.json as #RRGGBB hex, hot-reloaded on save. The transition easing curve stays a hand edit too (a 4-point cubic bezier). Docs/BUREAU.md is the full artist guide.")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
             }
@@ -218,6 +227,26 @@ public struct BureauTuningControls: View {
             Text(label).font(.caption).frame(width: 118, alignment: .leading)
             Toggle("", isOn: binding).labelsHidden()
             Spacer()
+        }
+    }
+
+    private func textField(
+        _ label: String,
+        _ keyPath: WritableKeyPath<BureauTuningDocument, String>
+    ) -> some View {
+        let binding = Binding<String>(
+            get: { tuning.document[keyPath: keyPath] },
+            set: { value in
+                var doc = tuning.document
+                doc[keyPath: keyPath] = value
+                tuning.update(doc)
+            }
+        )
+        return HStack {
+            Text(label).font(.caption).frame(width: 118, alignment: .leading)
+            TextField("", text: binding)
+                .textFieldStyle(.roundedBorder)
+                .font(.caption)
         }
     }
 
