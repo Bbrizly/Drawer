@@ -272,7 +272,12 @@ public final class BureauFeature: ObservableObject {
 
     // MARK: panel visibility
 
-    public func setPanelVisible(_ visible: Bool) { panelVisible = visible }
+    public func setPanelVisible(_ visible: Bool) {
+        panelVisible = visible
+        // Release the audio engine while hidden so it does not idle-drain after
+        // the first sound; the next sound restarts it lazily.
+        if !visible { sounds.suspend() }
+    }
 
     /// True when the cursor sits over a floating sticky, so the drawer's swipe
     /// monitor treats a two-finger pan there as a note move, not a page swipe.

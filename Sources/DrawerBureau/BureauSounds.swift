@@ -54,6 +54,15 @@ final class BureauSounds {
         play(.rustle, min(tuning.maxVolume, tuning.gain * Double(intensity)))
     }
 
+    /// Stop the engine when the Bureau is hidden. Once any sound has played the
+    /// engine's render thread and the audio HAL stay live for the rest of the
+    /// app run, a real idle power draw. `play` lazily restarts via `started`.
+    func suspend() {
+        guard started else { return }
+        engine.stop()
+        started = false
+    }
+
     private func play(_ sound: Sound, _ volume: Double) {
         guard volume > 0, let player = players[sound], let buffer = buffers[sound] else { return }
         if !started {
