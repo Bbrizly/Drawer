@@ -35,6 +35,16 @@ final class SwipeCoordinator {
     // Page flag lives here (not @State) so the scroll monitor can flip it
     // without a captured binding going stale mid-gesture.
     var showingBoard = false
+    /// True while the Bureau tray fills the drawer. A horizontal swipe there
+    /// belongs to the Bureau, so it must never page to the idea board.
+    var bureauModeActive = false
+    /// True when the cursor sits over a floating Bureau sticky, so a two-finger
+    /// pan moves the note (via HoverScrollMover) and never pages to the board.
+    /// A closure so the drawer module stays free of any DrawerBureau type.
+    var pointerOverSticky: () -> Bool = { false }
+    /// The gesture belongs to the Bureau (its tray or a floating sticky), so the
+    /// scroll monitor treats it as content, not a page swipe.
+    var overBureauContent: Bool { bureauModeActive || pointerOverSticky() }
     /// How much of the screen the board covers: 0 = normal panel, 1 = full
     /// screen. A right swipe on the board raises it, a left swipe lowers it.
     var boardCoverage: CGFloat = 0
@@ -162,7 +172,13 @@ final class ScrollSwipeMonitor: ObservableObject {
             // board, using the same hoveredID signal the row swipes rely on.
             // Board page: only the header (pointerOverChrome) pages back, so the
             // canvas keeps its own horizontal pan.
-            if coordinator.showingBoard {
+            if coordinator.overBureauContent {
+                // Over the Bureau tray or a floating sticky: the gesture moves a
+                // note, never pages. Fall through as plain content so the event
+                // passes to the sticky mover and the board stays put.
+                pageMode = false
+                lockedID = nil
+            } else if coordinator.showingBoard {
                 pageMode = coordinator.pointerOverChrome
                 lockedID = nil
             } else if coordinator.hoveredID == nil {

@@ -438,6 +438,13 @@ final class StickyPanelManager {
         return nil
     }
 
+    /// True when the cursor sits over a live sticky, so the drawer's swipe
+    /// monitor can tell a note-pan apart from a page swipe.
+    var pointerOverSticky: Bool {
+        let p = NSEvent.mouseLocation
+        return panels.values.contains { $0.hostWindow?.frame.contains(p) ?? false }
+    }
+
     // MARK: off-screen rescue
 
     /// The live screen work areas, so a clamp never parks a note under the menu

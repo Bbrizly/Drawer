@@ -301,6 +301,9 @@ struct DrawerView: View {
         .onChange(of: swipe.boardCoverage) { _, c in onBoardCoverage(c) }
         .onChange(of: swipe.showingBoard) { _, shown in handleBoardVisibility(shown) }
         .onChange(of: router.activePane) { _, pane in onPaneWidthChange(pane != nil) }
+        #if canImport(DrawerBureau)
+        .onChange(of: inBureauMode) { _, on in swipe.bureauModeActive = bureauEnabled && on }
+        #endif
         // If the open section's feature is switched off in Settings, close the
         // pane so it can't strand a widened, empty panel.
         .onChange(of: availablePanes) { _, panes in
@@ -706,6 +709,12 @@ struct DrawerView: View {
             store.setInProgress(item, !item.isInProgress)
         }
         swipe.onCloseDrawer = onHide
+        #if canImport(DrawerBureau)
+        // A swipe over the Bureau tray or a floating sticky belongs to the
+        // Bureau, never the idea board.
+        swipe.bureauModeActive = bureauEnabled && inBureauMode
+        swipe.pointerOverSticky = { [weak bureau] in bureau?.pointerOverSticky ?? false }
+        #endif
     }
 
     private func handleBoardVisibility(_ shown: Bool) {
