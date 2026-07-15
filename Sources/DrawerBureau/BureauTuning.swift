@@ -240,12 +240,30 @@ public struct BureauHoverScrollTuning: Codable, Equatable, Sendable {
     public var inertiaFriction: Double
     public var minDelta: Double
     public var maxVelocity: Double
+    /// Whether the mouse cursor warps along with a note being scroll-moved, so
+    /// the pointer stays on the sticky the whole way.
+    public var cursorFollows: Bool
 
-    public init(sensitivity: Double, inertiaFriction: Double, minDelta: Double, maxVelocity: Double) {
+    public init(
+        sensitivity: Double, inertiaFriction: Double, minDelta: Double, maxVelocity: Double,
+        cursorFollows: Bool
+    ) {
         self.sensitivity = sensitivity
         self.inertiaFriction = inertiaFriction
         self.minDelta = minDelta
         self.maxVelocity = maxVelocity
+        self.cursorFollows = cursorFollows
+    }
+
+    // A file from before cursorFollows has no such key, so decode every field
+    // tolerantly to its default and keep older tuning files loading unchanged.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        sensitivity = try c.decodeIfPresent(Double.self, forKey: .sensitivity) ?? 1.0
+        inertiaFriction = try c.decodeIfPresent(Double.self, forKey: .inertiaFriction) ?? 0.92
+        minDelta = try c.decodeIfPresent(Double.self, forKey: .minDelta) ?? 0.5
+        maxVelocity = try c.decodeIfPresent(Double.self, forKey: .maxVelocity) ?? 40
+        cursorFollows = try c.decodeIfPresent(Bool.self, forKey: .cursorFollows) ?? true
     }
 }
 
@@ -488,7 +506,8 @@ public struct BureauTuningDocument: Codable, Equatable, Sendable {
         ),
         crumple: BureauCrumpleTuning(frames: 8, flyToTrayMs: 260),
         hoverScroll: BureauHoverScrollTuning(
-            sensitivity: 1.0, inertiaFriction: 0.92, minDelta: 0.5, maxVelocity: 40
+            sensitivity: 1.0, inertiaFriction: 0.92, minDelta: 0.5, maxVelocity: 40,
+            cursorFollows: true
         ),
         sticky: BureauStickyTuning(
             liveCap: 12, subtaskVisibleCap: 6, pullOutScale: 1.5,

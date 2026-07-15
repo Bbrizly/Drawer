@@ -91,10 +91,40 @@ final class HoverScrollMover {
     }
 
     private func move(_ window: NSWindow, dx: Double, dy: Double) {
-        var o = window.frame.origin
+        let before = window.frame.origin
+        var o = before
         o.x += dx
         o.y += dy
-        window.setFrameOrigin(clampOnScreen(o, window.frame.size))
+        let after = clampOnScreen(o, window.frame.size)
+        window.setFrameOrigin(after)
+
+        // Keep the cursor on the note it is dragging: warp it by the delta the
+        // window ACTUALLY moved (the clamp may have shrunk it at a screen edge).
+        // Skip when the window did not move so a fully clamped scroll leaves the
+        // pointer alone.
+        guard tuning.cursorFollows else { return }
+        let movedX = after.x - before.x
+        let movedY = after.y - before.y
+        if movedX == 0 && movedY == 0 { return }
+        guard let primary = NSScreen.screens.first else { return }
+        let target = Self.warpTarget(
+            mouse: NSEvent.mouseLocation, dx: movedX, dy: movedY,
+            primaryMaxY: primary.frame.maxY
+        )
+        CGWarpMouseCursorPosition(target)
+        // Reassociate so the warp does not carry the OS input-suppression pause
+        // that would otherwise freeze the pointer for a beat after each move.
+        CGAssociateMouseAndMouseCursorPosition(1)
+    }
+
+    /// The AppKit mouse point plus a window delta, expressed in Quartz display
+    /// space (top-left origin of the primary display) for `CGWarpMouseCursorPosition`.
+    /// AppKit y grows up from the bottom, Quartz y grows down from the top, so
+    /// the moved point flips against `primaryMaxY`.
+    static func warpTarget(
+        mouse: CGPoint, dx: CGFloat, dy: CGFloat, primaryMaxY: CGFloat
+    ) -> CGPoint {
+        CGPoint(x: mouse.x + dx, y: primaryMaxY - (mouse.y + dy))
     }
 
     private func startInertia() {

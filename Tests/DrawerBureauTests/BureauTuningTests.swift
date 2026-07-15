@@ -105,6 +105,23 @@ final class BureauTuningTests: XCTestCase {
         XCTAssertTrue(d.filedTray.clearsMonday)
     }
 
+    /// A hoverScroll block from before cursorFollows has no such key, so it must
+    /// decode with cursorFollows defaulting to true while the other four values
+    /// survive untouched.
+    func testHoverScrollDecodesWithoutCursorFollows() throws {
+        let json = """
+        { "sensitivity": 2.0, "inertiaFriction": 0.8, "minDelta": 1.5, "maxVelocity": 25 }
+        """
+        let t = try JSONDecoder().decode(
+            BureauHoverScrollTuning.self, from: Data(json.utf8)
+        )
+        XCTAssertTrue(t.cursorFollows)
+        XCTAssertEqual(t.sensitivity, 2.0)
+        XCTAssertEqual(t.inertiaFriction, 0.8)
+        XCTAssertEqual(t.minDelta, 1.5)
+        XCTAssertEqual(t.maxVelocity, 25)
+    }
+
     /// A version-1 file on disk (old gravity, no pullOutScale) is stale: the
     /// values changed meaning at version 2, so it must load as the new defaults
     /// and be rewritten so the old gravity never survives.

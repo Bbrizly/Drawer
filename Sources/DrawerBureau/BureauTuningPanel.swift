@@ -110,6 +110,7 @@ public struct BureauTuningControls: View {
                     slider("Inertia friction", \.hoverScroll.inertiaFriction, 0.5...0.99)
                     slider("Min delta", \.hoverScroll.minDelta, 0...4)
                     slider("Max velocity", \.hoverScroll.maxVelocity, 5...120)
+                    toggle("Cursor follows", \.hoverScroll.cursorFollows)
                 }
                 section("Sticky") {
                     intSlider("Live cap", \.sticky.liveCap, 1...40)
