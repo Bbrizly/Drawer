@@ -9,3 +9,6 @@ Docs/Planning/
 Docs/specs/
 Sources/Drawer/Resources/Fonts/tahoma.ttf
 Sources/Drawer/Resources/Fonts/Tahoma.ttf
+*.provisionprofile
+Drawer.pkg
+Drawer.zip
