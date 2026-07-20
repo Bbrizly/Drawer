@@ -5,6 +5,8 @@ import SwiftUI
 /// the idea to the board and the note drives off to the left, toward the drawer.
 struct IdeaCaptureBar: View {
     @ObservedObject var store: BoardStore
+    /// When set, Park writes to the parking lot file instead of board.json.
+    var lot: ParkingLotStore? = nil
     var reduceMotion: Bool
     var onDone: () -> Void
 
@@ -87,10 +89,13 @@ struct IdeaCaptureBar: View {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { reset(); return }
         let parts = trimmed.split(separator: "\n", maxSplits: 1, omittingEmptySubsequences: false)
-        store.addText(
-            title: String(parts.first ?? ""),
-            body: parts.count > 1 ? String(parts[1]) : ""
-        )
+        let title = String(parts.first ?? "")
+        let body = parts.count > 1 ? String(parts[1]) : ""
+        if let lot {
+            lot.park(title: title, details: body)
+        } else {
+            store.addText(title: title, body: body)
+        }
 
         guard !reduceMotion else { reset(); return }
         parking = true                          // car sits at rest first

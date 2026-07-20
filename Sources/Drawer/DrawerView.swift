@@ -67,6 +67,7 @@ struct DrawerView: View {
     @AppStorage("feature.workMode") private var workModeEnabled = false
     @AppStorage("feature.ideas") private var ideasEnabled = true
     @AppStorage("feature.ideaCapture") private var ideaCaptureEnabled = false
+    @AppStorage("feature.parkingLot") private var parkingLotEnabled = false
     #if canImport(DrawerBureau)
     @AppStorage("feature.bureau") private var bureauEnabled = false
     /// Whether the Bureau drawer is the visible bottom region (vs the list).
@@ -567,7 +568,11 @@ struct DrawerView: View {
                 }
 
                 if showingCapture, ideaCaptureEnabled, let ideas {
-                    IdeaCaptureBar(store: ideas, reduceMotion: reduceMotion) {
+                    IdeaCaptureBar(
+                        store: ideas,
+                        lot: parkingLotEnabled ? lot : nil,
+                        reduceMotion: reduceMotion
+                    ) {
                         showingCapture = false
                     }
                     .padding(.leading, notebookWritingInset)
