@@ -9,6 +9,7 @@ import SwiftUI
 struct IdeaBoardPage: View {
     @ObservedObject var store: BoardStore
     var theme: DrawerTheme
+    var lot: ParkingLotStore? = nil
     var onBack: () -> Void
 
     @Environment(SwipeCoordinator.self) private var swipe
@@ -17,23 +18,31 @@ struct IdeaBoardPage: View {
     // Board settings (see the Board tab in Settings).
     @AppStorage("boardBackground") private var boardBackground = "dark"
     @AppStorage("boardZoomStep") private var zoomStep = 1.25
+    @AppStorage("feature.parkingLot") private var parkingLotEnabled = false
+    @AppStorage("boardShowingParkingLot") private var showingLot = false
 
     private var transparent: Bool { boardBackground == "transparent" }
     private var paper: Bool { boardBackground == "paper" || theme == .notebook }
     private var xpBoard: Bool { theme.usesXPChrome && !transparent }
+    private var lotActive: Bool { showingLot && parkingLotEnabled && lot != nil }
 
     var body: some View {
         VStack(spacing: 0) {
             header
-            BoardCanvas(
-                store: store,
-                recenterRequests: recenterRequests,
-                transparentBackground: transparent,
-                globalPanEnabled: swipe.showingBoard,
-                paperBackground: paper,
-                xpBackground: xpBoard
-            )
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            if lotActive, let lot {
+                ParkingLotView(lot: lot)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                BoardCanvas(
+                    store: store,
+                    recenterRequests: recenterRequests,
+                    transparentBackground: transparent,
+                    globalPanEnabled: swipe.showingBoard,
+                    paperBackground: paper,
+                    xpBackground: xpBoard
+                )
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         // Transparent: a 1% tint instead of the glass plate, so the desktop shows
@@ -59,50 +68,52 @@ struct IdeaBoardPage: View {
             }
             boardSelector
             Spacer()
-            DrawerIconButton(
-                systemName: "arrow.uturn.backward",
-                accessibilityLabel: "Undo",
-                helpText: "Undo the last board change."
-            ) {
-                store.undo()
+            if !lotActive {
+                DrawerIconButton(
+                    systemName: "arrow.uturn.backward",
+                    accessibilityLabel: "Undo",
+                    helpText: "Undo the last board change."
+                ) {
+                    store.undo()
+                }
+                DrawerIconButton(
+                    systemName: "arrow.uturn.forward",
+                    accessibilityLabel: "Redo",
+                    helpText: "Redo the last undone change."
+                ) {
+                    store.redo()
+                }
+                DrawerIconButton(
+                    systemName: "minus.magnifyingglass",
+                    accessibilityLabel: "Zoom out",
+                    helpText: "Zoom out."
+                ) {
+                    store.zoomBy(CGFloat(1 / zoomStep))
+                }
+                DrawerIconButton(
+                    systemName: "plus.magnifyingglass",
+                    accessibilityLabel: "Zoom in",
+                    helpText: "Zoom in."
+                ) {
+                    store.zoomBy(CGFloat(zoomStep))
+                }
+                DrawerIconButton(
+                    systemName: "scope",
+                    accessibilityLabel: "Recenter board",
+                    helpText: "Center the view on your cards."
+                ) {
+                    recenterRequests += 1
+                }
+                DrawerIconButton(
+                    systemName: backgroundIcon,
+                    accessibilityLabel: "Board background",
+                    helpText: "Cycle the background: dark, transparent, paper.",
+                    isSelected: boardBackground != "dark"
+                ) {
+                    cycleBackground()
+                }
             }
-            DrawerIconButton(
-                systemName: "arrow.uturn.forward",
-                accessibilityLabel: "Redo",
-                helpText: "Redo the last undone change."
-            ) {
-                store.redo()
-            }
-            DrawerIconButton(
-                systemName: "minus.magnifyingglass",
-                accessibilityLabel: "Zoom out",
-                helpText: "Zoom out."
-            ) {
-                store.zoomBy(CGFloat(1 / zoomStep))
-            }
-            DrawerIconButton(
-                systemName: "plus.magnifyingglass",
-                accessibilityLabel: "Zoom in",
-                helpText: "Zoom in."
-            ) {
-                store.zoomBy(CGFloat(zoomStep))
-            }
-            DrawerIconButton(
-                systemName: "scope",
-                accessibilityLabel: "Recenter board",
-                helpText: "Center the view on your cards."
-            ) {
-                recenterRequests += 1
-            }
-            DrawerIconButton(
-                systemName: backgroundIcon,
-                accessibilityLabel: "Board background",
-                helpText: "Cycle the background: dark, transparent, paper.",
-                isSelected: boardBackground != "dark"
-            ) {
-                cycleBackground()
-            }
-            Text("\(store.document.items.count)")
+            Text(lotActive ? "\(lot?.ideaCount ?? 0)" : "\(store.document.items.count)")
                 .font(theme.usesXPChrome
                       ? FontLoader.xpFont(size: 11, weight: .semibold)
                       : .system(size: 11, weight: .semibold, design: .rounded))
@@ -133,7 +144,7 @@ struct IdeaBoardPage: View {
             showingBoardSelector.toggle()
         } label: {
             HStack(spacing: 5) {
-                Text(store.activeBoardName)
+                Text(lotActive ? "Parking lot" : store.activeBoardName)
                     .font(theme.usesXPChrome
                           ? FontLoader.xpFont(size: 14, weight: .bold)
                           : .system(size: 14, weight: .semibold))
@@ -152,8 +163,13 @@ struct IdeaBoardPage: View {
         .accessibilityLabel("Select board")
         .help("Select board")
         .popover(isPresented: $showingBoardSelector, arrowEdge: .bottom) {
-            BoardSelectorPopover(store: store, isPresented: $showingBoardSelector)
-                .environment(\.drawerTheme, theme)
+            BoardSelectorPopover(
+                store: store,
+                lot: parkingLotEnabled ? lot : nil,
+                showingLot: $showingLot,
+                isPresented: $showingBoardSelector
+            )
+            .environment(\.drawerTheme, theme)
         }
     }
 
@@ -176,6 +192,8 @@ struct IdeaBoardPage: View {
 
 private struct BoardSelectorPopover: View {
     @ObservedObject var store: BoardStore
+    var lot: ParkingLotStore?
+    @Binding var showingLot: Bool
     @Binding var isPresented: Bool
     @Environment(\.drawerTheme) private var theme
     @State private var editingBoardID: UUID?
@@ -183,15 +201,44 @@ private struct BoardSelectorPopover: View {
 
     var body: some View {
         VStack(spacing: 0) {
+            if let lot {
+                HStack(spacing: 8) {
+                    Image(systemName: "checkmark")
+                        .font(.system(size: 11, weight: .bold))
+                        .opacity(showingLot ? 1 : 0)
+                        .frame(width: 14)
+                    Image(systemName: "car.fill")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                    Text("Parking lot")
+                        .font(theme.uiFont(size: 13, weight: showingLot ? .semibold : .regular))
+                    Spacer()
+                    Text("\(lot.ideaCount)")
+                        .font(theme.uiFont(size: 11, weight: .semibold, design: .rounded))
+                        .foregroundStyle(.tertiary)
+                }
+                .padding(.vertical, 7)
+                .padding(.horizontal, 14)
+                .contentShape(Rectangle())
+                .onTapGesture {
+                    showingLot = true
+                    isPresented = false
+                }
+                .accessibilityElement(children: .combine)
+                .accessibilityLabel("Parking lot, \(lot.ideaCount) ideas")
+                .accessibilityAddTraits(showingLot ? [.isButton, .isSelected] : .isButton)
+                Divider()
+            }
             List {
                 ForEach(store.document.boards) { board in
                     BoardSelectorRow(
                         board: board,
-                        selected: board.id == store.document.activeBoardID
+                        selected: board.id == store.document.activeBoardID && !showingLot
                     )
                     .contentShape(Rectangle())
                     .onTapGesture {
                         store.selectBoard(board.id)
+                        showingLot = false
                         isPresented = false
                     }
                     .popover(
