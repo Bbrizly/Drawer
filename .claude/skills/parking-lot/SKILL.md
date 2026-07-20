@@ -10,7 +10,19 @@ an edit here shows up in the lot right away. You edit the same file by hand.
 ## Find the file
 
 `Parking lot.md`, in the same folder as the drawer task file (often an
-Obsidian vault). There is no other location. If you cannot find it, ask.
+Obsidian vault). That is the default, and it is where the app creates the
+file on first use.
+
+The user can move it in Settings > Advanced > Data files > Parking lot, which
+only appears while the parking lot feature is on. To read the real location:
+
+```
+defaults read com.bassam.drawer parkingLotFilePath
+```
+
+No value means the default. If more than one file in the vault is called
+`Parking lot.md`, this setting decides which one the app shows, so check it
+before you edit. If you still cannot tell, ask.
 
 ## Format
 
