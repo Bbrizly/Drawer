@@ -7,9 +7,11 @@ import SwiftUI
 /// There is no road. Zoom magnifies, nothing else.
 struct ParkingLotView: View {
     @ObservedObject var lot: ParkingLotStore
+    @Binding var zoom: CGFloat
+    var resetRequests: Int
 
-    @State private var zoom: CGFloat = 1
     @State private var gestureZoom: CGFloat = 1
+    @State private var contentSize: CGSize = .zero
     @State private var selected: IdeaRef?
     @Namespace private var carSpace
 
@@ -33,25 +35,49 @@ struct ParkingLotView: View {
         var showsLabel: Bool
         /// Odd blocks mirror so their cars nose left, into the shared gap.
         var mirrored: Bool
+        /// The bay's last block carries the empty add stall.
+        var isBayEnd: Bool
     }
 
     var body: some View {
         GeometryReader { geo in
             let stallsPerColumn = max(1, Int((geo.size.height - 80) / stallHeight))
-            ScrollView([.horizontal, .vertical]) {
-                lotBody(stallsPerColumn: stallsPerColumn)
-                    .padding(24)
-                    .scaleEffect(zoom * gestureZoom, anchor: .topLeading)
-            }
-            .background(asphalt)
-            .gesture(
-                MagnifyGesture()
-                    .onChanged { gestureZoom = $0.magnification }
-                    .onEnded { _ in
-                        zoom = min(2.5, max(0.5, zoom * gestureZoom))
-                        gestureZoom = 1
+            ScrollViewReader { proxy in
+                ScrollView([.horizontal, .vertical]) {
+                    lotBody(stallsPerColumn: stallsPerColumn)
+                        .padding(24)
+                        .background(GeometryReader { inner in
+                            Color.clear
+                                .onAppear { contentSize = inner.size }
+                                .onChange(of: inner.size) { _, s in contentSize = s }
+                        })
+                        .scaleEffect(zoom * gestureZoom, anchor: .topLeading)
+                        // Give the scroll view the scaled footprint, so panning
+                        // reaches everything at any zoom.
+                        .frame(
+                            width: contentSize == .zero
+                                ? nil : contentSize.width * zoom * gestureZoom,
+                            height: contentSize == .zero
+                                ? nil : contentSize.height * zoom * gestureZoom,
+                            alignment: .topLeading)
+                        .id("lot-origin")
+                }
+                .background(asphalt)
+                .gesture(
+                    MagnifyGesture()
+                        .onChanged { gestureZoom = $0.magnification }
+                        .onEnded { _ in
+                            zoom = min(2.5, max(0.5, zoom * gestureZoom))
+                            gestureZoom = 1
+                        }
+                )
+                .onChange(of: resetRequests) { _, _ in
+                    withAnimation(.easeOut(duration: 0.25)) {
+                        zoom = 1
+                        proxy.scrollTo("lot-origin", anchor: .topLeading)
                     }
-            )
+                }
+            }
         }
     }
 
@@ -59,26 +85,45 @@ struct ParkingLotView: View {
         var out: [Block] = []
         for (b, bay) in lot.document.bays.enumerated() {
             let cols = ParkingLotLayout.columns(bay.ideas.count, stallsPerColumn: stallsPerColumn)
+            if cols.isEmpty {
+                // An emptied bay keeps its heading and add stall.
+                out.append(Block(
+                    id: out.count, bay: b, range: 0..<0,
+                    showsLabel: true, mirrored: out.count % 2 == 1, isBayEnd: true))
+                continue
+            }
             for (i, range) in cols.enumerated() {
                 out.append(Block(
                     id: out.count, bay: b, range: range,
-                    showsLabel: i == 0, mirrored: out.count % 2 == 1))
+                    showsLabel: i == 0, mirrored: out.count % 2 == 1,
+                    isBayEnd: i == cols.count - 1))
             }
         }
         return out
     }
 
+    @ViewBuilder
     private func lotBody(stallsPerColumn: Int) -> some View {
-        let blocks = blocks(stallsPerColumn: stallsPerColumn)
-        let openGap = selectedGapIndex(in: blocks)
-        return HStack(alignment: .top, spacing: 0) {
-            ForEach(blocks) { block in
-                blockView(block)
-                gapView(index: block.id, open: openGap == block.id, blocks: blocks)
+        if lot.document.bays.isEmpty {
+            VStack(alignment: .leading, spacing: 8) {
+                Text("UNSORTED")
+                    .font(.system(size: 10, weight: .bold, design: .monospaced))
+                    .kerning(2)
+                    .foregroundStyle(.white.opacity(0.4))
+                addStall(bayName: "Unsorted", mirrored: false)
             }
+        } else {
+            let blocks = blocks(stallsPerColumn: stallsPerColumn)
+            let openGap = selectedGapIndex(in: blocks)
+            HStack(alignment: .top, spacing: 0) {
+                ForEach(blocks) { block in
+                    blockView(block)
+                    gapView(index: block.id, open: openGap == block.id, blocks: blocks)
+                }
+            }
+            .animation(.easeOut(duration: 0.3), value: selected)
+            .onExitCommand { close() }
         }
-        .animation(.easeOut(duration: 0.3), value: selected)
-        .onExitCommand { close() }
     }
 
     private func blockContaining(_ ref: IdeaRef, in blocks: [Block]) -> Block? {
@@ -101,7 +146,37 @@ struct ParkingLotView: View {
             ForEach(block.range, id: \.self) { i in
                 stall(bay: block.bay, idea: i, mirrored: block.mirrored)
             }
+            if block.isBayEnd {
+                addStall(
+                    bayName: lot.document.bays[block.bay].name,
+                    mirrored: block.mirrored)
+            }
         }
+    }
+
+    /// An empty stall at the end of the bay. Tap it to park a fresh idea
+    /// there; closing the panel without typing anything removes it again.
+    private func addStall(bayName: String, mirrored: Bool) -> some View {
+        Button {
+            addIdea(toBay: bayName)
+        } label: {
+            Image(systemName: "plus")
+                .font(.system(size: 15, weight: .bold))
+                .foregroundStyle(.white.opacity(0.25))
+                .frame(width: stallWidth, height: stallHeight)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .overlay(stallLines(mirrored: mirrored))
+        .help("Park a new idea in \(bayName)")
+    }
+
+    private func addIdea(toBay name: String) {
+        if selected != nil { close() }
+        lot.park(title: "", details: "", toBay: name)
+        guard let b = lot.document.bays.firstIndex(where: { $0.name == name }),
+              !lot.document.bays[b].ideas.isEmpty else { return }
+        selected = IdeaRef(bay: b, idea: lot.document.bays[b].ideas.count - 1)
     }
 
     private func stall(bay: Int, idea: Int, mirrored: Bool) -> some View {
@@ -118,7 +193,6 @@ struct ParkingLotView: View {
                     .frame(width: stallWidth - 28)
                     .scaleEffect(x: mirrored ? -1 : 1)
                     .matchedGeometryEffect(id: ref, in: carSpace)
-                    .onTapGesture { toggle(ref) }
             }
             Text(parked.title)
                 .font(.system(size: 9, weight: .bold, design: .monospaced))
@@ -128,6 +202,9 @@ struct ParkingLotView: View {
                 .frame(width: stallWidth - 28)
         }
         .frame(width: stallWidth, height: stallHeight)
+        // The whole stall is the target, stencil included, not just the car.
+        .contentShape(Rectangle())
+        .onTapGesture { toggle(ref) }
         .overlay(stallLines(mirrored: mirrored))
     }
 
@@ -160,9 +237,10 @@ struct ParkingLotView: View {
                         .scaleEffect(x: block.mirrored ? -1 : 1)
                         .matchedGeometryEffect(id: sel, in: carSpace)
                         .onTapGesture { close() }
-                    IdeaPanel(lot: lot, bay: sel.bay, idea: sel.idea) { target in
-                        moveSelected(toBay: target)
-                    }
+                    IdeaPanel(
+                        lot: lot, bay: sel.bay, idea: sel.idea,
+                        onMoveToBay: { target in moveSelected(toBay: target) },
+                        onClose: { close() })
                     .id(sel)
                     .frame(width: 264)
                 }
@@ -221,15 +299,21 @@ private struct IdeaPanel: View {
     let bay: Int
     let idea: Int
     var onMoveToBay: (String) -> Void
+    var onClose: () -> Void
 
     @State private var draft: String
     @FocusState private var focused: Bool
 
-    init(lot: ParkingLotStore, bay: Int, idea: Int, onMoveToBay: @escaping (String) -> Void) {
+    init(
+        lot: ParkingLotStore, bay: Int, idea: Int,
+        onMoveToBay: @escaping (String) -> Void,
+        onClose: @escaping () -> Void
+    ) {
         self._lot = ObservedObject(wrappedValue: lot)
         self.bay = bay
         self.idea = idea
         self.onMoveToBay = onMoveToBay
+        self.onClose = onClose
         let parked = lot.document.bays[bay].ideas[idea]
         self._draft = State(initialValue: parked.details.isEmpty
             ? parked.title
@@ -243,7 +327,13 @@ private struct IdeaPanel: View {
                 .focused($focused)
                 .scrollContentBackground(.hidden)
                 .font(.system(size: 12))
-                .frame(minHeight: 90, maxHeight: 220)
+                .frame(minHeight: 150, maxHeight: 320)
+                // The text view eats Escape for completions, so onExitCommand
+                // never fires while typing. Catch the key itself.
+                .onKeyPress(.escape) {
+                    onClose()
+                    return .handled
+                }
         }
         .padding(10)
         .background(RoundedRectangle(cornerRadius: 6)
