@@ -266,7 +266,7 @@ private struct PomodoroRingButton: View {
             )
             .contentShape(Circle())
         }
-        .buttonStyle(PomodoroRingButtonStyle())
+        .buttonStyle(PressScale())
         .accessibilityLabel("Choose Pomodoro segment")
         .accessibilityHint("Pick focus, short break, or long break.")
         .help("Choose Pomodoro segment")
@@ -275,14 +275,6 @@ private struct PomodoroRingButton: View {
                 isHovering = hovering
             }
         }
-    }
-}
-
-private struct PomodoroRingButtonStyle: ButtonStyle {
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .scaleEffect(configuration.isPressed ? 0.96 : 1)
-            .animation(.snappy(duration: 0.14), value: configuration.isPressed)
     }
 }
 

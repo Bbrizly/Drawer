@@ -706,7 +706,7 @@ private struct TimerFeatureToggleCard: View {
             )
             .contentShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
         }
-        .buttonStyle(PomodoroPressStyle())
+        .buttonStyle(PressScale())
         .accessibilityLabel(title)
         .accessibilityValue(isOn ? "On" : "Off")
         .accessibilityAddTraits(isOn ? [.isButton, .isSelected] : .isButton)
@@ -854,7 +854,7 @@ private struct PomodoroPresetChip: View {
             )
             .contentShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
         }
-        .buttonStyle(PomodoroPressStyle())
+        .buttonStyle(PressScale())
         .accessibilityLabel("\(preset.title) Pomodoro preset")
         .help(preset.subtitle)
     }
@@ -976,7 +976,7 @@ private struct PomodoroNudgeButton: View {
                 .background(palette.accentFill, in: Circle())
                 .contentShape(Circle())
         }
-        .buttonStyle(PomodoroPressStyle())
+        .buttonStyle(PressScale())
     }
 }
 
@@ -1028,14 +1028,6 @@ private struct PomodoroRoundControl: View {
             RoundedRectangle(cornerRadius: 10, style: .continuous)
                 .strokeBorder(palette.stroke, lineWidth: 1)
         )
-    }
-}
-
-private struct PomodoroPressStyle: ButtonStyle {
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .scaleEffect(configuration.isPressed ? 0.96 : 1)
-            .animation(.snappy(duration: 0.14), value: configuration.isPressed)
     }
 }
 
