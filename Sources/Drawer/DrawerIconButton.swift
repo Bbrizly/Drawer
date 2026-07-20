@@ -46,11 +46,15 @@ struct DrawerIconButton: View {
                     .contentShape(RoundedRectangle(cornerRadius: size * 0.3, style: .continuous))
             }
         }
-        .buttonStyle(.plain)
+        .buttonStyle(PressScale())
         .accessibilityLabel(accessibilityLabel)
         .accessibilityHint(helpText)
         .help(helpText)
-        .onHover { isHovering = $0 }
+        .onHover { hovering in
+            // Fade the hover fill in and out. A hard swap reads as a flicker
+            // when the pointer crosses the row of icons.
+            withAnimation(.easeOut(duration: 0.12)) { isHovering = hovering }
+        }
     }
 
     private var foregroundStyle: AnyShapeStyle {
@@ -71,5 +75,15 @@ struct DrawerIconButton: View {
             return AnyShapeStyle(theme.accent.opacity(0.14))
         }
         return AnyShapeStyle(isHovering ? theme.primaryInk.opacity(0.09) : Color.clear)
+    }
+}
+
+/// A small dip on press so plain buttons feel like they take the click. Used by
+/// every custom button in the app, so they all press the same way.
+struct PressScale: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .scaleEffect(configuration.isPressed ? 0.96 : 1)
+            .animation(.snappy(duration: 0.14), value: configuration.isPressed)
     }
 }
