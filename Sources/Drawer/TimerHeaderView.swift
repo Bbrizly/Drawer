@@ -15,7 +15,7 @@ struct TimerHeaderView: View {
     private var timeFont: Font {
         theme.usesXPChrome
             ? FontLoader.xpFont(size: 22, weight: .semibold).monospacedDigit()
-            : .system(size: 22, weight: .semibold, design: .rounded)
+            : .system(size: 22, weight: .semibold, design: .rounded).monospacedDigit()
     }
 
     var body: some View {
@@ -169,11 +169,7 @@ struct TimerHeaderView: View {
     @ViewBuilder
     private func timerChrome(outlined: Bool) -> some View {
         if theme.usesXPChrome {
-            if outlined {
-                XPSunkenPanel()
-            } else {
-                XPSunkenPanel()
-            }
+            XPSunkenPanel()   // XP sinks the timer well the same way either state
         } else if outlined {
             RoundedRectangle(cornerRadius: 12, style: .continuous)
                 .strokeBorder(.quaternary, lineWidth: 1)
