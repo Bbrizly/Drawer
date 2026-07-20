@@ -56,6 +56,9 @@ enum FeatureFlag: String, CaseIterable, Identifiable {
     /// Deleting the `DrawerBureau` target leaves the app exactly as it is
     /// today.
     case bureau
+    /// The pinned parking lot board: every loose idea as a car in a stall,
+    /// backed by Parking lot.md next to your drawer file. Off by default.
+    case parkingLot
 
     var id: String { rawValue }
 
@@ -95,6 +98,7 @@ enum FeatureFlag: String, CaseIterable, Identifiable {
         case .ideaCapture: return "Idea capture bar"
         case .mcp: return "MCP server"
         case .bureau: return "The Bureau"
+        case .parkingLot: return "Parking lot"
         }
     }
 
@@ -124,6 +128,7 @@ enum FeatureFlag: String, CaseIterable, Identifiable {
         case .ideaCapture: return "A light bulb to jot an idea and park it on the board. Off by default; rough edges."
         case .mcp: return "Let AI agents read and write your drawer over MCP."
         case .bureau: return "A rummage drawer of receipt-notes for the week's tasks. Queue tasks from the row menu, then flip the tray button."
+        case .parkingLot: return "Loose ideas as cars in a lot, in Parking lot.md next to your drawer file. Off by default; rough edges."
         }
     }
 
@@ -138,7 +143,7 @@ enum FeatureFlag: String, CaseIterable, Identifiable {
         case .swipeDelete, .swipeProgress: return "Swipe gestures"
         case .taskNotes, .minuteBadges: return "Task rows"
         case .carriedSection, .tomorrowSection, .backlogSection, .archiveSection: return "Sections"
-        case .filterMenu, .notes, .ideas, .ideaCapture, .history: return "Controls"
+        case .filterMenu, .notes, .ideas, .ideaCapture, .history, .parkingLot: return "Controls"
         case .attribution, .planner: return "Automation"
         // "Integrations" is intentionally absent from groupsInOrder, so this
         // flag exists without rendering a toggle (see the case comment).
@@ -159,7 +164,7 @@ enum FeatureFlag: String, CaseIterable, Identifiable {
     /// model). Everything else stays on.
     var defaultValue: Bool {
         switch self {
-        case .attribution, .planner, .history, .workMode, .ideaCapture, .bureau: return false
+        case .attribution, .planner, .history, .workMode, .ideaCapture, .bureau, .parkingLot: return false
         default: return true
         }
     }
