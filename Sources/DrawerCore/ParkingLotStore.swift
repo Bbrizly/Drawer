@@ -56,6 +56,9 @@ public final class ParkingLotStore: ObservableObject {
     }
 
     public func load() {
+        // A pending save means in-app edits are newer than the disk; let the
+        // debounced write land instead of clobbering it with a stale read.
+        guard saveTask == nil else { return }
         let read = (try? readString(fileURL)) ?? ""
         // Our own atomic write comes back through the watcher; skip the noop.
         guard read != text else { return }
@@ -126,6 +129,7 @@ public final class ParkingLotStore: ObservableObject {
             guard !Task.isCancelled, let self else { return }
             // Best effort, same as NotesStore: the next edit tries again.
             try? self.writeString(snapshot, self.fileURL)
+            self.saveTask = nil
         }
     }
 }

@@ -66,6 +66,19 @@ final class ParkingLotStoreTests: XCTestCase {
         XCTAssertEqual(store.ideaCount, 1)
     }
 
+    func testExternalReloadSkippedWhileSavePending() {
+        let (store, disk) = makeStore(initial: canonical)
+        store.load()
+        store.update(bayIndex: 0, ideaIndex: 0,
+                     title: "Renamed", details: "", color: nil)
+        // An outside edit lands while our save is still debouncing.
+        disk.value = "## Apps\n- Someone else wrote this\n"
+        store.load()
+        XCTAssertEqual(store.document.bays[0].ideas[0].title, "Renamed")
+        store.saveNow()
+        XCTAssertTrue(disk.value.contains("- Renamed"))
+    }
+
     func testMoveKeepsMetadata() {
         let (store, _) = makeStore(initial: canonical)
         store.load()
