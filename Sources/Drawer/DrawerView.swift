@@ -267,7 +267,7 @@ struct DrawerView: View {
             ConfettiLayer(center: celebration)
 
             if ideasEnabled, let ideas {
-                IdeaBoardPage(store: ideas, theme: theme) {
+                IdeaBoardPage(store: ideas, theme: theme, lot: lot) {
                     swipe.showingBoard = false
                 }
                 .offset(x: swipe.showingBoard ? 0 : -3000)
