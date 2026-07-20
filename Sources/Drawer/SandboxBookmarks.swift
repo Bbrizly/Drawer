@@ -21,6 +21,7 @@ enum SandboxBookmarks {
         AppPaths.workLogMarkdownFilePathKey,
         AppPaths.ideasDirectoryPathKey,
         AppPaths.plannerPrioritiesPathKey,
+        AppPaths.parkingLotFilePathKey,
     ]
 
     /// Called right after an NSOpenPanel pick. The panel's grant covers this
