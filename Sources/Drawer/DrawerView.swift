@@ -17,6 +17,7 @@ struct DrawerView: View {
     var notes: NotesStore? = nil
     var onToggleTeleprompter: () -> Void = {}
     var ideas: BoardStore? = nil
+    var lot: ParkingLotStore? = nil
     /// Resize the panel to the board coverage the swipe dialed in (0...1).
     var onBoardCoverage: (CGFloat) -> Void = { _ in }
     /// The companion pane's open/closed state. Opened only by the top-bar

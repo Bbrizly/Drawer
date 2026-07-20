@@ -100,6 +100,13 @@ enum AppPaths {
             forKey: ideasDirectoryPathKey, default: defaultIdeasDirectory))
     }
 
+    /// Parking lot.md sits next to the resolved drawer file, so it rides the
+    /// same resolution chain and the same vault.
+    static var parkingLotFile: URL {
+        URL(fileURLWithPath: drawerFile).deletingLastPathComponent()
+            .appendingPathComponent("Parking lot.md")
+    }
+
     /// The App Store default is off: the direct build's default target is the
     /// user's vault, which the sandbox can't write without a pick.
     static var defaultExportWorkLogMarkdown: Bool { !appStoreBuild }

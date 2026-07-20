@@ -15,6 +15,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var store: TodoStore!
     private var notesStore: NotesStore!
     private var boardStore: BoardStore!
+    private var parkingLotStore: ParkingLotStore!
     private var teleprompter: TeleprompterController!
     private var focusTimer: FocusTimer!
     private var pomodoroTimer: PomodoroTimer!
@@ -111,6 +112,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         notesStore.load()
         boardStore = BoardStore(directory: AppPaths.ideasDirectory)
         boardStore.load()
+        parkingLotStore = ParkingLotStore(fileURL: AppPaths.parkingLotFile)
+        parkingLotStore.start()
         teleprompter = TeleprompterController(store: notesStore)
         focusTimer = FocusTimer()
         focusTimer.onComplete = { [weak self] title in
@@ -155,6 +158,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         rootView.bureau = bureauFeature
         bureau = bureauFeature
         #endif
+        rootView.lot = parkingLotStore
         controller = PanelController(rootView: rootView)
         panelController = controller
         // Park the 0.5s display tickers whenever the panel is hidden. The
@@ -234,6 +238,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     func applicationWillTerminate(_ notification: Notification) {
         notesStore?.saveNow() // flush anything typed in the last moment
         boardStore?.saveNow() // flush the board layout
+        parkingLotStore?.saveNow() // flush a mid-debounce lot edit
         workClock?.pause()               // flush an open work segment to the log
         // Always flush the in-progress block into the review queue, don't drop it;
         // only summarize the day when attribution is permitted.
