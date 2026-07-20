@@ -290,6 +290,14 @@ struct DrawerView: View {
         .animation(reduceMotion ? nil : .easeOut(duration: 0.18), value: sound.isPlaying)
         .onAppear { configureSwipeCoordinator() }
         .onReceive(NotificationCenter.default.publisher(for: .drawerDidOpen)) { _ in
+            // Reopening with the board already up never changes showingBoard, so
+            // handleBoardVisibility does not run and the panel comes back
+            // non-key. Pinch zoom only reaches the key window, so redo the
+            // activate step here.
+            if swipe.showingBoard {
+                NSApp.activate(ignoringOtherApps: true)
+                onNeedsKeyboard()
+            }
             guard typeOnOpen else { return }
             addIsHeader = false
             showingAdd = true
