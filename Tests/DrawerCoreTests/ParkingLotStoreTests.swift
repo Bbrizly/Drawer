@@ -57,6 +57,16 @@ final class ParkingLotStoreTests: XCTestCase {
         XCTAssertEqual(store.document.bays[0].name, "Unsorted")
     }
 
+    func testParkEmptyTitleIntoNamedBay() {
+        let (store, _) = makeStore(initial: canonical)
+        store.load()
+        store.park(title: "", details: "", toBay: "Hardware")
+        let bay = store.document.bays.first { $0.name == "Hardware" }
+        XCTAssertEqual(bay?.ideas.count, 2)
+        XCTAssertEqual(bay?.ideas.last?.title, "")
+        XCTAssertEqual(bay?.ideas.last?.parked, "2026-07-19")
+    }
+
     func testDeleteRemovesIdea() {
         let (store, disk) = makeStore(initial: canonical)
         store.load()

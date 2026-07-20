@@ -92,11 +92,12 @@ public final class ParkingLotStore: ObservableObject {
         apply(next)
     }
 
-    /// Capture: appends to the Unsorted bay stamped with today's date.
-    public func park(title: String, details: String) {
+    /// Capture: appends to a bay stamped with today's date. Unsorted by
+    /// default, which is where the capture bar parks.
+    public func park(title: String, details: String, toBay bay: String = "Unsorted") {
         apply(ParkingLotWriteback.append(
             title: title, details: details, parked: todayProvider(),
-            color: nil, toBay: "Unsorted", in: text))
+            color: nil, toBay: bay, in: text))
     }
 
     /// Writes right now, cancelling any pending debounce. Call on teardown.

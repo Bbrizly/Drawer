@@ -14,6 +14,7 @@ struct IdeaBoardPage: View {
 
     @Environment(SwipeCoordinator.self) private var swipe
     @State private var recenterRequests = 0
+    @State private var lotZoom: CGFloat = 1
     @State private var showingBoardSelector = false
     // Board settings (see the Board tab in Settings).
     @AppStorage("boardBackground") private var boardBackground = "dark"
@@ -30,7 +31,7 @@ struct IdeaBoardPage: View {
         VStack(spacing: 0) {
             header
             if lotActive, let lot {
-                ParkingLotView(lot: lot)
+                ParkingLotView(lot: lot, zoom: $lotZoom, resetRequests: recenterRequests)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 BoardCanvas(
@@ -111,6 +112,32 @@ struct IdeaBoardPage: View {
                     isSelected: boardBackground != "dark"
                 ) {
                     cycleBackground()
+                }
+            } else {
+                DrawerIconButton(
+                    systemName: "minus.magnifyingglass",
+                    accessibilityLabel: "Zoom out",
+                    helpText: "Zoom out."
+                ) {
+                    withAnimation(.easeOut(duration: 0.2)) {
+                        lotZoom = max(0.5, lotZoom / CGFloat(zoomStep))
+                    }
+                }
+                DrawerIconButton(
+                    systemName: "plus.magnifyingglass",
+                    accessibilityLabel: "Zoom in",
+                    helpText: "Zoom in."
+                ) {
+                    withAnimation(.easeOut(duration: 0.2)) {
+                        lotZoom = min(2.5, lotZoom * CGFloat(zoomStep))
+                    }
+                }
+                DrawerIconButton(
+                    systemName: "scope",
+                    accessibilityLabel: "Reset view",
+                    helpText: "Back to the original view."
+                ) {
+                    recenterRequests += 1
                 }
             }
             Text(lotActive ? "\(lot?.ideaCount ?? 0)" : "\(store.document.items.count)")
