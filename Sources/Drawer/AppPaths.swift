@@ -10,6 +10,7 @@ enum AppPaths {
     static let workLogMarkdownFilePathKey = "workLogMarkdownFilePath"
     static let ideasDirectoryPathKey = "ideasDirectoryPath"
     static let plannerPrioritiesPathKey = "plannerPrioritiesPath"
+    static let parkingLotFilePathKey = "parkingLotFilePath"
 
     // The default lives in DrawerCore so the MCP binary resolves it identically.
     static let defaultDrawerFile = DrawerFilePath.default
@@ -101,10 +102,24 @@ enum AppPaths {
     }
 
     /// Parking lot.md sits next to the resolved drawer file, so it rides the
-    /// same resolution chain and the same vault.
-    static var parkingLotFile: URL {
+    /// same resolution chain and the same vault. That assumes nothing about
+    /// how you file things: wherever your task file lives, the lot lands
+    /// beside it.
+    static var defaultParkingLotFile: String {
         URL(fileURLWithPath: drawerFile).deletingLastPathComponent()
-            .appendingPathComponent("Parking lot.md")
+            .appendingPathComponent("Parking lot.md").path
+    }
+
+    /// Override it when you keep loose ideas somewhere else. The file does not
+    /// have to exist yet; the store creates it (and any missing folder) on the
+    /// first park.
+    static var parkingLotFile: URL {
+        let picked = storedPath(
+            forKey: parkingLotFilePathKey, default: defaultParkingLotFile)
+        // Aiming the lot at the task file would let the lot writer splice its
+        // own format over your tasks. Fall back rather than eat the file.
+        guard picked != drawerFile else { return URL(fileURLWithPath: defaultParkingLotFile) }
+        return URL(fileURLWithPath: picked)
     }
 
     /// The App Store default is off: the direct build's default target is the

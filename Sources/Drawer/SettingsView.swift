@@ -1162,6 +1162,9 @@ private struct AdvancedSettingsView: View {
     @AppStorage(AppPaths.workLogMarkdownFilePathKey) private var workLogMarkdownPath = ""
     @AppStorage(AppPaths.ideasDirectoryPathKey) private var ideasDirectoryPath = ""
     @AppStorage(AppPaths.plannerPrioritiesPathKey) private var plannerPrioritiesPath = AppPaths.defaultPrioritiesFile
+    @AppStorage(AppPaths.parkingLotFilePathKey) private var parkingLotPath = ""
+    @AppStorage(FeatureFlag.parkingLot.key) private var parkingLotEnabled =
+        FeatureFlag.parkingLot.defaultValue
     @AppStorage("exportWorkLogMarkdown") private var exportWorkLogMarkdown =
         AppPaths.defaultExportWorkLogMarkdown
     @AppStorage("teleprompterSpeed") private var teleprompterSpeed = 45.0
@@ -1213,6 +1216,16 @@ private struct AdvancedSettingsView: View {
                         settingKey: AppPaths.ideasDirectoryPathKey,
                         pickKind: .directory
                     )
+                    if parkingLotEnabled {
+                        SettingsPathRow(
+                            title: "Parking lot",
+                            caption: "The idea file behind the parking lot board. Sits next to your "
+                                + "task file unless you point it somewhere else.",
+                            storedPath: $parkingLotPath,
+                            defaultPath: AppPaths.defaultParkingLotFile,
+                            settingKey: AppPaths.parkingLotFilePathKey
+                        )
+                    }
                     SettingsPathRow(
                         title: "Planner priorities",
                         caption: "The AI day planner reads this file to rank tasks. Clear it to plan "
