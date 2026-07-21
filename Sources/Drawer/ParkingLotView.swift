@@ -53,7 +53,7 @@ struct ParkingLotView: View {
     private let carTopPad: CGFloat = 14
     /// Fixed, so every column's first stall starts at the same y no matter
     /// how long the bay name is.
-    private let headerHeight: CGFloat = 50
+    private let headerHeight: CGFloat = 74
     private let gapWidth: CGFloat = 56
     private let openGapWidth: CGFloat = 460
     private var carWidth: CGFloat { stallWidth - 44 }
@@ -80,13 +80,18 @@ struct ParkingLotView: View {
             }
             .frame(width: geo.size.width, height: geo.size.height, alignment: .topLeading)
             // Zoom about the middle of the viewport, the way the idea board
-            // does, so magnifying does not shove the lot off the top left.
-            // Panning sits outside the scale, so a drag moves the lot one
-            // screen point per pointer point at any zoom.
-            .scaleEffect(zoom * gestureZoom, anchor: .center)
+            // does. Scaling from the corner and then shifting by half the
+            // viewport times (1 - zoom) puts the centre point back where it
+            // was, on both axes. Anchoring .center instead would measure off
+            // the lot, which is wider than the viewport, so it drifted
+            // sideways. Panning sits outside the scale, so a drag moves the
+            // lot one screen point per pointer point at any zoom.
+            .scaleEffect(zoom * gestureZoom, anchor: .topLeading)
             .offset(
-                x: offset.width + dragOffset.width,
-                y: offset.height + dragOffset.height)
+                x: offset.width + dragOffset.width
+                    + geo.size.width / 2 * (1 - zoom * gestureZoom),
+                y: offset.height + dragOffset.height
+                    + geo.size.height / 2 * (1 - zoom * gestureZoom))
             .frame(width: geo.size.width, height: geo.size.height, alignment: .topLeading)
             .background(asphalt)
             .clipped()
@@ -216,18 +221,56 @@ struct ParkingLotView: View {
         return block.mirrored ? block.id - 1 : block.id
     }
 
+    /// Bay headings read `2026-07-18: B2B money track (some aside)`. The sign
+    /// wants the category, so the date comes off the front and rides as a
+    /// small stamp, and a trailing aside comes off the back. The full heading
+    /// stays in the tooltip, and renaming only ever touches the category.
+    static func baySign(_ name: String) -> (date: String?, category: String) {
+        var rest = name
+        var date: String?
+        if let m = rest.firstMatch(of: #/^(\d{4}-\d{2}-\d{2})\s*:\s*/#) {
+            date = String(m.1)
+            rest = String(rest[m.range.upperBound...])
+        }
+        return (date, rest.trimmingCharacters(in: .whitespaces))
+    }
+
+    /// Drops a trailing "(...)" so long headings read as categories on the
+    /// sign. Never returns empty: a name that is only an aside keeps it.
+    static func signCategory(_ category: String) -> String {
+        guard category.hasSuffix(")"), let open = category.lastIndex(of: "(") else {
+            return category
+        }
+        let short = category[..<open].trimmingCharacters(in: .whitespaces)
+        return short.isEmpty ? category : short
+    }
+
     /// The sign over a block. Only the first column of a bay carries one; the
     /// rest reserve the same height so their stalls line up. Double-click the
-    /// name to rename the bay, which rewrites the `## ` heading in the file.
+    /// category to rename the bay, which rewrites the `## ` heading in the file.
     @ViewBuilder
     private func bayHeader(_ bayIndex: Int?) -> some View {
         VStack(alignment: .leading, spacing: 3) {
             if let b = bayIndex, lot.document.bays.indices.contains(b) {
                 let bay = lot.document.bays[b]
+                let sign = Self.baySign(bay.name)
+
+                HStack(spacing: 6) {
+                    if let date = sign.date {
+                        Text(date)
+                            .font(.system(size: 9, weight: .semibold, design: .monospaced))
+                            .foregroundStyle(.white.opacity(0.32))
+                    }
+                    Text(bay.ideas.count == 1 ? "1 IDEA" : "\(bay.ideas.count) IDEAS")
+                        .font(.system(size: 9, weight: .semibold, design: .monospaced))
+                        .kerning(0.5)
+                        .foregroundStyle(.white.opacity(0.32))
+                }
+
                 if renamingBay == b {
-                    TextField("Bay name", text: $bayDraft)
+                    TextField("Category", text: $bayDraft)
                         .textFieldStyle(.plain)
-                        .font(.system(size: 14, weight: .bold, design: .monospaced))
+                        .font(.system(size: 14, weight: .bold))
                         .foregroundStyle(.white)
                         .focused($bayFieldFocused)
                         .onSubmit { commitRename() }
@@ -235,36 +278,41 @@ struct ParkingLotView: View {
                             if !focused { commitRename() }
                         }
                 } else {
-                    Text(bay.name.uppercased())
-                        .font(.system(size: 14, weight: .bold, design: .monospaced))
+                    Text(Self.signCategory(sign.category).uppercased())
+                        .font(.system(size: 14, weight: .bold))
                         .kerning(0.5)
-                        .foregroundStyle(.white.opacity(0.85))
-                        .lineLimit(2)
+                        .foregroundStyle(.white.opacity(0.88))
+                        .lineLimit(3)
                         .minimumScaleFactor(0.6)
+                        .multilineTextAlignment(.leading)
                         .fixedSize(horizontal: false, vertical: true)
-                        .help("\(bay.name) (double-click to rename)")
+                        .help("\(bay.name)\n\nDouble-click to rename")
                         .onTapGesture(count: 2) { beginRename(b) }
                 }
-                Text(bay.ideas.count == 1 ? "1 IDEA" : "\(bay.ideas.count) IDEAS")
-                    .font(.system(size: 9, weight: .semibold, design: .monospaced))
-                    .kerning(1)
-                    .foregroundStyle(.white.opacity(0.35))
             }
         }
         .frame(width: stallWidth - 8, height: headerHeight, alignment: .topLeading)
     }
 
+    /// Renaming edits the category only. The date prefix is the file's, not
+    /// the sign's, so it goes back on untouched.
     private func beginRename(_ bay: Int) {
-        bayDraft = lot.document.bays[bay].name
+        bayDraft = Self.baySign(lot.document.bays[bay].name).category
         renamingBay = bay
         bayFieldFocused = true
     }
 
     private func commitRename() {
-        guard let b = renamingBay else { return }
+        guard let b = renamingBay, lot.document.bays.indices.contains(b) else { return }
         renamingBay = nil
         bayFieldFocused = false
-        lot.renameBay(index: b, to: bayDraft)
+        let typed = bayDraft.trimmingCharacters(in: .whitespaces)
+        guard !typed.isEmpty else { return }
+        if let date = Self.baySign(lot.document.bays[b].name).date {
+            lot.renameBay(index: b, to: "\(date): \(typed)")
+        } else {
+            lot.renameBay(index: b, to: typed)
+        }
     }
 
     private func blockView(_ block: Block, stallsPerColumn: Int) -> some View {
@@ -480,8 +528,11 @@ private struct IdeaPanel: View {
     var onMoveToBay: (String) -> Void
     var onClose: () -> Void
 
-    @State private var draft: String
-    @FocusState private var focused: Bool
+    @State private var title: String
+    @State private var details: String
+    @FocusState private var focusedField: Field?
+
+    private enum Field { case title, details }
 
     /// Panel swatches in a fixed order; the parser's set has none.
     private static let colorKeys = ["yellow", "pink", "blue", "green", "purple", "gray"]
@@ -497,53 +548,79 @@ private struct IdeaPanel: View {
         self.onMoveToBay = onMoveToBay
         self.onClose = onClose
         let parked = lot.document.bays[bay].ideas[idea]
-        self._draft = State(initialValue: parked.details.isEmpty
-            ? parked.title
-            : parked.title + "\n" + parked.details)
+        self._title = State(initialValue: parked.title)
+        self._details = State(initialValue: parked.details)
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 10) {
             metaLine
-            TextEditor(text: $draft)
-                .focused($focused)
+
+            // The title is its own field, big, because it is the one line the
+            // stall stencil shows. It is still just the first line of the
+            // markdown bullet underneath.
+            TextField("Idea", text: $title)
+                .textFieldStyle(.plain)
+                .font(.system(size: 19, weight: .semibold))
+                .focused($focusedField, equals: .title)
+                .onSubmit { focusedField = .details }
+                .onKeyPress(.escape) {
+                    onClose()
+                    return .handled
+                }
+
+            Rectangle()
+                .fill(Color.black.opacity(0.12))
+                .frame(height: 1)
+
+            // Grows with what you type instead of opening as a tall empty box.
+            TextEditor(text: $details)
+                .focused($focusedField, equals: .details)
                 .scrollContentBackground(.hidden)
-                .font(.system(size: 14))
-                .lineSpacing(2)
-                .frame(minHeight: 180, maxHeight: 400)
+                .font(.system(size: 15))
+                .lineSpacing(3)
+                .frame(minHeight: 64, maxHeight: 320)
+                .fixedSize(horizontal: false, vertical: true)
+                .overlay(alignment: .topLeading) {
+                    if details.isEmpty {
+                        Text("Details")
+                            .font(.system(size: 15))
+                            .foregroundStyle(.secondary)
+                            .padding(.leading, 5)
+                            .padding(.top, 8)
+                            .allowsHitTesting(false)
+                    }
+                }
                 // The text view eats Escape for completions, so onExitCommand
                 // never fires while typing. Catch the key itself.
                 .onKeyPress(.escape) {
                     onClose()
                     return .handled
                 }
+
             colorRow
         }
-        .padding(12)
-        .background(RoundedRectangle(cornerRadius: 6)
+        .padding(14)
+        .background(RoundedRectangle(cornerRadius: 8)
             .fill(Color(red: 0.957, green: 0.945, blue: 0.91)))
         .foregroundStyle(Color(red: 0.17, green: 0.16, blue: 0.15))
         .shadow(color: .black.opacity(0.45), radius: 7, y: 5)
-        .onAppear { focused = true }
-        .onChange(of: draft) { _, text in
-            let parts = split(text)
-            lot.update(
-                bayIndex: bay, ideaIndex: idea,
-                title: parts.title, details: parts.details, color: currentColor)
-        }
+        .onAppear { focusedField = .title }
+        .onChange(of: title) { _, _ in save() }
+        .onChange(of: details) { _, _ in save() }
+    }
+
+    private func save() {
+        lot.update(
+            bayIndex: bay, ideaIndex: idea,
+            title: title.trimmingCharacters(in: .whitespaces),
+            details: details, color: currentColor)
     }
 
     private var currentColor: String? {
         guard lot.document.bays.indices.contains(bay),
               lot.document.bays[bay].ideas.indices.contains(idea) else { return nil }
         return lot.document.bays[bay].ideas[idea].color
-    }
-
-    private func split(_ text: String) -> (title: String, details: String) {
-        let parts = text.split(separator: "\n", maxSplits: 1, omittingEmptySubsequences: false)
-        return (
-            String(parts.first ?? "").trimmingCharacters(in: .whitespaces),
-            parts.count > 1 ? String(parts[1]) : "")
     }
 
     private var colorRow: some View {
@@ -558,10 +635,10 @@ private struct IdeaPanel: View {
                         lineWidth: active ? 2 : 1))
                     .contentShape(Circle())
                     .onTapGesture {
-                        let parts = split(draft)
                         lot.update(
                             bayIndex: bay, ideaIndex: idea,
-                            title: parts.title, details: parts.details, color: key)
+                            title: title.trimmingCharacters(in: .whitespaces),
+                            details: details, color: key)
                     }
                     .help(key.capitalized)
             }
