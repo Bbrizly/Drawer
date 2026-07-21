@@ -71,9 +71,12 @@ final class ParkingLotParserTests: XCTestCase {
     }
 
     func testColumnsChunking() {
-        XCTAssertEqual(ParkingLotLayout.columns(7, stallsPerColumn: 3), [0..<3, 3..<6, 6..<7])
-        XCTAssertEqual(ParkingLotLayout.columns(3, stallsPerColumn: 3), [0..<3])
-        XCTAssertEqual(ParkingLotLayout.columns(0, stallsPerColumn: 3), [])
-        XCTAssertEqual(ParkingLotLayout.columns(2, stallsPerColumn: 0), [])
+        XCTAssertEqual(ParkingLotLayout.rows(ideas: 7, perRow: 3), 3)
+        // Exactly full takes no extra row: 23 bays of reserved empties cost a
+        // third of the lot's height.
+        XCTAssertEqual(ParkingLotLayout.rows(ideas: 6, perRow: 3), 2)
+        // An empty bay still paints one row, so it reads as a bay.
+        XCTAssertEqual(ParkingLotLayout.rows(ideas: 0, perRow: 3), 1)
+        XCTAssertEqual(ParkingLotLayout.rows(ideas: 2, perRow: 0), 1)
     }
 }
