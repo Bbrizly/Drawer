@@ -31,4 +31,9 @@ final class BaySignTests: XCTestCase {
     func testSignKeepsAnAsideThatIsTheWholeName() {
         XCTAssertEqual(ParkingLotView.signCategory("(untitled)"), "(untitled)")
     }
+    func testDateOnlyHeadingLeavesNoCategory() {
+        let sign = ParkingLotView.baySign("2026-07-18")
+        XCTAssertEqual(sign.date, "2026-07-18")
+        XCTAssertEqual(sign.category, "")
+    }
 }

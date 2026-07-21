@@ -116,4 +116,54 @@ final class ParkingLotStoreTests: XCTestCase {
         XCTAssertEqual(moved?.details, "A tiny glanceable version.")
         XCTAssertTrue(store.document.bays.first { $0.name == "Apps" }!.ideas.isEmpty)
     }
+
+    func testRenameBayRewritesOnlyTheHeading() {
+        let (store, _) = makeStore(initial: canonical)
+        store.load()
+        store.renameBay(index: 0, to: "Desktop apps")
+        XCTAssertEqual(store.document.bays[0].name, "Desktop apps")
+        XCTAssertEqual(store.document.bays[0].ideas[0].title, "Lock screen widget")
+        XCTAssertEqual(store.document.bays[0].ideas[0].details, "A tiny glanceable version.")
+        XCTAssertEqual(store.document.bays[1].name, "Hardware")
+    }
+
+    /// A heading with no name swallows every idea under it on the next parse.
+    func testRenameBayIgnoresABlankName() {
+        let (store, _) = makeStore(initial: canonical)
+        store.load()
+        store.renameBay(index: 0, to: "   ")
+        XCTAssertEqual(store.document.bays[0].name, "Apps")
+        XCTAssertEqual(store.document.bays[0].ideas.count, 1)
+    }
+
+    /// Bays are looked up by name when an idea moves, so two bays sharing one
+    /// name would quietly swallow each other's cars.
+    func testRenameBayIgnoresANameAnotherBayHolds() {
+        let (store, _) = makeStore(initial: canonical)
+        store.load()
+        store.renameBay(index: 0, to: "Hardware")
+        XCTAssertEqual(store.document.bays[0].name, "Apps")
+        XCTAssertEqual(store.document.bays.filter { $0.name == "Hardware" }.count, 1)
+    }
+
+    func testRenameBayIgnoresAnOutOfRangeIndex() {
+        let (store, _) = makeStore(initial: canonical)
+        store.load()
+        store.renameBay(index: 9, to: "Nowhere")
+        XCTAssertEqual(store.document.bays.map(\.name), ["Apps", "Hardware"])
+    }
+
+    /// An open card holds a bay/idea position. After an outside edit that
+    /// position may point at a different idea, so the view has to be told.
+    func testOutsideEditBumpsTheReloadCount() {
+        let (store, disk) = makeStore(initial: canonical)
+        store.load()
+        let before = store.reloads
+        disk.value = canonical + "\n- Snuck in later (2026-07-20)"
+        store.load()
+        XCTAssertEqual(store.reloads, before + 1)
+        // Re-reading the same bytes is not an outside edit.
+        store.load()
+        XCTAssertEqual(store.reloads, before + 1)
+    }
 }

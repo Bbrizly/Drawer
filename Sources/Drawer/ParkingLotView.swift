@@ -25,6 +25,9 @@ struct ParkingLotView: View {
     @State private var renamingBay: Int?
     @State private var bayDraft = ""
     @State private var dropTargetBay: Int?
+    /// The idea a tap on an empty space just created. Closing without typing
+    /// hands the space back; nothing else is ever deleted by closing.
+    @State private var blankIdea: IdeaRef?
     @State private var hovered: IdeaRef?
     @FocusState private var bayFieldFocused: Bool
     @Namespace private var carSpace
@@ -129,6 +132,16 @@ struct ParkingLotView: View {
             }
             .onChange(of: geo.frame(in: .global)) { _, frame in
                 lotFrame = frame
+            }
+            // An outside edit renumbers the bays and ideas under us. An open
+            // card still points at the old position, so one more keystroke
+            // would splice its text over whatever moved into that slot. Let go
+            // instead. Nothing is lost: a reload only happens when no save is
+            // pending, so everything typed so far is already on disk.
+            .onChange(of: lot.reloads) { _, _ in
+                selected = nil
+                blankIdea = nil
+                renamingBay = nil
             }
             .onDisappear { removeScrollMonitor() }
         }
@@ -263,7 +276,13 @@ struct ParkingLotView: View {
             drop(ref, toBay: bayName)
             return true
         } isTargeted: { targeted in
-            dropTargetBay = targeted ? b : (dropTargetBay == b ? nil : dropTargetBay)
+            if targeted {
+                dropTargetBay = b
+            } else if dropTargetBay == b {
+                // Only clear our own highlight; the next bay may have already
+                // claimed it as the pointer crossed over.
+                dropTargetBay = nil
+            }
         }
     }
 
@@ -304,7 +323,9 @@ struct ParkingLotView: View {
     static func baySign(_ name: String) -> (date: String?, category: String) {
         var rest = name
         var date: String?
-        if let m = rest.firstMatch(of: #/^(\d{4}-\d{2}-\d{2})\s*:\s*/#) {
+        // A heading that is nothing but a date has no category to show, so the
+        // date still comes off the front rather than becoming the sign.
+        if let m = rest.firstMatch(of: #/^(\d{4}-\d{2}-\d{2})(\s*:\s*|\s*$)/#) {
             date = String(m.1)
             rest = String(rest[m.range.upperBound...])
         }
@@ -383,6 +404,8 @@ struct ParkingLotView: View {
     /// Renaming edits the category only. The date prefix is the file's, not
     /// the sign's, so it goes back on untouched.
     private func beginRename(_ bay: Int) {
+        // The tap can land after an outside edit dropped this bay.
+        guard lot.document.bays.indices.contains(bay) else { return }
         bayDraft = Self.baySign(lot.document.bays[bay].name).category
         renamingBay = bay
         bayFieldFocused = true
@@ -457,10 +480,28 @@ struct ParkingLotView: View {
     // ponytail: bay-level moves only, add within-bay ordering if a lot ever gets one.
     private func drop(_ ref: IdeaRef, toBay name: String) {
         dropTargetBay = nil
-        guard lot.document.bays.indices.contains(ref.bay),
+        guard let dragged = idea(ref),
               lot.document.bays[ref.bay].name != name else { return }
+        // Closing can delete a blank idea, which renumbers the rest of its bay
+        // and leaves the dragged car's index pointing at its neighbour. Find
+        // the car again by what it holds instead of trusting the old index.
         if selected != nil { close() }
-        lot.move(bayIndex: ref.bay, ideaIndex: ref.idea, toBay: name)
+        guard let now = locate(dragged) else { return }
+        lot.move(bayIndex: now.bay, ideaIndex: now.idea, toBay: name)
+    }
+
+    /// Where an idea sits now. Matched on content, not on `lineRange`, because
+    /// a delete anywhere above it rewrites every line number below.
+    private func locate(_ target: ParkedIdea) -> IdeaRef? {
+        for (b, bay) in lot.document.bays.enumerated() {
+            if let i = bay.ideas.firstIndex(where: {
+                $0.title == target.title && $0.details == target.details
+                    && $0.parked == target.parked && $0.color == target.color
+            }) {
+                return IdeaRef(bay: b, idea: i)
+            }
+        }
+        return nil
     }
 
     private func addIdea(toBay name: String) {
@@ -469,6 +510,9 @@ struct ParkingLotView: View {
         guard let b = lot.document.bays.firstIndex(where: { $0.name == name }),
               !lot.document.bays[b].ideas.isEmpty else { return }
         selected = IdeaRef(bay: b, idea: lot.document.bays[b].ideas.count - 1)
+        // Only this one may vanish on close. An idea that already had a title
+        // is safe even if you clear the field to retype it.
+        blankIdea = selected
     }
 
     private func idea(_ ref: IdeaRef) -> ParkedIdea? {
@@ -486,13 +530,16 @@ struct ParkingLotView: View {
         }
     }
 
-    /// Reverses the car back in. An idea cleared to nothing is removed, no
-    /// confirmation: closing an empty panel is the delete gesture.
+    /// Reverses the car back in. A space you parked in and then typed nothing
+    /// into is given back, no confirmation. An idea that already had a title
+    /// stays even if you clear the field, since there is no undo to lean on.
     private func close() {
         guard let sel = selected else { return }
-        if let parked = idea(sel), parked.title.isEmpty, parked.details.isEmpty {
+        if sel == blankIdea, let parked = idea(sel),
+           parked.title.isEmpty, parked.details.isEmpty {
             lot.delete(bayIndex: sel.bay, ideaIndex: sel.idea)
         }
+        blankIdea = nil
         lot.saveNow()
         selected = nil
     }
