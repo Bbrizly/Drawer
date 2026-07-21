@@ -7,6 +7,10 @@ import Foundation
 @MainActor
 public final class ParkingLotStore: ObservableObject {
     @Published public private(set) var document = ParkingLotDocument()
+    /// Bumped whenever an outside edit replaces the document. Views holding a
+    /// position into it (an open card, a bay being renamed) cannot trust that
+    /// position afterwards, so they watch this and let go.
+    @Published public private(set) var reloads = 0
 
     public let fileURL: URL
     private var text = ""
@@ -68,6 +72,7 @@ public final class ParkingLotStore: ObservableObject {
         guard read != text else { return }
         text = read
         document = ParkingLotParser.parse(text)
+        reloads += 1
     }
 
     public var ideaCount: Int { document.bays.reduce(0) { $0 + $1.ideas.count } }
@@ -97,11 +102,14 @@ public final class ParkingLotStore: ObservableObject {
     }
 
     /// Renames a bay. A blank name is ignored, since a heading with no name
-    /// would swallow every idea under it on the next parse.
+    /// would swallow every idea under it on the next parse. A name another bay
+    /// already holds is ignored too: bays are looked up by name when an idea
+    /// moves, so two that match would quietly swallow each other's cars.
     public func renameBay(index: Int, to name: String) {
         let trimmed = name.trimmingCharacters(in: .whitespaces)
         guard document.bays.indices.contains(index), !trimmed.isEmpty,
-              trimmed != document.bays[index].name else { return }
+              trimmed != document.bays[index].name,
+              !document.bays.contains(where: { $0.name == trimmed }) else { return }
         apply(ParkingLotWriteback.renameBay(at: index, to: trimmed, in: text))
     }
 
