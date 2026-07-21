@@ -10,6 +10,9 @@ public final class ParkingLotStore: ObservableObject {
 
     public let fileURL: URL
     private var text = ""
+    /// What the file held the last time we read or wrote it. A save compares
+    /// against this to spot an outside edit that landed mid-flight.
+    private var diskText = ""
     private let watcher: FileWatcher
     private let debounce: TimeInterval
     private var saveTask: Task<Void, Never>?
@@ -60,6 +63,7 @@ public final class ParkingLotStore: ObservableObject {
         // debounced write land instead of clobbering it with a stale read.
         guard saveTask == nil else { return }
         let read = (try? readString(fileURL)) ?? ""
+        diskText = read
         // Our own atomic write comes back through the watcher; skip the noop.
         guard read != text else { return }
         text = read
@@ -113,7 +117,22 @@ public final class ParkingLotStore: ObservableObject {
     public func saveNow() {
         saveTask?.cancel()
         saveTask = nil
-        try? writeString(text, fileURL)
+        write(text)
+    }
+
+    /// The only path to disk. An outside edit that landed while our change was
+    /// in flight would be wiped by this write: we hold the whole file, they
+    /// changed a copy we never read. Their file beats our one card, so take
+    /// theirs and drop ours.
+    private func write(_ snapshot: String) {
+        let onDisk = (try? readString(fileURL)) ?? ""
+        guard onDisk == diskText else {
+            load()
+            return
+        }
+        // Best effort, same as NotesStore: the next edit tries again.
+        try? writeString(snapshot, fileURL)
+        diskText = snapshot
     }
 
     private func idea(_ bay: Int, _ idea: Int) -> ParkedIdea? {
@@ -137,9 +156,8 @@ public final class ParkingLotStore: ObservableObject {
                 try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
             }
             guard !Task.isCancelled, let self else { return }
-            // Best effort, same as NotesStore: the next edit tries again.
-            try? self.writeString(snapshot, self.fileURL)
             self.saveTask = nil
+            self.write(snapshot)
         }
     }
 }
