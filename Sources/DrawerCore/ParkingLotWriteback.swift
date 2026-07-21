@@ -58,6 +58,21 @@ public enum ParkingLotWriteback {
         return lines.joined(separator: "\n")
     }
 
+    /// Renames the nth bay by rewriting its heading line. The ideas under it
+    /// keep their lines, so nothing has to be re-parked.
+    public static func renameBay(at index: Int, to name: String, in text: String) -> String {
+        var lines = split(text)
+        var seen = -1
+        for (i, line) in lines.enumerated() where line.hasPrefix("## ") {
+            seen += 1
+            if seen == index {
+                lines[i] = "## " + name
+                return lines.joined(separator: "\n")
+            }
+        }
+        return text
+    }
+
     static func split(_ text: String) -> [String] {
         text.split(omittingEmptySubsequences: false, whereSeparator: \.isNewline).map(String.init)
     }
