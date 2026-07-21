@@ -99,12 +99,14 @@ public enum ParkingLotParser {
     }
 }
 
-/// Pure layout math for the lot view: a bay's ideas chunked into columns of
-/// stalls, file order preserved, top to bottom then the next block right.
+/// Pure layout math for the lot view: a bay's ideas laid out left to right,
+/// wrapping at the window edge, file order preserved.
 public enum ParkingLotLayout {
-    public static func columns(_ count: Int, stallsPerColumn: Int) -> [Range<Int>] {
-        guard count > 0, stallsPerColumn > 0 else { return [] }
-        return stride(from: 0, to: count, by: stallsPerColumn)
-            .map { $0..<min($0 + stallsPerColumn, count) }
+    /// Rows a bay occupies. Only what its cars need, never a reserved empty
+    /// row: with a lot of bays those spare rows added up to a third of the
+    /// lot's height. Parking into a full bay goes through the sign's + button.
+    public static func rows(ideas: Int, perRow: Int) -> Int {
+        guard perRow > 0 else { return 1 }
+        return max(1, (max(0, ideas) + perRow - 1) / perRow)
     }
 }

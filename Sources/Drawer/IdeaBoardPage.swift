@@ -15,6 +15,7 @@ struct IdeaBoardPage: View {
     @Environment(SwipeCoordinator.self) private var swipe
     @State private var recenterRequests = 0
     @State private var lotZoom: CGFloat = 1
+    @State private var lotJumpToBay: Int?
     @State private var showingBoardSelector = false
     // Board settings (see the Board tab in Settings).
     @AppStorage("boardBackground") private var boardBackground = "dark"
@@ -31,7 +32,9 @@ struct IdeaBoardPage: View {
         VStack(spacing: 0) {
             header
             if lotActive, let lot {
-                ParkingLotView(lot: lot, zoom: $lotZoom, resetRequests: recenterRequests)
+                ParkingLotView(
+                    lot: lot, zoom: $lotZoom, resetRequests: recenterRequests,
+                    jumpToBay: $lotJumpToBay)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 BoardCanvas(
@@ -56,6 +59,30 @@ struct IdeaBoardPage: View {
             }
         }
         .environment(\.controlActiveState, .active)
+    }
+
+    /// Jumps the lot to a bay. A lot of bays is a long pan, and panning past
+    /// twenty signs to reach one is the whole reason this exists.
+    @ViewBuilder
+    private var bayJumpMenu: some View {
+        if let lot, !lot.document.bays.isEmpty {
+            Menu {
+                ForEach(Array(lot.document.bays.enumerated()), id: \.offset) { index, bay in
+                    Button("\(bay.name)  (\(bay.ideas.count))") { lotJumpToBay = index }
+                }
+            } label: {
+                Image(systemName: "list.bullet")
+                    .font(.system(size: 12, weight: .semibold))
+            }
+            .menuStyle(.button)
+            .buttonStyle(.plain)
+            .menuIndicator(.hidden)
+            .fixedSize()
+            .frame(width: 26, height: 26)
+            .contentShape(Rectangle())
+            .help("Jump to a bay.")
+            .accessibilityLabel("Jump to a bay")
+        }
     }
 
     private var header: some View {
@@ -139,6 +166,7 @@ struct IdeaBoardPage: View {
                 ) {
                     recenterRequests += 1
                 }
+                bayJumpMenu
             }
             Text(lotActive ? "\(lot?.ideaCount ?? 0)" : "\(store.document.items.count)")
                 .font(theme.usesXPChrome
