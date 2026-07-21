@@ -92,6 +92,15 @@ public final class ParkingLotStore: ObservableObject {
         apply(next)
     }
 
+    /// Renames a bay. A blank name is ignored, since a heading with no name
+    /// would swallow every idea under it on the next parse.
+    public func renameBay(index: Int, to name: String) {
+        let trimmed = name.trimmingCharacters(in: .whitespaces)
+        guard document.bays.indices.contains(index), !trimmed.isEmpty,
+              trimmed != document.bays[index].name else { return }
+        apply(ParkingLotWriteback.renameBay(at: index, to: trimmed, in: text))
+    }
+
     /// Capture: appends to a bay stamped with today's date. Unsorted by
     /// default, which is where the capture bar parks.
     public func park(title: String, details: String, toBay bay: String = "Unsorted") {

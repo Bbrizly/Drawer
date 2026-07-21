@@ -70,4 +70,17 @@ final class ParkingLotWritebackTests: XCTestCase {
             ParkingLotWriteback.serialize(title: "Plain", details: "", parked: nil, color: nil),
             ["- Plain"])
     }
+    func testRenameBayKeepsItsIdeas() {
+        let out = ParkingLotWriteback.renameBay(at: 1, to: "Later", in: canonical)
+        let doc = ParkingLotParser.parse(out)
+        XCTAssertEqual(doc.bays[1].name, "Later")
+        XCTAssertEqual(
+            doc.bays[1].ideas.map(\.title),
+            ParkingLotParser.parse(canonical).bays[1].ideas.map(\.title))
+        XCTAssertEqual(doc.bays[0].name, ParkingLotParser.parse(canonical).bays[0].name)
+    }
+
+    func testRenameBayOutOfRangeLeavesTextAlone() {
+        XCTAssertEqual(ParkingLotWriteback.renameBay(at: 99, to: "Nope", in: canonical), canonical)
+    }
 }
