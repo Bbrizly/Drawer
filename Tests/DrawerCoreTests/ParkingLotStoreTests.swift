@@ -67,6 +67,19 @@ final class ParkingLotStoreTests: XCTestCase {
         XCTAssertEqual(bay?.ideas.last?.parked, "2026-07-19")
     }
 
+    func testOutsideEditIsNotClobberedByAPendingSave() async {
+        let (store, disk) = makeStore(initial: canonical)
+        store.load()
+        store.update(bayIndex: 0, ideaIndex: 0,
+                     title: "Renamed", details: "", color: nil)
+        // Someone rewrites the whole file (Obsidian, a script) before our
+        // debounced write lands. Their version must survive.
+        disk.value = "## Apps\n- Someone else rewrote the file\n"
+        store.saveNow()
+        XCTAssertTrue(disk.value.contains("Someone else rewrote the file"))
+        XCTAssertFalse(disk.value.contains("Renamed"))
+    }
+
     func testDeleteRemovesIdea() {
         let (store, disk) = makeStore(initial: canonical)
         store.load()
@@ -84,9 +97,12 @@ final class ParkingLotStoreTests: XCTestCase {
         // An outside edit lands while our save is still debouncing.
         disk.value = "## Apps\n- Someone else wrote this\n"
         store.load()
+        // A stale read must not wipe what you just typed in the app,
         XCTAssertEqual(store.document.bays[0].ideas[0].title, "Renamed")
+        // but the save that follows must not wipe their file either.
         store.saveNow()
-        XCTAssertTrue(disk.value.contains("- Renamed"))
+        XCTAssertTrue(disk.value.contains("- Someone else wrote this"))
+        XCTAssertEqual(store.document.bays[0].ideas[0].title, "Someone else wrote this")
     }
 
     func testMoveKeepsMetadata() {
