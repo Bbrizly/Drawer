@@ -19,17 +19,45 @@ struct ParkingLotView: View {
     @State private var lotFrame: CGRect = .zero
     @State private var scrollMonitor: Any?
     @State private var selected: IdeaRef?
+    @State private var renamingBay: Int?
+    @State private var bayDraft = ""
+    @State private var dropTargetBay: Int?
+    @FocusState private var bayFieldFocused: Bool
     @Namespace private var carSpace
 
     struct IdeaRef: Hashable {
         var bay: Int
         var idea: Int
+
+        /// What a dragged car carries. A plain string keeps the drag on
+        /// SwiftUI's own Transferable path with no custom UTType to register.
+        var payload: String { "\(bay):\(idea)" }
+
+        init(bay: Int, idea: Int) {
+            self.bay = bay
+            self.idea = idea
+        }
+
+        init?(payload: String) {
+            let parts = payload.split(separator: ":")
+            guard parts.count == 2, let b = Int(parts[0]), let i = Int(parts[1]) else { return nil }
+            self.init(bay: b, idea: i)
+        }
     }
 
-    private let stallWidth: CGFloat = 168
-    private let stallHeight: CGFloat = 108
+    private let stallWidth: CGFloat = 176
+    private let stallHeight: CGFloat = 132
+    /// Where the car sits inside its stall, measured from the stall top. The
+    /// pulled-out car uses the same number, so it slides straight sideways
+    /// out of the space instead of drifting up or down on the way.
+    private let carTopPad: CGFloat = 14
+    /// Fixed, so every column's first stall starts at the same y no matter
+    /// how long the bay name is.
+    private let headerHeight: CGFloat = 50
     private let gapWidth: CGFloat = 56
     private let openGapWidth: CGFloat = 460
+    private var carWidth: CGFloat { stallWidth - 44 }
+    private var carHeight: CGFloat { carWidth * 128 / 300 }
     private let asphalt = Color(red: 0.165, green: 0.165, blue: 0.18)
     private let paint = Color.white.opacity(0.16)
     private let stencilInk = Color.white.opacity(0.5)
@@ -45,15 +73,20 @@ struct ParkingLotView: View {
 
     var body: some View {
         GeometryReader { geo in
-            let stallsPerColumn = max(1, Int((geo.size.height - 80) / stallHeight))
+            let stallsPerColumn = max(1, Int((geo.size.height - headerHeight - 48) / stallHeight))
             ZStack(alignment: .topLeading) {
                 lotBody(stallsPerColumn: stallsPerColumn)
                     .padding(24)
-                    .scaleEffect(zoom * gestureZoom, anchor: .topLeading)
-                    .offset(
-                        x: offset.width + dragOffset.width,
-                        y: offset.height + dragOffset.height)
             }
+            .frame(width: geo.size.width, height: geo.size.height, alignment: .topLeading)
+            // Zoom about the middle of the viewport, the way the idea board
+            // does, so magnifying does not shove the lot off the top left.
+            // Panning sits outside the scale, so a drag moves the lot one
+            // screen point per pointer point at any zoom.
+            .scaleEffect(zoom * gestureZoom, anchor: .center)
+            .offset(
+                x: offset.width + dragOffset.width,
+                y: offset.height + dragOffset.height)
             .frame(width: geo.size.width, height: geo.size.height, alignment: .topLeading)
             .background(asphalt)
             .clipped()
@@ -150,7 +183,7 @@ struct ParkingLotView: View {
     private func lotBody(stallsPerColumn: Int) -> some View {
         if lot.document.bays.isEmpty {
             VStack(alignment: .leading, spacing: 0) {
-                bayLabel("UNSORTED")
+                bayHeader(nil)
                 ForEach(0..<stallsPerColumn, id: \.self) { _ in
                     EmptyStall(
                         width: stallWidth, height: stallHeight,
@@ -183,18 +216,61 @@ struct ParkingLotView: View {
         return block.mirrored ? block.id - 1 : block.id
     }
 
-    private func bayLabel(_ name: String) -> some View {
-        Text(name)
-            .font(.system(size: 10, weight: .bold, design: .monospaced))
-            .kerning(2)
-            .foregroundStyle(.white.opacity(0.4))
-            .frame(height: 18)
-            .padding(.bottom, 8)
+    /// The sign over a block. Only the first column of a bay carries one; the
+    /// rest reserve the same height so their stalls line up. Double-click the
+    /// name to rename the bay, which rewrites the `## ` heading in the file.
+    @ViewBuilder
+    private func bayHeader(_ bayIndex: Int?) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            if let b = bayIndex, lot.document.bays.indices.contains(b) {
+                let bay = lot.document.bays[b]
+                if renamingBay == b {
+                    TextField("Bay name", text: $bayDraft)
+                        .textFieldStyle(.plain)
+                        .font(.system(size: 14, weight: .bold, design: .monospaced))
+                        .foregroundStyle(.white)
+                        .focused($bayFieldFocused)
+                        .onSubmit { commitRename() }
+                        .onChange(of: bayFieldFocused) { _, focused in
+                            if !focused { commitRename() }
+                        }
+                } else {
+                    Text(bay.name.uppercased())
+                        .font(.system(size: 14, weight: .bold, design: .monospaced))
+                        .kerning(0.5)
+                        .foregroundStyle(.white.opacity(0.85))
+                        .lineLimit(2)
+                        .minimumScaleFactor(0.6)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .help("\(bay.name) (double-click to rename)")
+                        .onTapGesture(count: 2) { beginRename(b) }
+                }
+                Text(bay.ideas.count == 1 ? "1 IDEA" : "\(bay.ideas.count) IDEAS")
+                    .font(.system(size: 9, weight: .semibold, design: .monospaced))
+                    .kerning(1)
+                    .foregroundStyle(.white.opacity(0.35))
+            }
+        }
+        .frame(width: stallWidth - 8, height: headerHeight, alignment: .topLeading)
+    }
+
+    private func beginRename(_ bay: Int) {
+        bayDraft = lot.document.bays[bay].name
+        renamingBay = bay
+        bayFieldFocused = true
+    }
+
+    private func commitRename() {
+        guard let b = renamingBay else { return }
+        renamingBay = nil
+        bayFieldFocused = false
+        lot.renameBay(index: b, to: bayDraft)
     }
 
     private func blockView(_ block: Block, stallsPerColumn: Int) -> some View {
-        VStack(alignment: .leading, spacing: 0) {
-            bayLabel(block.showsLabel ? lot.document.bays[block.bay].name.uppercased() : " ")
+        let bayName = lot.document.bays[block.bay].name
+        return VStack(alignment: .leading, spacing: 0) {
+            bayHeader(block.showsLabel ? block.bay : nil)
             ForEach(block.range, id: \.self) { i in
                 stall(bay: block.bay, idea: i, mirrored: block.mirrored)
             }
@@ -205,10 +281,30 @@ struct ParkingLotView: View {
                     width: stallWidth, height: stallHeight,
                     paint: paint, mirrored: block.mirrored
                 ) {
-                    addIdea(toBay: lot.document.bays[block.bay].name)
+                    addIdea(toBay: bayName)
                 }
             }
         }
+        // Drop a dragged car anywhere on the column to re-park it in this bay.
+        .background(dropTargetBay == block.bay ? Color.white.opacity(0.06) : .clear)
+        .dropDestination(for: String.self) { items, _ in
+            guard let ref = IdeaRef(payload: items.first ?? "") else { return false }
+            drop(ref, toBay: bayName)
+            return true
+        } isTargeted: { targeted in
+            dropTargetBay = targeted ? block.bay : (dropTargetBay == block.bay ? nil : dropTargetBay)
+        }
+    }
+
+    /// Re-parks a dragged car. Moving inside its own bay is a no-op: a lot has
+    /// no order worth preserving, so there is nothing to reorder into.
+    // ponytail: bay-level moves only, add within-bay ordering if a lot ever gets one.
+    private func drop(_ ref: IdeaRef, toBay name: String) {
+        dropTargetBay = nil
+        guard lot.document.bays.indices.contains(ref.bay),
+              lot.document.bays[ref.bay].name != name else { return }
+        if selected != nil { close() }
+        lot.move(bayIndex: ref.bay, ideaIndex: ref.idea, toBay: name)
     }
 
     private func addIdea(toBay name: String) {
@@ -223,25 +319,34 @@ struct ParkingLotView: View {
         let ref = IdeaRef(bay: bay, idea: idea)
         let parked = lot.document.bays[bay].ideas[idea]
         let out = selected == ref
-        return VStack(spacing: 5) {
-            if out {
-                // The car is out in the gap; keep its footprint.
-                Color.clear
-                    .frame(width: stallWidth - 28, height: (stallWidth - 28) * 128 / 300)
-            } else {
-                CarSprite(color: Palette.card(parked.color).color)
-                    .frame(width: stallWidth - 28)
-                    .scaleEffect(x: mirrored ? -1 : 1)
-                    .matchedGeometryEffect(id: ref, in: carSpace)
+        return VStack(spacing: 7) {
+            Group {
+                if out {
+                    // The car is out in the gap; keep its footprint.
+                    Color.clear
+                } else {
+                    CarSprite(color: Palette.card(parked.color).color)
+                        .scaleEffect(x: mirrored ? -1 : 1)
+                        .matchedGeometryEffect(id: ref, in: carSpace)
+                        .draggable(ref.payload) {
+                            CarSprite(color: Palette.card(parked.color).color)
+                                .frame(width: carWidth, height: carHeight)
+                        }
+                }
             }
-            Text(parked.title)
-                .font(.system(size: 9, weight: .bold, design: .monospaced))
+            // The footprint is fixed, so the car sits at the same y in every
+            // stall and the pull-out slides dead level.
+            .frame(width: carWidth, height: carHeight)
+            Text(parked.title.isEmpty ? "UNTITLED" : parked.title)
+                .font(.system(size: 10, weight: .bold, design: .monospaced))
                 .foregroundStyle(stencilInk.opacity(out ? 0.6 : 1))
                 .lineLimit(2)
+                .minimumScaleFactor(0.75)
                 .multilineTextAlignment(.center)
-                .frame(width: stallWidth - 28)
+                .frame(width: stallWidth - 20, height: 30)
         }
-        .frame(width: stallWidth, height: stallHeight)
+        .padding(.top, carTopPad)
+        .frame(width: stallWidth, height: stallHeight, alignment: .top)
         // The whole stall is the target, stencil included, not just the car.
         .contentShape(Rectangle())
         .onTapGesture { toggle(ref) }
@@ -254,7 +359,7 @@ struct ParkingLotView: View {
                let block = blockContaining(sel, in: blocks) {
                 VStack(alignment: .leading, spacing: 12) {
                     CarSprite(color: Palette.card(parked.color).color)
-                        .frame(width: stallWidth - 28)
+                        .frame(width: carWidth, height: carHeight)
                         .scaleEffect(x: block.mirrored ? -1 : 1)
                         .matchedGeometryEffect(id: sel, in: carSpace)
                         .onTapGesture { close() }
@@ -265,7 +370,11 @@ struct ParkingLotView: View {
                         .id(sel)
                         .frame(width: 400)
                 }
-                .padding(.top, 26 + CGFloat(sel.idea - block.range.lowerBound) * stallHeight)
+                // Same y as the stall the car came out of, to the point, so
+                // the drive out is a straight line.
+                .padding(.top, headerHeight
+                    + CGFloat(sel.idea - block.range.lowerBound) * stallHeight
+                    + carTopPad)
                 .padding(.horizontal, 24)
                 .frame(width: openGapWidth, alignment: .topLeading)
             } else {
