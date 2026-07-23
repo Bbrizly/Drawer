@@ -454,19 +454,28 @@ private struct GeneralSettingsView: View {
                     SettingsCaption("That key is used while typing. F13–F19 are safer, or remap Caps Lock to F13.")
                         .foregroundStyle(.orange)
                 }
+                if hotkey.needsAccessibility, !axTrusted {
+                    SettingsCaption(
+                        "A single modifier is caught by watching the keyboard, so Drawer needs "
+                        + "Accessibility before this one works outside its own windows."
+                    )
+                    .foregroundStyle(.orange)
+                }
                 SettingsCaption(
-                    "Shows or hides the drawer from anywhere. One-key shortcuts work best on "
-                    + "F13–F19. Remap Caps Lock in System Settings → Keyboard → Modifier Keys."
+                    "Shows or hides the drawer from anywhere. Record any combination, or a single "
+                    + "modifier tapped on its own. One plain key works best on F13–F19."
                 )
                 HStack(spacing: 6) {
                     ForEach(HotkeyBinding.singleKeyPresets) { binding in
-                        Button(binding.label) {
-                            let previous = hotkey
-                            hotkey = binding
-                            applyHotkey(binding, revertingTo: previous)
+                        presetButton(binding, label: binding.label)
+                    }
+                }
+                // Tapped modifiers ride Accessibility, which the sandbox denies.
+                if !appStoreBuild {
+                    HStack(spacing: 6) {
+                        ForEach(HotkeyBinding.tapPresets) { binding in
+                            presetButton(binding, label: "Tap \(binding.label)")
                         }
-                        .buttonStyle(.bordered)
-                        .controlSize(.small)
                     }
                 }
                 DisclosureGroup("Shortcuts with modifiers") {
@@ -596,10 +605,26 @@ private struct GeneralSettingsView: View {
         }
     }
 
+    private func presetButton(_ binding: HotkeyBinding, label: String) -> some View {
+        Button(label) {
+            let previous = hotkey
+            hotkey = binding
+            applyHotkey(binding, revertingTo: previous)
+        }
+        .buttonStyle(.bordered)
+        .controlSize(.small)
+    }
+
     private func startHotkeyRecording() {
         isRecordingHotkey = true
-        hotkeyRecorder.start { keyCode in
-            let candidate = HotkeyBinding(keyCode: keyCode, modifiers: 0)
+        hotkeyRecorder.start { candidate in
+            // Esc backs out, and a bare typing key keeps the recorder open
+            // rather than binding something that fires mid-sentence.
+            if candidate.isEscape {
+                stopHotkeyRecording()
+                return
+            }
+            guard candidate.problem == nil else { return }
             stopHotkeyRecording()
             let previous = hotkey
             hotkey = candidate
@@ -613,6 +638,15 @@ private struct GeneralSettingsView: View {
     }
 
     private func applyHotkey(_ binding: HotkeyBinding, revertingTo previous: HotkeyBinding) {
+        // A tapped modifier is a fine shortcut that simply cannot run yet.
+        // Save it, ask for the permission, and let the app pick it up on the
+        // grant rather than rejecting the choice.
+        if binding.needsAccessibility, !AccessibilityPermission.isTrusted {
+            binding.save()
+            AccessibilityPermission.prompt()
+            AccessibilityPermission.openSettings()
+            return
+        }
         guard onHotkeyChange(binding) else {
             hotkey = previous
             showHotkeyError = true

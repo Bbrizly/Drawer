@@ -203,9 +203,11 @@ final class DrawerVisualRenderTests: XCTestCase {
         // Dark appearance on purpose: the picked theme decides the chrome, not
         // the OS setting, so Notebook settings stay on warm paper either way.
         UserDefaults.standard.set(DrawerTheme.notebook.rawValue, forKey: "drawerTheme")
+        // Its real width: a narrower host centres the 540pt page and the left
+        // gutter stops being gutter.
         let paper = try renderSettingsBitmap(
             appearance: .darkAqua,
-            size: NSSize(width: 440, height: 580),
+            size: NSSize(width: 540, height: 580),
             scrollOffset: 0
         )
         // Below the tab strip and its divider, the left gutter is nothing but page.
@@ -225,7 +227,7 @@ final class DrawerVisualRenderTests: XCTestCase {
         defer { UserDefaults.standard.removeObject(forKey: "drawerTheme") }
         let board = try renderSettingsBitmap(
             appearance: .aqua,
-            size: NSSize(width: 440, height: 580),
+            size: NSSize(width: 540, height: 580),
             scrollOffset: 0
         )
         for y in stride(from: 250, to: board.pixelsHigh, by: 60) {
