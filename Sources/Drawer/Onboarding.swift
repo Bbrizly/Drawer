@@ -1,10 +1,10 @@
 import AppKit
 import SwiftUI
 
-/// The first-run walkthrough. Three steps: learn the shortcut, put your files
-/// somewhere you own, pick the features you want. It runs modally before the
-/// rest of launch because every store built afterwards resolves a path this
-/// decides.
+/// The first-run walkthrough. Four steps: pick a look, learn the shortcut, put
+/// your files somewhere you own, pick the features you want. It runs modally
+/// before the rest of launch because every store built afterwards resolves a
+/// path this decides.
 @MainActor
 enum Onboarding {
     static let doneKey = "didOnboard"
@@ -50,21 +50,32 @@ enum Onboarding {
     }
 }
 
-private struct OnboardingView: View {
+/// Internal, not private, so the visual render test can shoot each step.
+struct OnboardingView: View {
     let onFinish: () -> Void
 
-    @State private var step = 0
+    /// The walkthrough always opens on the first step; the visual render test
+    /// passes a later one so it can shoot each screen.
+    init(startStep: Int = 0, onFinish: @escaping () -> Void) {
+        self.onFinish = onFinish
+        _step = State(initialValue: startStep)
+    }
+
+    @State private var step: Int
     @State private var hotkeyDone = false
+    @AppStorage("drawerTheme") private var themeRaw = DrawerTheme.default.rawValue
     @AppStorage(AppPaths.dataFolderPathKey) private var dataFolderPath = ""
 
-    private let lastStep = 2
+    private let lastStep = 3
+
+    private var theme: DrawerTheme { DrawerTheme(rawValue: themeRaw) ?? .default }
 
     private var canContinue: Bool {
         switch step {
-        case 0: return hotkeyDone
+        case 1: return hotkeyDone
         // The sandbox cannot write a user folder it was never handed, so the
         // store build waits for the pick. The direct build can use its default.
-        case 1: return !appStoreBuild || !dataFolderPath.isEmpty
+        case 2: return !appStoreBuild || !dataFolderPath.isEmpty
         default: return true
         }
     }
@@ -76,16 +87,19 @@ private struct OnboardingView: View {
             footer
         }
         .frame(width: 620, height: 580)
-        .background(.background)
+        .chromeThemed()
     }
 
     @ViewBuilder
     private var steps: some View {
         switch step {
         case 0:
-            HotkeyStep(done: $hotkeyDone)
+            ThemeStep()
                 .transition(stepTransition)
         case 1:
+            HotkeyStep(done: $hotkeyDone)
+                .transition(stepTransition)
+        case 2:
             FilesStep()
                 .transition(stepTransition)
         default:
@@ -112,7 +126,7 @@ private struct OnboardingView: View {
             HStack(spacing: 6) {
                 ForEach(0...lastStep, id: \.self) { index in
                     Capsule()
-                        .fill(index == step ? Color.accentColor : Color.secondary.opacity(0.25))
+                        .fill(index == step ? theme.accent : Color.secondary.opacity(0.25))
                         .frame(width: index == step ? 18 : 6, height: 6)
                 }
             }
@@ -128,7 +142,10 @@ private struct OnboardingView: View {
         }
         .padding(.horizontal, 28)
         .padding(.vertical, 18)
-        .background(.quaternary.opacity(0.35))
+        // A hair darker than the page, so the bar reads as a bar without
+        // dropping a system gray onto the paper.
+        .background(theme.primaryInk.opacity(0.05))
+        .background(theme.chromeSurface)
         .overlay(alignment: .top) { Divider() }
     }
 
@@ -137,8 +154,9 @@ private struct OnboardingView: View {
     }
 }
 
-/// Shared chrome so the three steps line up exactly as you page through them.
+/// Shared chrome so the four steps line up exactly as you page through them.
 private struct StepFrame<Content: View>: View {
+    @Environment(\.drawerTheme) private var theme
     let icon: String
     let title: String
     let subtitle: String
@@ -151,9 +169,9 @@ private struct StepFrame<Content: View>: View {
             VStack(spacing: 14) {
                 Image(systemName: icon)
                     .font(.system(size: 30, weight: .medium))
-                    .foregroundStyle(Color.accentColor)
+                    .foregroundStyle(theme.accent)
                     .frame(width: 64, height: 64)
-                    .background(Color.accentColor.opacity(0.12), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+                    .background(theme.accent.opacity(0.12), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
                 Text(title)
                     .font(.system(size: 25, weight: .semibold))
                 Text(subtitle)
@@ -171,9 +189,36 @@ private struct StepFrame<Content: View>: View {
     }
 }
 
-// MARK: - Step 1, the shortcut
+// MARK: - Step 1, the look
+
+private struct ThemeStep: View {
+    @AppStorage("drawerTheme") private var themeRaw = DrawerTheme.default.rawValue
+
+    var body: some View {
+        StepFrame(
+            icon: "paintbrush",
+            title: "Pick a look",
+            subtitle: "Notebook is the one it ships with: ruled paper, pen ink, a red margin. "
+                + "Tap another and the whole app follows, this window included."
+        ) {
+            // Three across, so the nine themes land as a tidy square.
+            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 12), count: 3),
+                      spacing: 12) {
+                ForEach(DrawerTheme.allCases) { theme in
+                    ThemeSwatch(theme: theme, selected: themeRaw == theme.id, height: 58)
+                        .onTapGesture {
+                            withAnimation(.snappy(duration: 0.2)) { themeRaw = theme.id }
+                        }
+                }
+            }
+        }
+    }
+}
+
+// MARK: - Step 2, the shortcut
 
 private struct HotkeyStep: View {
+    @Environment(\.drawerTheme) private var theme
     @Binding var done: Bool
 
     @State private var binding = HotkeyBinding.saved
@@ -226,7 +271,7 @@ private struct HotkeyStep: View {
                     )
                     .overlay(
                         RoundedRectangle(cornerRadius: 12, style: .continuous)
-                            .strokeBorder(done ? Color.accentColor : Color.secondary.opacity(0.25), lineWidth: 1.5)
+                            .strokeBorder(done ? theme.accent : Color.secondary.opacity(0.25), lineWidth: 1.5)
                     )
             }
         }
@@ -307,7 +352,7 @@ private struct HotkeyStep: View {
     }
 }
 
-// MARK: - Step 2, where the files live
+// MARK: - Step 3, where the files live
 
 private struct FilesStep: View {
     @AppStorage(AppPaths.dataFolderPathKey) private var dataFolderPath = ""
@@ -371,9 +416,10 @@ private struct FilesStep: View {
     ]
 }
 
-// MARK: - Step 3, curate
+// MARK: - Step 4, curate
 
 private struct FeaturesStep: View {
+    @Environment(\.drawerTheme) private var theme
     @StateObject private var model = FeatureFlagsModel()
     @State private var preset: String?
 
@@ -461,11 +507,11 @@ private struct FeaturesStep: View {
             .padding(.vertical, 9)
             .background(
                 RoundedRectangle(cornerRadius: 11, style: .continuous)
-                    .fill(preset == title ? Color.accentColor.opacity(0.15) : Color.secondary.opacity(0.08))
+                    .fill(preset == title ? theme.accent.opacity(0.15) : Color.secondary.opacity(0.08))
             )
             .overlay(
                 RoundedRectangle(cornerRadius: 11, style: .continuous)
-                    .strokeBorder(preset == title ? Color.accentColor : Color.clear, lineWidth: 1.5)
+                    .strokeBorder(preset == title ? theme.accent : Color.clear, lineWidth: 1.5)
             )
         }
         .buttonStyle(.plain)
