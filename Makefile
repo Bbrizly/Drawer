@@ -14,6 +14,13 @@ RELEASE_TAG ?=
 DEV_ID ?= Developer ID Application
 NOTARY_PROFILE ?= drawer-notary
 
+# Sign local builds with that same Developer ID when the cert is on this Mac,
+# and fall back to ad-hoc when it is not. This is what makes an Accessibility
+# grant survive a rebuild: ad-hoc gives every build a new identity, so macOS
+# keeps showing Drawer as granted while AXIsProcessTrusted() stays false.
+SIGN_ID := $(shell security find-identity -v -p codesigning 2>/dev/null \
+	| grep -q "$(DEV_ID)" && echo "$(DEV_ID)" || echo -)
+
 SWIFT_FLAGS ?=
 
 build:
@@ -32,14 +39,14 @@ app:
 	cp $(BINARY) $(APP)/Contents/MacOS/Drawer
 	cp $(MCP_BINARY) $(APP)/Contents/MacOS/drawer-mcp
 	cp -R .build/release/Drawer_Drawer.bundle $(APP)/Contents/Resources/ 2>/dev/null || true
-	codesign --force --sign - $(APP)
+	codesign --force --sign "$(SIGN_ID)" $(APP)/Contents/MacOS/drawer-mcp
+	codesign --force --sign "$(SIGN_ID)" $(APP)
 
 # Runs the freshly built copy from /Applications with a clean Accessibility
-# grant. The app is ad-hoc signed, so every build gets a new signature the old
-# grant no longer matches -- macOS keeps showing Drawer as "granted" while
-# AXIsProcessTrusted() stays false. Resetting the grant clears that stale entry
-# so the right-Command tap (and Work Mode) can be re-granted against this build.
-# Re-grant Accessibility once after each run; that is inherent to ad-hoc signing.
+# grant. Only needed when this Mac has no Developer ID cert and the build fell
+# back to ad-hoc: every ad-hoc build gets a new signature the old grant no
+# longer matches, so macOS keeps showing Drawer as "granted" while
+# AXIsProcessTrusted() stays false. Resetting clears that stale entry.
 run: install
 	-osascript -e 'quit app "Drawer"' 2>/dev/null
 	sleep 1
