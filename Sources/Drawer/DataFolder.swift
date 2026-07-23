@@ -45,13 +45,19 @@ enum DataFolder {
     }
 
     /// Carries a file already written into the container over to the picked
-    /// folder, so nothing typed before the pick disappears.
+    /// folder, so nothing typed before the pick disappears. A failed move
+    /// falls back to a copy: the settings now point at the new folder, so
+    /// leaving the only copy behind in the container would read as lost work.
     private static func move(_ from: String, _ to: String) {
         let fm = FileManager.default
         guard from != to, fm.fileExists(atPath: from), !fm.fileExists(atPath: to) else { return }
         try? fm.createDirectory(
             at: URL(fileURLWithPath: to).deletingLastPathComponent(),
             withIntermediateDirectories: true)
-        try? fm.moveItem(atPath: from, toPath: to)
+        do {
+            try fm.moveItem(atPath: from, toPath: to)
+        } catch {
+            try? fm.copyItem(atPath: from, toPath: to)
+        }
     }
 }

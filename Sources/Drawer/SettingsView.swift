@@ -1184,18 +1184,26 @@ private struct AdvancedSettingsView: View {
                 }
                 Section("Data files") {
                     // Sandboxed, so every file sits in this folder unless a row
-                    // below points somewhere else.
+                    // below points somewhere else. Same pick as first run, so
+                    // the files move with it either way.
                     if appStoreBuild {
-                        SettingsPathRow(
-                            title: "Your Drawer folder",
-                            caption: "Where Drawer keeps your task file, notes, and ideas. "
-                                + "Files already there stay put; move them yourself if you "
-                                + "change this.",
-                            storedPath: $dataFolderPath,
-                            defaultPath: AppPaths.drawerDataDirectory.path,
-                            settingKey: AppPaths.dataFolderPathKey,
-                            pickKind: .directory
-                        )
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text("Your Drawer folder")
+                                .font(.headline)
+                            HStack(alignment: .firstTextBaseline) {
+                                Text(dataFolderPath.isEmpty ? "Not set" : dataFolderPath)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                    .truncationMode(.middle)
+                                    .lineLimit(2)
+                                Spacer(minLength: 8)
+                                Button("Choose…") { DataFolder.choose() }
+                            }
+                            SettingsCaption(
+                                "Where Drawer keeps your task file, notes, and ideas. "
+                                + "Changing it brings those files along."
+                            )
+                        }
                     }
                     SettingsPathRow(
                         title: "Notes scratchpad",
