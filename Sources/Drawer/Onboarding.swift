@@ -344,11 +344,13 @@ private struct StepFrame<Content: View>: View {
                 Text(title)
                     .font(.system(size: 25, weight: .semibold))
                 Text(subtitle)
-                    .font(.body)
+                    .font(.title3)
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
                     .fixedSize(horizontal: false, vertical: true)
-                    .frame(maxWidth: 400)
+                    // Wide enough that a short second line is a phrase, not one
+                    // stray word sitting on its own.
+                    .frame(maxWidth: 460)
             }
             content
         }
@@ -776,9 +778,9 @@ private struct FilesStep: View {
     var body: some View {
         StepFrame(
             title: "Your tasks are plain files",
-            subtitle: "Markdown, in a folder you own. Drop it in your Obsidian vault if you keep one."
+            subtitle: "Markdown, in a folder you pick. Put it in your Obsidian vault and your tasks are just notes."
         ) {
-            VStack(spacing: 18) {
+            VStack(spacing: 16) {
                 VStack(alignment: .leading, spacing: 10) {
                     HStack(spacing: 8) {
                         Image(systemName: dataFolderPath.isEmpty ? "questionmark.folder" : "checkmark.circle.fill")
@@ -794,10 +796,10 @@ private struct FilesStep: View {
                     ForEach(Self.files, id: \.0) { name, what in
                         HStack(spacing: 8) {
                             Text(name)
-                                .font(.system(.caption, design: .monospaced))
+                                .font(.system(.footnote, design: .monospaced))
                                 .foregroundStyle(.primary)
                             Text(what)
-                                .font(.caption)
+                                .font(.footnote)
                                 .foregroundStyle(.secondary)
                             Spacer(minLength: 0)
                         }
@@ -806,10 +808,17 @@ private struct FilesStep: View {
                 .padding(16)
                 .background(.quaternary.opacity(0.4), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
 
+                Text("Anything that edits files can edit your day. Point Claude or ChatGPT at that folder and it adds tasks, ticks them off, and moves them to tomorrow.")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: 460)
+
                 if appStoreBuild, dataFolderPath.isEmpty {
                     Text("Pick a folder to carry on. Documents is a fine answer.")
                         .font(.callout)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(.orange)
                 }
             }
         }
