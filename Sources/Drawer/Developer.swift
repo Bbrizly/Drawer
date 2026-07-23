@@ -55,9 +55,11 @@ final class DevTuningStore: ObservableObject {
     @Published var tuning: DevTuning {
         didSet {
             guard DevTools.enabled, tuning != oldValue else { return }
-            UserDefaults.standard.set(try? JSONEncoder().encode(tuning), forKey: Self.key)
+            scheduleSave()
         }
     }
+
+    private var pendingSave: Task<Void, Never>?
 
     private init() {
         if DevTools.enabled,
@@ -69,9 +71,24 @@ final class DevTuningStore: ObservableObject {
         }
     }
 
+    /// The sliders move now, the saving waits. One drag changes this a hundred
+    /// times a second, and every write to UserDefaults wakes the whole app: the
+    /// shortcut, the history recorder, and the settings window all watch for
+    /// one. Saving on each step froze the app mid drag and ate the shortcut
+    /// while it was frozen.
+    private func scheduleSave() {
+        pendingSave?.cancel()
+        pendingSave = Task { [tuning] in
+            try? await Task.sleep(for: .milliseconds(400))
+            guard !Task.isCancelled else { return }
+            UserDefaults.standard.set(try? JSONEncoder().encode(tuning), forKey: Self.key)
+        }
+    }
+
     /// Back to the numbers written in the code.
     func reset() {
         tuning = .standard
+        pendingSave?.cancel()  // the line above just queued one
         UserDefaults.standard.removeObject(forKey: Self.key)
     }
 }
