@@ -23,7 +23,11 @@ let package = Package(
         .executableTarget(
             name: "Drawer",
             dependencies: ["DrawerCore", "DrawerBureau"],
-            resources: [.copy("Resources/Fonts"), .copy("Resources/menubar-logo.png")],
+            resources: [
+                .copy("Resources/Fonts"),
+                .copy("Resources/menubar-logo.png"),
+                .copy("Resources/app-icon.png"),
+            ],
             swiftSettings: [.swiftLanguageMode(.v5)]
         ),
         .executableTarget(
