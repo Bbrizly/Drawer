@@ -44,6 +44,9 @@ struct SettingsView: View {
 
     @State private var tab: Tab = .general
     @AppStorage("feature.bureau") private var bureauEnabled = false
+    @AppStorage("drawerTheme") private var themeRaw = DrawerTheme.default.rawValue
+
+    private var accent: Color { (DrawerTheme(rawValue: themeRaw) ?? .default).accent }
 
     /// The Bureau tab only shows when the feature is on and its tuning is wired.
     private var bureauShowsTuning: Bool {
@@ -76,10 +79,10 @@ struct SettingsView: View {
                         .padding(.vertical, 6)
                         .background(
                             RoundedRectangle(cornerRadius: 7)
-                                .fill(tab == item ? Color.accentColor.opacity(0.18) : .clear)
+                                .fill(tab == item ? accent.opacity(0.18) : .clear)
                         )
                         .contentShape(RoundedRectangle(cornerRadius: 7))
-                        .foregroundStyle(tab == item ? AnyShapeStyle(Color.accentColor) : AnyShapeStyle(.secondary))
+                        .foregroundStyle(tab == item ? AnyShapeStyle(accent) : AnyShapeStyle(.secondary))
                     }
                     .buttonStyle(.plain)
                     .accessibilityAddTraits(tab == item ? [.isButton, .isSelected] : .isButton)
@@ -113,6 +116,7 @@ struct SettingsView: View {
             }
         }
         .frame(width: 540, height: 580)
+        .chromeThemed()
         .onChange(of: bureauShowsTuning) { _, shows in
             // If the Bureau tab was open and the feature is turned off, fall
             // back to General so the content does not sit on a hidden tab.
@@ -273,6 +277,9 @@ private struct TimersSettingsView: View {
         PomodoroTimer.Settings.standard.sessionsUntilLongBreak
     @AppStorage("focusSoundKind") private var focusSoundKind = "pink"
     @AppStorage("focusSoundVolume") private var focusSoundVolume = 0.5
+    @Environment(\.drawerTheme) private var theme
+
+    private var palette: SettingsPalette { .forTheme(theme) }
 
     private var pomodoroSettings: PomodoroTimer.Settings {
         PomodoroPreferences.settings(
@@ -284,78 +291,76 @@ private struct TimersSettingsView: View {
     }
 
     var body: some View {
-        ScrollView {
-            Form {
-                Section("Timer pills") {
-                    TimerFeatureToggleGrid(
-                        focusTimerEnabled: $focusTimerEnabled,
-                        pomodoroEnabled: $pomodoroEnabled,
-                        stopwatchEnabled: $stopwatchEnabled,
-                        palette: .standard
-                    )
-                    SettingsCaption(
-                        "Choose which timer pills appear at the top. Stopwatch is the task time "
-                        + "tracker formerly shown as Work Mode."
-                    )
-                    Divider()
-                    HStack {
-                        Text("Focus timer default")
-                        Spacer()
-                        TextField("", text: $defaultMinutes)
-                            .textFieldStyle(.roundedBorder)
-                            .multilineTextAlignment(.center)
-                            .frame(width: 56)
-                            .accessibilityLabel("Focus timer default minutes")
-                            .onChange(of: defaultMinutes) { _, newValue in
-                                let digits = String(newValue.filter(\.isNumber).prefix(3))
-                                if digits != newValue { defaultMinutes = digits }
-                            }
-                    }
-                    SettingsCaption(
-                        "Pre-fills the focus timer when you tap play. A task can override this "
-                        + "with a duration like (15m) in the markdown file."
-                    )
-                }
-                Section("Pomodoro") {
-                    PomodoroCadenceSettings(
-                        focusMinutes: $pomodoroFocusMinutes,
-                        shortBreakMinutes: $pomodoroShortBreakMinutes,
-                        longBreakMinutes: $pomodoroLongBreakMinutes,
-                        sessionsUntilLongBreak: $pomodoroSessionsUntilLongBreak,
-                        palette: .standard,
-                        applyPreset: applyPomodoroPreset
-                    )
-                    SettingsCaption(
-                        "The tuned default is 25 minutes of focus, 5 minutes off, and a "
-                        + "15-minute reset after four focus rounds."
-                    )
-                }
-                Section("Sounds") {
-                    Toggle("Focus sound", isOn: $focusSoundEnabled)
-                    Picker("Sound", selection: $focusSoundKind) {
-                        ForEach(FocusSoundPlayer.options, id: \.id) { opt in
-                            Text(opt.label).tag(opt.id)
+        Form {
+            Section("Timer pills") {
+                TimerFeatureToggleGrid(
+                    focusTimerEnabled: $focusTimerEnabled,
+                    pomodoroEnabled: $pomodoroEnabled,
+                    stopwatchEnabled: $stopwatchEnabled,
+                    palette: palette
+                )
+                SettingsCaption(
+                    "Choose which timer pills appear at the top. Stopwatch is the task time "
+                    + "tracker formerly shown as Work Mode."
+                )
+                Divider()
+                HStack {
+                    Text("Focus timer default")
+                    Spacer()
+                    TextField("", text: $defaultMinutes)
+                        .textFieldStyle(.roundedBorder)
+                        .multilineTextAlignment(.center)
+                        .frame(width: 56)
+                        .accessibilityLabel("Focus timer default minutes")
+                        .onChange(of: defaultMinutes) { _, newValue in
+                            let digits = String(newValue.filter(\.isNumber).prefix(3))
+                            if digits != newValue { defaultMinutes = digits }
                         }
-                    }
-                    .pickerStyle(.segmented)
-                    .disabled(!focusSoundEnabled)
-                    HStack {
-                        Image(systemName: "speaker.fill").foregroundStyle(.secondary)
-                        Slider(value: $focusSoundVolume, in: 0...1)
-                        Image(systemName: "speaker.wave.3.fill").foregroundStyle(.secondary)
-                    }
-                    .disabled(!focusSoundEnabled)
-                    SettingsCaption(
-                        "The speaker button in the header plays this. Pink masks chatter, "
-                        + "brown is deeper, ocean swells like surf."
-                    )
-                    Divider()
-                    Toggle("Sound when timer ends", isOn: $timerEndSoundEnabled)
-                    SettingsCaption("A chime and notification when a focus or Pomodoro session finishes.")
                 }
+                SettingsCaption(
+                    "Pre-fills the focus timer when you tap play. A task can override this "
+                    + "with a duration like (15m) in the markdown file."
+                )
             }
-            .formStyle(.grouped)
+            Section("Pomodoro") {
+                PomodoroCadenceSettings(
+                    focusMinutes: $pomodoroFocusMinutes,
+                    shortBreakMinutes: $pomodoroShortBreakMinutes,
+                    longBreakMinutes: $pomodoroLongBreakMinutes,
+                    sessionsUntilLongBreak: $pomodoroSessionsUntilLongBreak,
+                    palette: palette,
+                    applyPreset: applyPomodoroPreset
+                )
+                SettingsCaption(
+                    "The tuned default is 25 minutes of focus, 5 minutes off, and a "
+                    + "15-minute reset after four focus rounds."
+                )
+            }
+            Section("Sounds") {
+                Toggle("Focus sound", isOn: $focusSoundEnabled)
+                Picker("Sound", selection: $focusSoundKind) {
+                    ForEach(FocusSoundPlayer.options, id: \.id) { opt in
+                        Text(opt.label).tag(opt.id)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .disabled(!focusSoundEnabled)
+                HStack {
+                    Image(systemName: "speaker.fill").foregroundStyle(.secondary)
+                    Slider(value: $focusSoundVolume, in: 0...1)
+                    Image(systemName: "speaker.wave.3.fill").foregroundStyle(.secondary)
+                }
+                .disabled(!focusSoundEnabled)
+                SettingsCaption(
+                    "The speaker button in the header plays this. Pink masks chatter, "
+                    + "brown is deeper, ocean swells like surf."
+                )
+                Divider()
+                Toggle("Sound when timer ends", isOn: $timerEndSoundEnabled)
+                SettingsCaption("A chime and notification when a focus or Pomodoro session finishes.")
+            }
         }
+        .formStyle(.grouped)
         .onAppear { sanitizePomodoroSettings() }
         .onChange(of: pomodoroFocusMinutes) { _, _ in sanitizePomodoroSettings() }
         .onChange(of: pomodoroShortBreakMinutes) { _, _ in sanitizePomodoroSettings() }
@@ -411,8 +416,7 @@ private struct GeneralSettingsView: View {
     @State private var axTrusted = AccessibilityPermission.isTrusted
 
     var body: some View {
-        ScrollView {
-            Form {
+        Form {
             Section("Tasks file") {
                 HStack(alignment: .firstTextBaseline) {
                     Text(filePath)
@@ -564,7 +568,6 @@ private struct GeneralSettingsView: View {
                     }
                 SettingsCaption("Starts Drawer quietly in the menu bar when you sign in.")
             }
-        }
         }
         .formStyle(.grouped)
         .onAppear {
@@ -1174,135 +1177,132 @@ private struct AdvancedSettingsView: View {
     @State private var showResetConfirm = false
 
     var body: some View {
-        ScrollView {
-            Form {
-                Section {
-                    SettingsCaption(
-                        "Niche options and file locations. Changing a data path takes effect "
-                        + "after you quit and reopen Drawer."
-                    )
-                }
-                Section("Data files") {
-                    // Sandboxed, so every file sits in this folder unless a row
-                    // below points somewhere else. Same pick as first run, so
-                    // the files move with it either way.
-                    if appStoreBuild {
-                        VStack(alignment: .leading, spacing: 6) {
-                            Text("Your Drawer folder")
-                                .font(.headline)
-                            HStack(alignment: .firstTextBaseline) {
-                                Text(dataFolderPath.isEmpty ? "Not set" : dataFolderPath)
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                                    .truncationMode(.middle)
-                                    .lineLimit(2)
-                                Spacer(minLength: 8)
-                                Button("Choose…") { DataFolder.choose() }
-                            }
-                            SettingsCaption(
-                                "Where Drawer keeps your task file, notes, and ideas. "
-                                + "Changing it brings those files along."
-                            )
+        Form {
+            Section {
+                SettingsCaption(
+                    "Niche options and file locations. Changing a data path takes effect "
+                    + "after you quit and reopen Drawer."
+                )
+            }
+            Section("Data files") {
+                // Sandboxed, so every file sits in this folder unless a row
+                // below points somewhere else. Same pick as first run, so
+                // the files move with it either way.
+                if appStoreBuild {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("Your Drawer folder")
+                            .font(.headline)
+                        HStack(alignment: .firstTextBaseline) {
+                            Text(dataFolderPath.isEmpty ? "Not set" : dataFolderPath)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .truncationMode(.middle)
+                                .lineLimit(2)
+                            Spacer(minLength: 8)
+                            Button("Choose…") { DataFolder.choose() }
                         }
-                    }
-                    SettingsPathRow(
-                        title: "Notes scratchpad",
-                        caption: "The in-drawer notes pad. Kept out of your task vault by default.",
-                        storedPath: $notesFilePath,
-                        defaultPath: AppPaths.defaultNotesFile,
-                        settingKey: AppPaths.notesFilePathKey
-                    )
-                    SettingsPathRow(
-                        title: "Work session log",
-                        caption: "Raw JSONL log of work-mode time segments. The summary card reads this.",
-                        storedPath: $workLogFilePath,
-                        defaultPath: AppPaths.defaultWorkLogFile,
-                        settingKey: AppPaths.workLogFilePathKey,
-                        pickKind: .jsonlFile
-                    )
-                    Toggle("Export work log to markdown", isOn: $exportWorkLogMarkdown)
-                    if exportWorkLogMarkdown {
-                        SettingsPathRow(
-                            title: "Work log markdown",
-                            caption: "Regenerated when work mode ends or you edit a day summary. "
-                                + "Handy beside your other notes.",
-                            storedPath: $workLogMarkdownPath,
-                            defaultPath: AppPaths.defaultWorkLogMarkdownFile,
-                            settingKey: AppPaths.workLogMarkdownFilePathKey
+                        SettingsCaption(
+                            "Where Drawer keeps your task file, notes, and ideas. "
+                            + "Changing it brings those files along."
                         )
                     }
+                }
+                SettingsPathRow(
+                    title: "Notes scratchpad",
+                    caption: "The in-drawer notes pad. Kept out of your task vault by default.",
+                    storedPath: $notesFilePath,
+                    defaultPath: AppPaths.defaultNotesFile,
+                    settingKey: AppPaths.notesFilePathKey
+                )
+                SettingsPathRow(
+                    title: "Work session log",
+                    caption: "Raw JSONL log of work-mode time segments. The summary card reads this.",
+                    storedPath: $workLogFilePath,
+                    defaultPath: AppPaths.defaultWorkLogFile,
+                    settingKey: AppPaths.workLogFilePathKey,
+                    pickKind: .jsonlFile
+                )
+                Toggle("Export work log to markdown", isOn: $exportWorkLogMarkdown)
+                if exportWorkLogMarkdown {
                     SettingsPathRow(
-                        title: "Idea board folder",
-                        caption: "board.json and pasted images live here. One folder can hold multiple boards.",
-                        storedPath: $ideasDirectoryPath,
-                        defaultPath: AppPaths.defaultIdeasDirectory,
-                        settingKey: AppPaths.ideasDirectoryPathKey,
-                        pickKind: .directory
+                        title: "Work log markdown",
+                        caption: "Regenerated when work mode ends or you edit a day summary. "
+                            + "Handy beside your other notes.",
+                        storedPath: $workLogMarkdownPath,
+                        defaultPath: AppPaths.defaultWorkLogMarkdownFile,
+                        settingKey: AppPaths.workLogMarkdownFilePathKey
                     )
-                    if parkingLotEnabled {
-                        SettingsPathRow(
-                            title: "Parking lot",
-                            caption: "The idea file behind the parking lot board. Sits next to your "
-                                + "task file unless you point it somewhere else.",
-                            storedPath: $parkingLotPath,
-                            defaultPath: AppPaths.defaultParkingLotFile,
-                            settingKey: AppPaths.parkingLotFilePathKey
-                        )
-                    }
+                }
+                SettingsPathRow(
+                    title: "Idea board folder",
+                    caption: "board.json and pasted images live here. One folder can hold multiple boards.",
+                    storedPath: $ideasDirectoryPath,
+                    defaultPath: AppPaths.defaultIdeasDirectory,
+                    settingKey: AppPaths.ideasDirectoryPathKey,
+                    pickKind: .directory
+                )
+                if parkingLotEnabled {
                     SettingsPathRow(
-                        title: "Planner priorities",
-                        caption: "The AI day planner reads this file to rank tasks. Clear it to plan "
-                            + "without priorities.",
-                        storedPath: $plannerPrioritiesPath,
-                        defaultPath: AppPaths.defaultPrioritiesFile,
-                        settingKey: AppPaths.plannerPrioritiesPathKey
-                    )
-                    Button("Show the welcome walkthrough again") { Onboarding.run() }
-                    Button("Open Drawer data folder") {
-                        let dir = AppPaths.drawerDataDirectory
-                        try? FileManager.default.createDirectory(
-                            at: dir, withIntermediateDirectories: true)
-                        NSWorkspace.shared.open(dir)
-                    }
-                }
-                Section("Teleprompter") {
-                    HStack {
-                        Text("Scroll speed")
-                        Slider(value: $teleprompterSpeed, in: 10...120, step: 5)
-                        Text("\(Int(teleprompterSpeed))")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                            .frame(width: 28, alignment: .trailing)
-                    }
-                    HStack {
-                        Text("Font size")
-                        Slider(value: $teleprompterFontSize, in: 20...60, step: 2)
-                        Text("\(Int(teleprompterFontSize)) pt")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                            .frame(width: 52, alignment: .trailing)
-                    }
-                    SettingsCaption(
-                        "The floating reader over your notes. Spacebar pauses while its window is focused."
+                        title: "Parking lot",
+                        caption: "The idea file behind the parking lot board. Sits next to your "
+                            + "task file unless you point it somewhere else.",
+                        storedPath: $parkingLotPath,
+                        defaultPath: AppPaths.defaultParkingLotFile,
+                        settingKey: AppPaths.parkingLotFilePathKey
                     )
                 }
-                Section("Notes pad") {
-                    HStack {
-                        Text("Default height")
-                        Slider(value: $notesPaneHeight, in: 100...320, step: 10)
-                        Text("\(Int(notesPaneHeight))")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                            .frame(width: 32, alignment: .trailing)
-                    }
-                    SettingsCaption("How tall the notes pane opens inside the drawer. You can still drag to resize.")
+                SettingsPathRow(
+                    title: "Planner priorities",
+                    caption: "The AI day planner reads this file to rank tasks. Clear it to plan "
+                        + "without priorities.",
+                    storedPath: $plannerPrioritiesPath,
+                    defaultPath: AppPaths.defaultPrioritiesFile,
+                    settingKey: AppPaths.plannerPrioritiesPathKey
+                )
+                Button("Open Drawer data folder") {
+                    let dir = AppPaths.drawerDataDirectory
+                    try? FileManager.default.createDirectory(
+                        at: dir, withIntermediateDirectories: true)
+                    NSWorkspace.shared.open(dir)
                 }
-                Section {
-                    Button("Reset advanced settings…", role: .destructive) {
-                        showResetConfirm = true
-                    }
-                    SettingsCaption("Clears custom paths and advanced toggles. Themes, sounds, and your task file stay as they are.")
+            }
+            Section("Teleprompter") {
+                HStack {
+                    Text("Scroll speed")
+                    Slider(value: $teleprompterSpeed, in: 10...120, step: 5)
+                    Text("\(Int(teleprompterSpeed))")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .frame(width: 28, alignment: .trailing)
                 }
+                HStack {
+                    Text("Font size")
+                    Slider(value: $teleprompterFontSize, in: 20...60, step: 2)
+                    Text("\(Int(teleprompterFontSize)) pt")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .frame(width: 52, alignment: .trailing)
+                }
+                SettingsCaption(
+                    "The floating reader over your notes. Spacebar pauses while its window is focused."
+                )
+            }
+            Section("Notes pad") {
+                HStack {
+                    Text("Default height")
+                    Slider(value: $notesPaneHeight, in: 100...320, step: 10)
+                    Text("\(Int(notesPaneHeight))")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .frame(width: 32, alignment: .trailing)
+                }
+                SettingsCaption("How tall the notes pane opens inside the drawer. You can still drag to resize.")
+            }
+            Section {
+                Button("Reset advanced settings…", role: .destructive) {
+                    showResetConfirm = true
+                }
+                SettingsCaption("Clears custom paths and advanced toggles. Themes, sounds, and your task file stay as they are.")
             }
         }
         .formStyle(.grouped)
@@ -1452,49 +1452,5 @@ private struct HelpView: View {
                 .font(.callout)
                 .foregroundStyle(.secondary)
         }
-    }
-}
-
-/// A live preview tile for one theme: the real panel surface behind a couple of
-/// stand-in ink bars, with the theme's accent and a selection ring. Tapping it
-/// switches the drawer instantly.
-private struct ThemeSwatch: View {
-    let theme: DrawerTheme
-    let selected: Bool
-
-    private let shape = RoundedRectangle(cornerRadius: 12, style: .continuous)
-
-    var body: some View {
-        VStack(spacing: 6) {
-            ZStack(alignment: .topLeading) {
-                PanelBackground(theme: theme)
-                    .clipShape(shape)
-                VStack(alignment: .leading, spacing: 5) {
-                    Circle().fill(theme.accent).frame(width: 9, height: 9)
-                    RoundedRectangle(cornerRadius: 2)
-                        .fill(theme.primaryInk.opacity(0.85))
-                        .frame(width: 48, height: 5)
-                    RoundedRectangle(cornerRadius: 2)
-                        .fill(theme.primaryInk.opacity(0.5))
-                        .frame(width: 34, height: 5)
-                }
-                .padding(11)
-            }
-            .frame(height: 62)
-            .overlay(
-                shape.strokeBorder(
-                    selected ? Color.accentColor : Color.primary.opacity(0.12),
-                    lineWidth: selected ? 2.5 : 1
-                )
-            )
-            Text(theme.displayName)
-                .font(.caption)
-                .fontWeight(selected ? .semibold : .regular)
-                .foregroundStyle(selected ? AnyShapeStyle(.primary) : AnyShapeStyle(.secondary))
-        }
-        .contentShape(Rectangle())
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel("\(theme.displayName) theme")
-        .accessibilityAddTraits(selected ? [.isButton, .isSelected] : .isButton)
     }
 }

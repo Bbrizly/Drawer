@@ -199,21 +199,42 @@ final class DrawerVisualRenderTests: XCTestCase {
         )
     }
 
-    func testPixelThemeSettingsTimersDoNotUseLargeBrightAccentSurfaces() throws {
-        UserDefaults.standard.set(DrawerTheme.pixel.rawValue, forKey: "drawerTheme")
-        defer { UserDefaults.standard.removeObject(forKey: "drawerTheme") }
-
-        let bitmap = try renderSettingsBitmap(
+    func testSettingsPageWearsTheThemeSurface() throws {
+        // Dark appearance on purpose: the picked theme decides the chrome, not
+        // the OS setting, so Notebook settings stay on warm paper either way.
+        UserDefaults.standard.set(DrawerTheme.notebook.rawValue, forKey: "drawerTheme")
+        let paper = try renderSettingsBitmap(
             appearance: .darkAqua,
             size: NSSize(width: 440, height: 580),
-            scrollOffset: 1420
+            scrollOffset: 0
         )
+        // Below the tab strip and its divider, the left gutter is nothing but page.
+        for y in stride(from: 250, to: paper.pixelsHigh, by: 60) {
+            guard let color = paper.colorAt(x: 8, y: y)?.usingColorSpace(.deviceRGB) else { continue }
+            XCTAssertGreaterThan(
+                color.redComponent, 0.9,
+                "The Notebook settings page should be paper, not a dark or system surface."
+            )
+            XCTAssertGreaterThan(
+                color.redComponent, color.blueComponent,
+                "Notebook paper is warm, so red should lead blue."
+            )
+        }
 
-        XCTAssertLessThan(
-            countBrightCyanPixels(in: bitmap),
-            50,
-            "Settings timer controls should use settings-safe tokens, not large bright drawer accent fills."
+        UserDefaults.standard.set(DrawerTheme.pixel.rawValue, forKey: "drawerTheme")
+        defer { UserDefaults.standard.removeObject(forKey: "drawerTheme") }
+        let board = try renderSettingsBitmap(
+            appearance: .aqua,
+            size: NSSize(width: 440, height: 580),
+            scrollOffset: 0
         )
+        for y in stride(from: 250, to: board.pixelsHigh, by: 60) {
+            guard let color = board.colorAt(x: 8, y: y)?.usingColorSpace(.deviceRGB) else { continue }
+            XCTAssertLessThan(
+                color.redComponent, 0.3,
+                "The Pixel settings page should be the dark arcade surface, whatever the OS is set to."
+            )
+        }
     }
 
     private func containsDarkChromePixels(
@@ -422,24 +443,6 @@ final class DrawerVisualRenderTests: XCTestCase {
             }
         }
         return nil
-    }
-
-    private func countBrightCyanPixels(in bitmap: NSBitmapImageRep) -> Int {
-        var count = 0
-        for y in 0..<bitmap.pixelsHigh {
-            for x in 0..<bitmap.pixelsWide {
-                guard let color = bitmap.colorAt(x: x, y: y)?.usingColorSpace(.deviceRGB),
-                      color.alphaComponent > 0.8 else {
-                    continue
-                }
-                if color.redComponent < 0.45
-                    && color.greenComponent > 0.60
-                    && color.blueComponent > 0.75 {
-                    count += 1
-                }
-            }
-        }
-        return count
     }
 
     private func fittingWidth<V: View>(_ view: V) -> CGFloat {
