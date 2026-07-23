@@ -377,6 +377,12 @@ private struct FeaturesStep: View {
     @StateObject private var model = FeatureFlagsModel()
     @State private var preset: String?
 
+    /// Settings leaves the timer flags out of its generic list because they
+    /// have dedicated controls on another tab. Here they are just features, so
+    /// put them back, first, and let Integrations (the MCP flag, which gates
+    /// nothing in-app) stay out.
+    private static let groups = ["Timers", "Focus"] + FeatureFlag.groupsInOrder
+
     var body: some View {
         StepFrame(
             icon: "slider.horizontal.3",
@@ -392,7 +398,7 @@ private struct FeaturesStep: View {
                 }
                 ScrollView {
                     VStack(alignment: .leading, spacing: 16) {
-                        ForEach(FeatureFlag.groupsInOrder, id: \.self) { group in
+                        ForEach(Self.groups, id: \.self) { group in
                             let flags = FeatureFlag.availableCases.filter { $0.group == group }
                             if !flags.isEmpty {
                                 VStack(alignment: .leading, spacing: 6) {
