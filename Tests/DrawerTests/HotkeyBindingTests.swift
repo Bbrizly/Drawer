@@ -14,6 +14,42 @@ final class HotkeyBindingTests: XCTestCase {
         XCTAssertEqual(HotkeyBinding.ctrlOptSpace.label, "⌃⌥Space")
     }
 
+    func testTappedModifierIsOneCap() {
+        let binding = HotkeyBinding.tap(UInt32(kVK_RightCommand))
+        XCTAssertEqual(binding.parts, ["right ⌘"])
+        XCTAssertTrue(binding.isModifierTap)
+        XCTAssertEqual(binding.tapFlag, .command)
+        XCTAssertTrue(binding.needsAccessibility)
+        XCTAssertNil(binding.problem)
+    }
+
+    func testTappedModifierSurvivesASaveAndLoad() {
+        let defaults = UserDefaults.standard
+        let priorCode = defaults.object(forKey: "hotkeyKeyCode")
+        let priorMods = defaults.object(forKey: "hotkeyModifiers")
+
+        let binding = HotkeyBinding.tap(UInt32(kVK_Option))
+        binding.save()
+        XCTAssertEqual(HotkeyBinding.saved, binding)
+        XCTAssertTrue(HotkeyBinding.saved.isModifierTap)
+
+        if let priorCode {
+            defaults.set(priorCode, forKey: "hotkeyKeyCode")
+        } else {
+            defaults.removeObject(forKey: "hotkeyKeyCode")
+        }
+        if let priorMods {
+            defaults.set(priorMods, forKey: "hotkeyModifiers")
+        } else {
+            defaults.removeObject(forKey: "hotkeyModifiers")
+        }
+    }
+
+    func testAKeyIsNotATappableModifier() {
+        XCTAssertNil(HotkeyBinding.tap(UInt32(kVK_ANSI_A)).tapFlag)
+        XCTAssertNotNil(HotkeyBinding.tap(UInt32(kVK_ANSI_A)).problem)
+    }
+
     func testLetterKeyIsTypingKey() {
         let binding = HotkeyBinding(keyCode: UInt32(kVK_ANSI_A), modifiers: 0)
         XCTAssertTrue(binding.isTypingKey)

@@ -65,6 +65,15 @@ final class HotkeyManager {
         return update(keyCode: keyCode, modifiers: modifiers)
     }
 
+    /// Drops the shortcut entirely, for when the trigger moves to something
+    /// Carbon cannot register (a tapped modifier).
+    func unregister() {
+        registration?.unregister()
+        registration = nil
+        activeKeyCode = nil
+        activeModifiers = nil
+    }
+
     /// Swaps the active key combination (settings change).
     @discardableResult
     func update(keyCode: UInt32, modifiers: UInt32) -> Bool {

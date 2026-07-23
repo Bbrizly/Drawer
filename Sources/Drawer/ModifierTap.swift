@@ -3,12 +3,12 @@ import ApplicationServices
 import Carbon.HIToolbox
 import os
 
-let rightCommandLog = Logger(subsystem: "com.bbrizly.drawer", category: "rightCommandTap")
+let tapLog = Logger(subsystem: "com.bbrizly.drawer", category: "modifierTap")
 
-/// Decides whether a right Command press counts as a "tap". A tap is a quick
-/// press and release with nothing else touched in between, so a real
-/// right-Command shortcut never triggers the drawer.
-struct RightCommandTapDetector {
+/// Decides whether a modifier press counts as a "tap". A tap is a quick press
+/// and release with nothing else touched in between, so holding that modifier
+/// for a real shortcut never triggers the drawer.
+struct ModifierTapDetector {
     /// The longest a tap may last. Hold longer and it is treated as a real
     /// modifier press, not a tap.
     var maxTapDuration: TimeInterval = 0.4
@@ -18,13 +18,13 @@ struct RightCommandTapDetector {
 
     var isTracking: Bool { pressedAt != nil }
 
-    mutating func commandDown(at time: TimeInterval) {
+    mutating func down(at time: TimeInterval) {
         pressedAt = time
         cancelled = false
     }
 
     /// Returns true when the release completes a clean tap.
-    mutating func commandUp(at time: TimeInterval) -> Bool {
+    mutating func up(at time: TimeInterval) -> Bool {
         defer {
             pressedAt = nil
             cancelled = false
@@ -62,19 +62,29 @@ enum AccessibilityPermission {
     }
 }
 
-/// Watches for a single tap of the right Command key, anywhere, and calls back.
-/// Uses NSEvent monitors, which for keyboard events need accessibility trust.
+/// Watches for a single tap of one modifier key, anywhere, and calls back.
+/// Uses NSEvent monitors. The global half needs accessibility trust; the local
+/// half works inside our own windows either way, which is what lets the
+/// walkthrough confirm a tap before the permission is granted.
 @MainActor
-final class RightCommandTapMonitor {
+final class ModifierTapMonitor {
     private var monitors: [Any] = []
-    private var detector = RightCommandTapDetector()
+    private var detector = ModifierTapDetector()
     private var onTap: (() -> Void)?
-
-    private let rightCommandKeyCode = UInt16(kVK_RightCommand)
+    private var key = UInt16(kVK_RightCommand)
+    private var flag: NSEvent.ModifierFlags = .command
 
     var isRunning: Bool { !monitors.isEmpty }
 
-    func start(onTap: @escaping () -> Void) {
+    func start(
+        key: UInt16 = UInt16(kVK_RightCommand),
+        flag: NSEvent.ModifierFlags = .command,
+        onTap: @escaping () -> Void
+    ) {
+        // A different key needs its monitors built around the new one.
+        if isRunning, key != self.key { stop() }
+        self.key = key
+        self.flag = flag
         self.onTap = onTap
         guard !isRunning else { return }
 
@@ -85,13 +95,13 @@ final class RightCommandTapMonitor {
         addMonitor(matching: .keyDown) { [weak self] _ in
             self?.detector.otherActivity()
         }
-        rightCommandLog.notice("tap monitor started, \(self.monitors.count) monitors installed")
+        tapLog.notice("tap monitor started, \(self.monitors.count) monitors installed")
     }
 
     func stop() {
         for monitor in monitors { NSEvent.removeMonitor(monitor) }
         monitors.removeAll()
-        detector = RightCommandTapDetector()
+        detector = ModifierTapDetector()
         onTap = nil
     }
 
@@ -113,14 +123,14 @@ final class RightCommandTapMonitor {
     }
 
     private func handleFlags(_ event: NSEvent) {
-        guard event.keyCode == rightCommandKeyCode else {
+        guard event.keyCode == key else {
             detector.otherActivity()
             return
         }
-        if event.modifierFlags.contains(.command) {
-            detector.commandDown(at: event.timestamp)
-        } else if detector.commandUp(at: event.timestamp) {
-            rightCommandLog.notice("right command tap fired")
+        if event.modifierFlags.contains(flag) {
+            detector.down(at: event.timestamp)
+        } else if detector.up(at: event.timestamp) {
+            tapLog.notice("modifier tap fired")
             onTap?()
         }
     }

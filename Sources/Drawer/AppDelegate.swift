@@ -32,7 +32,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     #endif
     private var historyMenuItem: NSMenuItem?
     private let hotkey = HotkeyManager()
-    private let rightCommandTap = RightCommandTapMonitor()
+    /// What is registered right now, so a defaults change that did not touch
+    /// the shortcut does not re-register it.
+    private var registeredHotkey: HotkeyBinding?
+    private let rightCommandTap = ModifierTapMonitor()
+    /// Runs the main shortcut when it is a tapped modifier rather than a
+    /// Carbon key combination.
+    private let shortcutTap = ModifierTapMonitor()
+    private var shortcutTapPoll: Timer?
     /// Waits for accessibility to be granted after the user opts in, then
     /// starts the tap monitor without needing a relaunch.
     private var rightCommandTapPoll: Timer?
@@ -191,10 +198,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         // has to slide an already-built window in, not build the view graph.
         panelController.prewarm()
 
-        let binding = HotkeyBinding.saved
-        hotkey.register(keyCode: binding.keyCode, modifiers: binding.modifiers) { [weak self] in
-            self?.panelController.toggle()
-        }
+        _ = applyHotkey(HotkeyBinding.saved)
+        // The walkthrough writes a new shortcut straight to defaults, so pick
+        // it up from there instead of waiting for a relaunch.
+        NotificationCenter.default.addObserver(
+            self, selector: #selector(syncHotkey),
+            name: UserDefaults.didChangeNotification, object: nil)
 
         // Restore the opt-in right-Command tap. Do not prompt on launch; only
         // start if the user already granted access.
@@ -323,6 +332,63 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         reviewMenuItem?.isHidden = !attributionPermitted
         plannerMenuItem?.isHidden = !plannerVisible
         historyMenuItem?.isHidden = !historyEnabled
+    }
+
+    // MARK: - Shortcut
+
+    /// Registers a shortcut and reports whether the system let us have it. A
+    /// tapped modifier cannot be a Carbon hotkey, so it runs on the monitor
+    /// instead, and only once Drawer is trusted for Accessibility.
+    private func applyHotkey(_ binding: HotkeyBinding) -> Bool {
+        if let flag = binding.tapFlag, binding.isModifierTap {
+            hotkey.unregister()  // the old combination must stop working
+            guard AccessibilityPermission.isTrusted else {
+                shortcutTap.stop()
+                pollForShortcutTapPermission()
+                return false
+            }
+            shortcutTap.start(key: UInt16(binding.keyCode), flag: flag) { [weak self] in
+                self?.panelController.toggle()
+            }
+            registeredHotkey = binding
+            toggleMenuItem?.title = "Toggle Drawer (tap \(binding.label))"
+            return true
+        }
+        shortcutTap.stop()
+        let taken = hotkey.register(keyCode: binding.keyCode, modifiers: binding.modifiers) {
+            [weak self] in self?.panelController.toggle()
+        }
+        guard taken else { return false }
+        registeredHotkey = binding
+        toggleMenuItem?.title = "Toggle Drawer (\(binding.label))"
+        return true
+    }
+
+    /// The grant lands in another process, so watch for it and start the
+    /// monitor then, rather than making the user relaunch.
+    private func pollForShortcutTapPermission() {
+        guard shortcutTapPoll == nil else { return }
+        let timer = Timer(timeInterval: 1.0, repeats: true) { [weak self] timer in
+            Task { @MainActor in
+                guard let self, HotkeyBinding.saved.isModifierTap else {
+                    timer.invalidate()
+                    self?.shortcutTapPoll = nil
+                    return
+                }
+                guard AccessibilityPermission.isTrusted else { return }
+                timer.invalidate()
+                self.shortcutTapPoll = nil
+                _ = self.applyHotkey(HotkeyBinding.saved)
+            }
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        shortcutTapPoll = timer
+    }
+
+    @objc private func syncHotkey() {
+        let saved = HotkeyBinding.saved
+        guard saved != registeredHotkey else { return }
+        _ = applyHotkey(saved)
     }
 
     // MARK: - History scrubber (spec 04)
@@ -593,7 +659,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         rightCommandTapPoll?.invalidate()
         rightCommandTapPoll = nil
 
-        rightCommandLog.notice(
+        tapLog.notice(
             "apply tap enabled=\(enabled) prompt=\(prompt) trusted=\(AccessibilityPermission.isTrusted)"
         )
         // The tap needs Accessibility, which the sandboxed App Store build
@@ -629,7 +695,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                     return
                 }
                 if AccessibilityPermission.isTrusted {
-                    rightCommandLog.notice("accessibility granted, starting tap monitor")
+                    tapLog.notice("accessibility granted, starting tap monitor")
                     self.rightCommandTap.stop()
                     self.startRightCommandTap()
                     timer.invalidate()
@@ -652,13 +718,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 },
                 onHotkeyChange: { [weak self] binding in
                     guard let self else { return false }
-                    let updated = self.hotkey.update(
-                        keyCode: binding.keyCode,
-                        modifiers: binding.modifiers
-                    )
-                    if updated {
-                        self.toggleMenuItem?.title = "Toggle Drawer (\(binding.label))"
-                    }
+                    let updated = self.applyHotkey(binding)
                     return updated
                 },
                 onLayoutChange: { [weak self] in
