@@ -253,6 +253,9 @@ struct OnboardingView: View {
 /// the change in the "Mark lab" preview at the bottom of this file: it has a
 /// slider for each one and a button to fire the knock.
 struct MarkMotion {
+    /// How big the mark is, in points. One size for the whole walkthrough, so
+    /// it stays the same object on every step.
+    var size: CGFloat = 144
     /// How far it throws sideways on the first swing, in points. Bigger reads
     /// heavier.
     var distance: CGFloat = 16
@@ -307,8 +310,6 @@ struct DrawerMark: View {
     /// is open or it is shut, and the swap has to land on the same beat as the
     /// key.
     var open = true
-    /// One size for the whole walkthrough. It is the same object on every step.
-    static let size: CGFloat = 144
     /// Counts presses. Every bump knocks it, like something inside slid.
     var shakes = 0
     var motion = MarkMotion.standard
@@ -318,7 +319,10 @@ struct DrawerMark: View {
 
     var body: some View {
         art(open ? Self.openArt : Self.shutArt)
-            .frame(width: Self.size, height: Self.size)
+            .frame(width: motion.size, height: motion.size)
+            // The swap is a cut, never a fade. Whatever animation the step
+            // change or the press is running, this one picture is exempt.
+            .animation(nil, value: open)
             .modifier(Knock(motion: motion, animatableData: CGFloat(shakes)))
             // Ease out, so the first swing is the fast one. Try .linear here to
             // hear the raw sine, or a spring to let it overshoot on the way in.
@@ -1028,7 +1032,8 @@ private struct FeaturesStep: View {
         DrawerMark(open: presses.isMultiple(of: 2), shakes: presses, motion: motion)
             // Slow motion: the only honest way to see what a 0.3s move does.
             .transaction { if slow { $0.animation = $0.animation?.speed(0.12) } }
-            .frame(height: 170)
+            // Tall enough to hold the biggest the size slider goes.
+            .frame(height: 300)
 
         HStack {
             Button("Knock") { presses += 1 }
@@ -1038,6 +1043,7 @@ private struct FeaturesStep: View {
         }
 
         Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 8) {
+            knob("size", $motion.size, 60...260)
             knob("distance", $motion.distance, 0...60)
             knob("cycles", $motion.cycles, 0.5...8)
             knob("duration", $motion.duration, 0.05...1.5)
