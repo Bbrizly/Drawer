@@ -81,6 +81,8 @@ struct OnboardingView: View {
     }
 
     @State private var step: Int
+    /// Which way the last move went, so Back slides back.
+    @State private var forward = true
     @State private var hotkeyDone = false
     @State private var trusted = false
     @State private var askedForAccess = false
@@ -153,8 +155,8 @@ struct OnboardingView: View {
 
     private var stepTransition: AnyTransition {
         .asymmetric(
-            insertion: .move(edge: .trailing).combined(with: .opacity),
-            removal: .move(edge: .leading).combined(with: .opacity)
+            insertion: .move(edge: forward ? .trailing : .leading).combined(with: .opacity),
+            removal: .move(edge: forward ? .leading : .trailing).combined(with: .opacity)
         )
     }
 
@@ -193,6 +195,9 @@ struct OnboardingView: View {
     }
 
     private func go(to next: Int) {
+        // Set before the step changes: both the leaving and the arriving view
+        // read this when SwiftUI builds their transitions.
+        forward = next > step
         withAnimation(.easeInOut(duration: 0.22)) { step = next }
     }
 }
