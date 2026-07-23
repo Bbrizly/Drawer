@@ -530,9 +530,12 @@ private struct HotkeyStep: View {
     @Binding var presses: Int
 
     @State private var binding = HotkeyBinding.saved
-    /// True while the shortcut itself is physically down, so the caps light up
-    /// under your fingers.
+    /// True while the whole shortcut is physically down, so the field lights up.
     @State private var held = false
+    /// The modifiers down this instant, and whether the shortcut's own key is
+    /// down. Between them every cap knows when it is under a finger.
+    @State private var liveFlags: NSEvent.ModifierFlags = []
+    @State private var keyIsDown = false
     @State private var recording = false
     @State private var modifiers: NSEvent.ModifierFlags = []
     @State private var rejected: String?
@@ -598,7 +601,8 @@ private struct HotkeyStep: View {
             )
         }
         .buttonStyle(.plain)
-        .animation(.easeOut(duration: 0.12), value: held)
+        // No animation on the press. A key is down or it is not, and a fade in
+        // between reads as lag.
         .animation(.easeOut(duration: 0.15), value: recording)
     }
 
@@ -615,29 +619,34 @@ private struct HotkeyStep: View {
     }
 
     private func keyCap(_ part: String) -> some View {
-        Text(part)
+        let down = isDown(part)
+        return Text(part)
             .font(.system(size: 20, weight: .medium, design: .rounded))
-            .foregroundStyle(capInk(part))
+            .foregroundStyle(part == "?" ? .secondary : (down ? theme.accent : .primary))
             .frame(minWidth: 52, minHeight: 52)
             .padding(.horizontal, 10)
             .background(
                 RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .fill(held ? AnyShapeStyle(theme.accent.opacity(0.16)) : AnyShapeStyle(.background.secondary))
-                    .shadow(color: .black.opacity(held ? 0.05 : 0.18), radius: 3, y: held ? 0 : 2)
+                    .fill(down ? AnyShapeStyle(theme.accent.opacity(0.16)) : AnyShapeStyle(.background.secondary))
+                    .shadow(color: .black.opacity(down ? 0.05 : 0.18), radius: 3, y: down ? 0 : 2)
             )
             .overlay(
                 RoundedRectangle(cornerRadius: 12, style: .continuous)
                     .strokeBorder(
-                        held ? theme.accent : (done ? .green : Color.secondary.opacity(0.25)),
+                        down ? theme.accent : (self.done ? .green : Color.secondary.opacity(0.25)),
                         lineWidth: 1.5)
             )
             // Pressed keys sit a hair lower, the way a real one does.
-            .offset(y: held ? 2 : 0)
+            .offset(y: down ? 2 : 0)
     }
 
-    private func capInk(_ part: String) -> Color {
-        if part == "?" { return .secondary }
-        return held ? theme.accent : .primary
+    /// One cap at a time: each lights under its own finger, the moment that key
+    /// goes down. While recording every cap on screen is a key being held.
+    private func isDown(_ part: String) -> Bool {
+        if recording { return part != "?" }
+        if binding.isModifierTap { return held }
+        if part == binding.parts.last { return keyIsDown }
+        return HotkeyBinding.modifierParts(liveFlags).contains(part)
     }
 
     @ViewBuilder
@@ -729,6 +738,7 @@ private struct HotkeyStep: View {
         switch event.type {
         case .flagsChanged:
             let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask).subtracting(.capsLock)
+            liveFlags = flags
             if binding.isModifierTap {
                 trackTap(event, flags: flags)
             } else {
@@ -738,10 +748,12 @@ private struct HotkeyStep: View {
         case .keyDown:
             tapDetector.otherActivity()
             if binding.matches(event) {
+                keyIsDown = true
                 held = true
                 succeed()
             }
         case .keyUp:
+            if event.keyCode == UInt16(binding.keyCode) { keyIsDown = false }
             held = false
         default:
             break
@@ -767,6 +779,8 @@ private struct HotkeyStep: View {
         if let monitor { NSEvent.removeMonitor(monitor) }
         monitor = nil
         held = false
+        keyIsDown = false
+        liveFlags = []
     }
 
     private func stopEverything() {
