@@ -24,6 +24,25 @@ final class DevTuningTests: XCTestCase {
         XCTAssertEqual(back, tuning)
     }
 
+    /// One drag changes the tuning many times a second. Writing each step to
+    /// UserDefaults woke the whole app per frame, which froze it mid drag and
+    /// ate the shortcut while it was frozen. The sliders move now, the saving
+    /// waits for the hand to stop.
+    func testDraggingASliderDoesNotSavePerStep() async {
+        guard DevTools.enabled else { return }
+        let store = DevTuningStore.shared
+        store.reset()
+        for size in stride(from: CGFloat(100), through: 160, by: 2) {
+            store.tuning.mark.size = size
+        }
+        XCTAssertNil(
+            UserDefaults.standard.data(forKey: "devTuning"), "saved while the hand was moving")
+        try? await Task.sleep(for: .milliseconds(700))
+        XCTAssertNotNil(
+            UserDefaults.standard.data(forKey: "devTuning"), "never saved once it settled")
+        store.reset()
+    }
+
     /// A number saved on a dev machine must not reach anyone else, so with the
     /// switch off the store hands back exactly what the code says.
     func testShippedBuildIgnoresSavedTuning() {
