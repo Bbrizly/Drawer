@@ -27,6 +27,8 @@ let package = Package(
                 .copy("Resources/Fonts"),
                 .copy("Resources/menubar-logo.png"),
                 .copy("Resources/app-icon.png"),
+                .copy("Resources/logo-open.png"),
+                .copy("Resources/logo-shut.png"),
             ],
             swiftSettings: [.swiftLanguageMode(.v5)]
         ),
