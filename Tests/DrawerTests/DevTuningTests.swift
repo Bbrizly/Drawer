@@ -8,6 +8,7 @@ final class DevTuningTests: XCTestCase {
     func testSwiftSourceReadsLikeTheCode() {
         let swift = DevTuning.standard.swiftSource
         XCTAssertTrue(swift.contains("var size: CGFloat = 144"), swift)
+        XCTAssertTrue(swift.contains("var openSize: CGFloat = 168"), swift)
         XCTAssertTrue(swift.contains("var punch: CGFloat = 0.93"), swift)
         XCTAssertTrue(
             swift.contains("withAnimation(.easeInOut(duration: 0.22)) { step = next }"), swift)

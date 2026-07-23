@@ -256,9 +256,13 @@ struct OnboardingView: View {
 /// slider for each one and the mark reacts as you drag. When a set feels right,
 /// hit "Copy Swift" and paste it over this struct.
 struct MarkMotion: Codable, Equatable {
-    /// How big the mark is, in points. One size for the whole walkthrough, so
-    /// it stays the same object on every step.
+    /// How big the shut drawing is, in points.
     var size: CGFloat = 144
+    /// How big the open drawing is. It carries a pulled-out drawer, so at the
+    /// same frame the cube body reads smaller and off-centre. Its own size lets
+    /// you match the two by eye, so the swap looks like one drawer opening, not
+    /// two pictures of different size.
+    var openSize: CGFloat = 168
     /// How far it throws sideways on the first swing, in points. Bigger reads
     /// heavier.
     var distance: CGFloat = 16
@@ -327,9 +331,11 @@ struct DrawerMark: View {
 
     var body: some View {
         art(open ? Self.openArt : Self.shutArt)
-            .frame(width: now.size, height: now.size)
-            // The swap is a cut, never a fade. Whatever animation the step
-            // change or the press is running, this one picture is exempt.
+            .frame(width: open ? now.openSize : now.size, height: open ? now.openSize : now.size)
+            // The swap is a cut, never a fade, and the size cuts with it. Both
+            // the picture and its frame change on `open`, and this exempts them
+            // from whatever animation the step change or the press is running,
+            // so the drawer never slides from one size to the other.
             .animation(nil, value: open)
             .modifier(Knock(motion: now, animatableData: CGFloat(shakes)))
             // Ease out, so the first swing is the fast one. Try .linear here to

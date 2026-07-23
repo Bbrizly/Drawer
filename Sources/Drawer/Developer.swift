@@ -109,6 +109,7 @@ extension DevTuning {
         """
         // Onboarding.swift, MarkMotion
         var size: CGFloat = \(plain(mark.size))
+        var openSize: CGFloat = \(plain(mark.openSize))
         var distance: CGFloat = \(plain(mark.distance))
         var cycles: CGFloat = \(plain(mark.cycles))
         var duration: TimeInterval = \(plain(mark.duration))
@@ -169,7 +170,8 @@ struct DeveloperSettings: View {
             .frame(maxWidth: .infinity)
             // The walkthrough window is 620 by 580, so past 200 the drawer
             // starts crowding the words under it.
-            slider("Size", tuning.mark.size, 60...200, step: 2)
+            slider("Shut size", tuning.mark.size, 60...200, step: 2)
+            slider("Open size", tuning.mark.openSize, 60...200, step: 2)
             slider("Throw", tuning.mark.distance, 0...60, step: 1)
             slider("Swings", tuning.mark.cycles, 0.5...8, step: 0.5)
             slider("Time", tuning.mark.duration, 0.05...1.5, step: 0.01)
