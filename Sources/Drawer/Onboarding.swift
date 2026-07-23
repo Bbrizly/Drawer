@@ -257,7 +257,7 @@ struct OnboardingView: View {
 /// hit "Copy Swift" and paste it over this struct.
 struct MarkMotion: Codable, Equatable {
     /// How big the shut drawing is, in points.
-    var size: CGFloat = 144
+    var size: CGFloat = 146
     /// How big the open drawing is. It carries a pulled-out drawer, so at the
     /// same frame the cube body reads smaller and off-centre. Its own size lets
     /// you match the two by eye, so the swap looks like one drawer opening, not
@@ -266,20 +266,20 @@ struct MarkMotion: Codable, Equatable {
     /// Nudge the open drawing so the cube body sits where the shut one did. The
     /// open art is drawn a touch high and to the right, so the swap needs a
     /// small push to keep the box still. Points, positive is right and down.
-    var openDX: CGFloat = 0
-    var openDY: CGFloat = 0
+    var openDX: CGFloat = 5
+    var openDY: CGFloat = 7
     /// How far it throws sideways on the first swing, in points. Bigger reads
     /// heavier.
-    var distance: CGFloat = 16
+    var distance: CGFloat = 9
     /// How many times it crosses the middle before it stops. Around 2 is a
     /// knock, 5 is a buzz.
     var cycles: CGFloat = 2.5
     /// How long the whole thing takes, start to still.
-    var duration: TimeInterval = 0.36
+    var duration: TimeInterval = 0.43
     /// How far it tips at full throw, in degrees. 0 is a flat slide.
-    var tilt: Double = 6
+    var tilt: Double = 9
     /// How much it squashes on the hit, then recovers. 1 is no squash.
-    var punch: CGFloat = 0.93
+    var punch: CGFloat = 1
     /// The idle drift: how far it rises and falls, and how slow.
     var driftBy: CGFloat = 5
     var driftSeconds: TimeInterval = 2.8

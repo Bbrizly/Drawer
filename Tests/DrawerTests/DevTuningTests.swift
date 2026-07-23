@@ -7,9 +7,9 @@ final class DevTuningTests: XCTestCase {
     /// that can be pasted straight over the defaults.
     func testSwiftSourceReadsLikeTheCode() {
         let swift = DevTuning.standard.swiftSource
-        XCTAssertTrue(swift.contains("var size: CGFloat = 144"), swift)
+        XCTAssertTrue(swift.contains("var size: CGFloat = 146"), swift)
         XCTAssertTrue(swift.contains("var openSize: CGFloat = 168"), swift)
-        XCTAssertTrue(swift.contains("var punch: CGFloat = 0.93"), swift)
+        XCTAssertTrue(swift.contains("var punch: CGFloat = 1"), swift)
         XCTAssertTrue(
             swift.contains("withAnimation(.easeInOut(duration: 0.22)) { step = next }"), swift)
         XCTAssertTrue(swift.contains("controlPoints: 0.16, 1, 0.3, 1)"), swift)
