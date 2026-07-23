@@ -263,6 +263,11 @@ struct MarkMotion: Codable, Equatable {
     /// you match the two by eye, so the swap looks like one drawer opening, not
     /// two pictures of different size.
     var openSize: CGFloat = 168
+    /// Nudge the open drawing so the cube body sits where the shut one did. The
+    /// open art is drawn a touch high and to the right, so the swap needs a
+    /// small push to keep the box still. Points, positive is right and down.
+    var openDX: CGFloat = 0
+    var openDY: CGFloat = 0
     /// How far it throws sideways on the first swing, in points. Bigger reads
     /// heavier.
     var distance: CGFloat = 16
@@ -332,10 +337,14 @@ struct DrawerMark: View {
     var body: some View {
         art(open ? Self.openArt : Self.shutArt)
             .frame(width: open ? now.openSize : now.size, height: open ? now.openSize : now.size)
-            // The swap is a cut, never a fade, and the size cuts with it. Both
-            // the picture and its frame change on `open`, and this exempts them
-            // from whatever animation the step change or the press is running,
-            // so the drawer never slides from one size to the other.
+            // Only the open drawing gets nudged, to line its cube up with the
+            // shut one.
+            .offset(x: open ? now.openDX : 0, y: open ? now.openDY : 0)
+            // The swap is a cut, never a fade, and the size and nudge cut with
+            // it. Picture, frame, and offset all change on `open`, and this
+            // exempts them from whatever animation the step change or the press
+            // is running, so the drawer never slides from one size or spot to
+            // the other.
             .animation(nil, value: open)
             .modifier(Knock(motion: now, animatableData: CGFloat(shakes)))
             // Ease out, so the first swing is the fast one. Try .linear here to
