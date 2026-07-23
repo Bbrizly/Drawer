@@ -13,14 +13,13 @@ enum AppPaths {
     static let parkingLotFilePathKey = "parkingLotFilePath"
     static let dataFolderPathKey = "dataFolderPath"
 
-    /// The folder the App Store build asks for on first run. A sandboxed app
-    /// writes into a hidden container unless the user picks somewhere, and
-    /// App Review rejects user files kept there (guideline 2.4.5). Empty
-    /// until the pick; always empty in the direct build, which is not
-    /// sandboxed and defaults into the vault.
+    /// The folder onboarding asks for on first run. A sandboxed app writes
+    /// into a hidden container unless the user picks somewhere, and App Review
+    /// rejects user files kept there (guideline 2.4.5). Empty until the pick,
+    /// which leaves the old defaults in charge: the container in the App Store
+    /// build, the vault in the direct one.
     static var dataFolder: String {
-        guard appStoreBuild else { return "" }
-        return UserDefaults.standard.string(forKey: dataFolderPathKey) ?? ""
+        UserDefaults.standard.string(forKey: dataFolderPathKey) ?? ""
     }
 
     /// A user file inside that picked folder, or nil when there is no pick.
