@@ -86,6 +86,10 @@ struct OnboardingView: View {
     @State private var hotkeyDone = false
     @State private var trusted = AccessibilityPermission.isTrusted
     @State private var askedForAccess = false
+    /// What the mark above the steps is doing: shut or open, and whether the
+    /// shortcut is under a finger right now.
+    @State private var drawerOpen = true
+    @State private var shortcutHeld = false
     @AppStorage("drawerTheme") private var themeRaw = DrawerTheme.default.rawValue
     @AppStorage(AppPaths.dataFolderPathKey) private var dataFolderPath = ""
 
@@ -124,8 +128,18 @@ struct OnboardingView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            steps
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            VStack(spacing: 0) {
+                // The welcome is one block of mark and greeting, centred. Every
+                // other step hangs from the top so its own content leads.
+                if current == .welcome { Spacer(minLength: 0) }
+                if let size = markSize {
+                    DrawerMark(open: drawerOpen, size: size, pressed: shortcutHeld)
+                        .padding(.top, current == .welcome ? 0 : 24)
+                }
+                steps
+                if current == .welcome { Spacer(minLength: 0) }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
             footer
         }
         .frame(width: 620, height: 580)
@@ -139,7 +153,31 @@ struct OnboardingView: View {
                 try? await Task.sleep(nanoseconds: 400_000_000)
             }
         }
+        // Until the shortcut lands once, the mark opens and shuts on its own.
+        // That is the whole idea of the step in one picture, and it costs the
+        // user nothing to watch. After that it only answers to their keys.
+        .task(id: demoing) {
+            guard demoing else { return }
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 1_500_000_000)
+                guard !Task.isCancelled else { return }
+                drawerOpen.toggle()
+            }
+        }
     }
+
+    /// How big the mark is here. Nil on the last two steps: their own content
+    /// wants the whole page.
+    private var markSize: CGFloat? {
+        switch current {
+        case .welcome: return 176
+        case .access: return 104
+        case .shortcut: return 104
+        case .files, .features: return nil
+        }
+    }
+
+    private var demoing: Bool { current == .shortcut && !hotkeyDone }
 
     @ViewBuilder
     private var steps: some View {
@@ -151,7 +189,8 @@ struct OnboardingView: View {
             AccessStep(trusted: trusted, asked: $askedForAccess)
                 .transition(stepTransition)
         case .shortcut:
-            HotkeyStep(done: $hotkeyDone, trusted: trusted)
+            HotkeyStep(done: $hotkeyDone, trusted: trusted,
+                       drawerOpen: $drawerOpen, held: $shortcutHeld)
                 .transition(stepTransition)
         case .files:
             FilesStep()
@@ -207,7 +246,59 @@ struct OnboardingView: View {
         // Set before the step changes: both the leaving and the arriving view
         // read this when SwiftUI builds their transitions.
         forward = next > step
+        // Only the shortcut step shuts the drawer. Leave it open anywhere else,
+        // however the last press left it.
+        if Self.order[min(next, lastStep)] != .shortcut { drawerOpen = true }
+        shortcutHeld = false
         withAnimation(.easeInOut(duration: 0.22)) { step = next }
+    }
+}
+
+/// Drawer's mark, open or shut, the same drawing the README uses. It sits
+/// above the first three steps and never slides with them, so paging through
+/// the walkthrough feels like one object you are getting to know.
+struct DrawerMark: View {
+    /// Which drawing to show. The shortcut step flips this.
+    var open = true
+    var size: CGFloat = 120
+    /// True while the shortcut is physically held down, so it braces.
+    var pressed = false
+
+    /// Drives the slow idle drift. Flipped once on appear.
+    @State private var adrift = false
+
+    var body: some View {
+        ZStack {
+            art(Self.shut).opacity(open ? 0 : 1)
+            art(Self.open).opacity(open ? 1 : 0)
+        }
+        .frame(width: size, height: size)
+        // Braced: a little smaller, tipped, the way a drawer is before it goes.
+        .scaleEffect(pressed ? 0.93 : 1)
+        .rotationEffect(.degrees(pressed ? -3.5 : 0))
+        .animation(.spring(response: 0.3, dampingFraction: 0.5), value: pressed)
+        .animation(.spring(response: 0.4, dampingFraction: 0.62), value: open)
+        .offset(y: adrift ? -5 : 5)
+        .animation(.easeInOut(duration: 2.8).repeatForever(autoreverses: true), value: adrift)
+        .onAppear { adrift = true }
+        .accessibilityLabel(open ? "Drawer, open" : "Drawer, shut")
+    }
+
+    private func art(_ image: NSImage) -> some View {
+        Image(nsImage: image)
+            .resizable()
+            .interpolation(.high)
+            .aspectRatio(contentMode: .fit)
+    }
+
+    private static let open = load("logo-open")
+    private static let shut = load("logo-shut")
+
+    private static func load(_ name: String) -> NSImage {
+        guard let url = Bundle.module.url(forResource: name, withExtension: "png"),
+              let art = NSImage(contentsOf: url)
+        else { return NSImage() }
+        return art
     }
 }
 
@@ -240,6 +331,9 @@ struct AppLogo: View {
 private struct StepFrame<Content: View>: View {
     let title: String
     let subtitle: String
+    /// True on the steps with the mark above them, so the two do not drift
+    /// apart. The rest sit in the middle of the page.
+    var underMark = false
     @ViewBuilder var content: Content
 
     var body: some View {
@@ -259,27 +353,25 @@ private struct StepFrame<Content: View>: View {
             content
         }
         .padding(.horizontal, 32)
-        .padding(.vertical, 34)
-        .frame(maxHeight: .infinity)
+        .padding(.vertical, 26)
+        .frame(maxHeight: .infinity, alignment: underMark ? .top : .center)
     }
 }
 
 // MARK: - Step 1, hello
 
+/// The mark above it does the talking, so this is only the two lines under it.
 private struct WelcomeStep: View {
     var body: some View {
-        VStack(spacing: 22) {
-            AppLogo(size: 124)
-            VStack(spacing: 10) {
-                Text("Welcome to Drawer")
-                    .font(.system(size: 30, weight: .semibold))
-                Text("Today's tasks, one shortcut away.")
-                    .font(.title3)
-                    .foregroundStyle(.secondary)
-            }
+        VStack(spacing: 10) {
+            Text("Welcome to Drawer")
+                .font(.system(size: 32, weight: .semibold))
+            Text("Today's tasks, one shortcut away.")
+                .font(.title3)
+                .foregroundStyle(.secondary)
         }
         .padding(.horizontal, 32)
-        .frame(maxHeight: .infinity)
+        .padding(.top, 30)
     }
 }
 
@@ -330,7 +422,8 @@ private struct AccessStep: View {
         StepFrame(
             title: "Let Drawer see your keys",
             subtitle: "macOS keeps this behind a switch. Turn it on and a single key, "
-                + "right \u{2318} or \u{2325}, can open the drawer from any app."
+                + "right \u{2318} or \u{2325}, can open the drawer from any app.",
+            underMark: true
         ) {
             VStack(spacing: 16) {
                 HStack(spacing: 10) {
@@ -411,14 +504,17 @@ private struct HotkeyStep: View {
     /// Live, so granting Accessibility on the step before (or in the middle of
     /// this one) clears the warning without a click.
     let trusted: Bool
+    /// The mark above this step. Every good press slides it the other way, so
+    /// the shortcut shows you what it does before there is a drawer to open.
+    @Binding var drawerOpen: Bool
+    /// True while the shortcut itself is physically down, so the caps light up
+    /// under your fingers and the mark braces with them.
+    @Binding var held: Bool
 
     @State private var binding = HotkeyBinding.saved
     @State private var recording = false
-    @State private var held: NSEvent.ModifierFlags = []
+    @State private var modifiers: NSEvent.ModifierFlags = []
     @State private var rejected: String?
-    /// True while the shortcut itself is physically down, so the caps light up
-    /// under your fingers and you can see it land.
-    @State private var pressing = false
     @State private var recorder = HotkeyRecorder()
     @State private var monitor: Any?
     @State private var tapDetector = ModifierTapDetector()
@@ -426,7 +522,8 @@ private struct HotkeyStep: View {
     var body: some View {
         StepFrame(
             title: "Pick your shortcut",
-            subtitle: "Click the keys and press what you want. One modifier on its own counts."
+            subtitle: "Click the keys and press what you want. One modifier on its own counts.",
+            underMark: true
         ) {
             VStack(spacing: 18) {
                 field
@@ -476,16 +573,16 @@ private struct HotkeyStep: View {
             )
             .overlay(
                 RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .strokeBorder(fieldEdge, lineWidth: recording || pressing ? 2 : 1)
+                    .strokeBorder(fieldEdge, lineWidth: recording || held ? 2 : 1)
             )
         }
         .buttonStyle(.plain)
-        .animation(.easeOut(duration: 0.12), value: pressing)
+        .animation(.easeOut(duration: 0.12), value: held)
         .animation(.easeOut(duration: 0.15), value: recording)
     }
 
     private var fieldEdge: Color {
-        if recording || pressing { return theme.accent }
+        if recording || held { return theme.accent }
         return done ? .green : theme.primaryInk.opacity(0.12)
     }
 
@@ -493,7 +590,7 @@ private struct HotkeyStep: View {
     /// otherwise. A press still waiting for its key gets a placeholder cap.
     private var caps: [String] {
         guard recording else { return binding.parts }
-        return HotkeyBinding.modifierParts(held) + ["?"]
+        return HotkeyBinding.modifierParts(modifiers) + ["?"]
     }
 
     private func keyCap(_ part: String) -> some View {
@@ -504,22 +601,22 @@ private struct HotkeyStep: View {
             .padding(.horizontal, 10)
             .background(
                 RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .fill(pressing ? AnyShapeStyle(theme.accent.opacity(0.16)) : AnyShapeStyle(.background.secondary))
-                    .shadow(color: .black.opacity(pressing ? 0.05 : 0.18), radius: 3, y: pressing ? 0 : 2)
+                    .fill(held ? AnyShapeStyle(theme.accent.opacity(0.16)) : AnyShapeStyle(.background.secondary))
+                    .shadow(color: .black.opacity(held ? 0.05 : 0.18), radius: 3, y: held ? 0 : 2)
             )
             .overlay(
                 RoundedRectangle(cornerRadius: 12, style: .continuous)
                     .strokeBorder(
-                        pressing ? theme.accent : (done ? .green : Color.secondary.opacity(0.25)),
+                        held ? theme.accent : (done ? .green : Color.secondary.opacity(0.25)),
                         lineWidth: 1.5)
             )
             // Pressed keys sit a hair lower, the way a real one does.
-            .offset(y: pressing ? 2 : 0)
+            .offset(y: held ? 2 : 0)
     }
 
     private func capInk(_ part: String) -> Color {
         if part == "?" { return .secondary }
-        return pressing ? theme.accent : .primary
+        return held ? theme.accent : .primary
     }
 
     @ViewBuilder
@@ -530,9 +627,9 @@ private struct HotkeyStep: View {
                 .multilineTextAlignment(.center)
                 .frame(maxWidth: 420)
         } else if recording {
-            Text(held.isEmpty
+            Text(modifiers.isEmpty
                  ? "Press the keys you want. One modifier on its own counts."
-                 : "Add a key, or let go to use \(HotkeyBinding.modifierParts(held).joined()) on its own.")
+                 : "Add a key, or let go to use \(HotkeyBinding.modifierParts(modifiers).joined()) on its own.")
                 .foregroundStyle(.secondary)
                 .frame(maxWidth: 420)
                 .multilineTextAlignment(.center)
@@ -553,17 +650,17 @@ private struct HotkeyStep: View {
     private func startRecording() {
         stopWatching()
         rejected = nil
-        held = []
-        pressing = false
+        modifiers = []
+        held = false
         recording = true
-        recorder.start(held: { held = $0 }, capture: captured)
+        recorder.start(held: { modifiers = $0 }, capture: captured)
     }
 
     /// Ends the listening state and leaves the shortcut as it was.
     private func stopRecording() {
         recorder.stop()
         recording = false
-        held = []
+        modifiers = []
         watchKeys()
     }
 
@@ -589,7 +686,7 @@ private struct HotkeyStep: View {
         new.save()  // AppDelegate re-registers it off the defaults change
         // A new shortcut has not been tried yet, so ask for it again.
         done = false
-        pressing = false
+        held = false
         rejected = nil
         watchKeys()
     }
@@ -615,16 +712,16 @@ private struct HotkeyStep: View {
                 trackTap(event, flags: flags)
             } else {
                 // The modifiers of a combination, all down and nothing extra.
-                pressing = !binding.eventFlags.isEmpty && flags == binding.eventFlags
+                held = !binding.eventFlags.isEmpty && flags == binding.eventFlags
             }
         case .keyDown:
             tapDetector.otherActivity()
             if binding.matches(event) {
-                pressing = true
+                held = true
                 succeed()
             }
         case .keyUp:
-            pressing = false
+            held = false
         default:
             break
         }
@@ -633,14 +730,14 @@ private struct HotkeyStep: View {
     private func trackTap(_ event: NSEvent, flags: NSEvent.ModifierFlags) {
         guard let flag = binding.tapFlag, event.keyCode == UInt16(binding.keyCode) else {
             tapDetector.otherActivity()
-            pressing = false
+            held = false
             return
         }
         if flags.contains(flag) {
-            pressing = true
+            held = true
             tapDetector.down(at: event.timestamp)
         } else {
-            pressing = false
+            held = false
             if tapDetector.up(at: event.timestamp) { succeed() }
         }
     }
@@ -648,7 +745,7 @@ private struct HotkeyStep: View {
     private func stopWatching() {
         if let monitor { NSEvent.removeMonitor(monitor) }
         monitor = nil
-        pressing = false
+        held = false
     }
 
     private func stopEverything() {
@@ -656,7 +753,10 @@ private struct HotkeyStep: View {
         recorder.stop()
     }
 
+    /// A good press. It slides the mark the other way every single time, the
+    /// way the real shortcut will, and marks the step done the first time.
     private func succeed() {
+        drawerOpen.toggle()
         guard !done else { return }
         withAnimation(.easeOut(duration: 0.2)) { done = true }
     }
