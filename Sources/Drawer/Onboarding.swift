@@ -161,7 +161,10 @@ struct OnboardingView: View {
             while !Task.isCancelled {
                 try? await Task.sleep(nanoseconds: 1_500_000_000)
                 guard !Task.isCancelled else { return }
+                // Flip and rattle it, the same two things a real press does, so
+                // the demo sways instead of just cutting between the pictures.
                 drawerOpen.toggle()
+                presses += 1
             }
         }
     }
@@ -341,11 +344,12 @@ struct DrawerMark: View {
             // shut one.
             .offset(x: open ? now.openDX : 0, y: open ? now.openDY : 0)
             // The swap is a cut, never a fade, and the size and nudge cut with
-            // it. Picture, frame, and offset all change on `open`, and this
-            // exempts them from whatever animation the step change or the press
-            // is running, so the drawer never slides from one size or spot to
-            // the other.
-            .animation(nil, value: open)
+            // it. Picture, frame, and offset all change on `open`. In the
+            // walkthrough the step change runs its own animation, and a plain
+            // .animation(nil,) does not beat that: the drawer would crossfade
+            // and slide between the two sizes. Clearing the transaction outright
+            // when `open` flips does beat it, so the swap stays a hard cut.
+            .transaction(value: open) { $0.animation = nil }
             .modifier(Knock(motion: now, animatableData: CGFloat(shakes)))
             // Ease out, so the first swing is the fast one. Try .linear here to
             // hear the raw sine, or a spring to let it overshoot on the way in.
@@ -374,6 +378,9 @@ struct DrawerMark: View {
             .resizable()
             .interpolation(.high)
             .aspectRatio(contentMode: .fit)
+            // A drawer is open or shut, so one picture replaces the other whole.
+            // Never let SwiftUI crossfade the two.
+            .contentTransition(.identity)
     }
 
     private static let openArt = load("logo-open")
