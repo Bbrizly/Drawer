@@ -398,10 +398,10 @@ private struct GeneralSettingsView: View {
 
     @AppStorage("drawerFilePath") private var filePath = AppPaths.defaultDrawerFile
     @State private var hotkey = HotkeyBinding.saved
-    @AppStorage("panelWidth") private var panelWidth = 300.0
+    @AppStorage("panelWidth") private var panelWidth = 520.0
     @AppStorage("panelCompactHeight") private var panelHeight = 440.0
     @AppStorage("panelSlideDuration") private var panelSlideDuration = 0.11
-    @AppStorage("startExpanded") private var startExpanded = false
+    @AppStorage("startExpanded") private var startExpanded = true
     @State private var launchAtLogin = SMAppService.mainApp.status == .enabled
     @State private var showHotkeyError = false
     @State private var isRecordingHotkey = false

@@ -18,7 +18,8 @@ enum DrawerTheme: String, CaseIterable, Identifiable {
     case windowsXP
     case bureau
 
-    static let `default` = DrawerTheme.liquidGlass
+    /// Notebook is the shipped look: ruled paper, pen ink, a red margin.
+    static let `default` = DrawerTheme.notebook
 
     var id: String { rawValue }
 
