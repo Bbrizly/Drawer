@@ -9,6 +9,30 @@ struct HotkeyBinding: Equatable, Hashable, Identifiable {
 
     var label: String { Self.label(keyCode: keyCode, modifiers: modifiers) }
 
+    /// The label split up, so onboarding can draw one key cap per part.
+    var parts: [String] { Self.parts(keyCode: keyCode, modifiers: modifiers) }
+
+    /// The AppKit flags this binding's Carbon modifiers stand for, so a plain
+    /// NSEvent can be checked against it.
+    var eventFlags: NSEvent.ModifierFlags {
+        var flags: NSEvent.ModifierFlags = []
+        if modifiers & UInt32(controlKey) != 0 { flags.insert(.control) }
+        if modifiers & UInt32(optionKey) != 0 { flags.insert(.option) }
+        if modifiers & UInt32(shiftKey) != 0 { flags.insert(.shift) }
+        if modifiers & UInt32(cmdKey) != 0 { flags.insert(.command) }
+        return flags
+    }
+
+    /// True when this key press is the shortcut. Caps Lock is ignored: it is
+    /// never part of a binding and leaving it on should not block the press.
+    func matches(_ event: NSEvent) -> Bool {
+        guard event.keyCode == UInt16(keyCode) else { return false }
+        let pressed = event.modifierFlags
+            .intersection(.deviceIndependentFlagsMask)
+            .subtracting(.capsLock)
+        return pressed == eventFlags
+    }
+
     var isSingleKey: Bool { modifiers == 0 }
 
     /// Keys that are safe to bind globally with no modifiers.
@@ -68,13 +92,17 @@ struct HotkeyBinding: Equatable, Hashable, Identifiable {
     }
 
     static func label(keyCode: UInt32, modifiers: UInt32) -> String {
+        parts(keyCode: keyCode, modifiers: modifiers).joined()
+    }
+
+    static func parts(keyCode: UInt32, modifiers: UInt32) -> [String] {
         var parts: [String] = []
         if modifiers & UInt32(controlKey) != 0 { parts.append("⌃") }
         if modifiers & UInt32(optionKey) != 0 { parts.append("⌥") }
         if modifiers & UInt32(shiftKey) != 0 { parts.append("⇧") }
         if modifiers & UInt32(cmdKey) != 0 { parts.append("⌘") }
         parts.append(keyName(for: keyCode))
-        return parts.joined()
+        return parts
     }
 
     private static func legacyPreset(_ raw: String) -> HotkeyBinding? {

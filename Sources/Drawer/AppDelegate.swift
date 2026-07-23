@@ -61,11 +61,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         FontLoader.registerBundledFonts() // the Pixel theme's typeface
 
-        // Reopen security scopes for user-picked files, and on the App Store
-        // build ask for the folder to keep them in, before anything below
-        // reads a default path.
+        // Reopen security scopes for user-picked files, then walk a new user
+        // through the shortcut, their folder, and their features. Both run
+        // before anything below reads a path or a feature flag.
         SandboxBookmarks.restoreAll()
-        if appStoreBuild, !DataFolder.isSet { DataFolder.choose() }
+        Onboarding.runIfNeeded()
 
         var defaults: [String: Any] = [
             "drawerFilePath": AppPaths.defaultDrawerFile,
