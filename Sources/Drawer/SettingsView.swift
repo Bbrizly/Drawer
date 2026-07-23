@@ -1366,9 +1366,27 @@ private struct AdvancedSettingsView: View {
 }
 
 private struct HelpView: View {
+    private var version: String {
+        Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? ""
+    }
+
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 14) {
+                HStack(spacing: 14) {
+                    AppLogo(size: 54)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Drawer").font(.title2.weight(.semibold))
+                        if !version.isEmpty {
+                            Text("Version \(version)")
+                                .font(.callout)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    Spacer()
+                }
+                .padding(.bottom, 4)
+
                 helpBlock(
                     "How it works",
                     "Drawer shows one markdown file as your day list. "

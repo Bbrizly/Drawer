@@ -1,10 +1,10 @@
 import AppKit
 import SwiftUI
 
-/// The first-run walkthrough. Four steps: pick a look, learn the shortcut, put
-/// your files somewhere you own, pick the features you want. On first run the
-/// rest of launch waits for it, because every store built afterwards resolves a
-/// path this decides.
+/// The first-run walkthrough: hello, the permission behind a one-key shortcut,
+/// the shortcut, where your files live, then the features you want. On first
+/// run the rest of launch waits for it, because every store built afterwards
+/// resolves a path this decides.
 @MainActor
 enum Onboarding {
     static let doneKey = "didOnboard"
@@ -88,13 +88,15 @@ struct OnboardingView: View {
     @AppStorage(AppPaths.dataFolderPathKey) private var dataFolderPath = ""
 
     enum Step {
-        case look, access, shortcut, files, features
+        case welcome, access, shortcut, files, features
     }
 
     /// The App Store build has no permission step: the sandbox denies the
     /// Accessibility API outright, so there is nothing to grant.
     static var order: [Step] {
-        appStoreBuild ? [.look, .shortcut, .files, .features] : [.look, .access, .shortcut, .files, .features]
+        appStoreBuild
+            ? [.welcome, .shortcut, .files, .features]
+            : [.welcome, .access, .shortcut, .files, .features]
     }
 
     private var lastStep: Int { Self.order.count - 1 }
@@ -131,8 +133,8 @@ struct OnboardingView: View {
     @ViewBuilder
     private var steps: some View {
         switch current {
-        case .look:
-            ThemeStep()
+        case .welcome:
+            WelcomeStep()
                 .transition(stepTransition)
         case .access:
             AccessStep(trusted: $trusted, asked: $askedForAccess)
@@ -195,10 +197,33 @@ struct OnboardingView: View {
     }
 }
 
-/// Shared chrome so the four steps line up exactly as you page through them.
+/// Drawer's own icon, the one in the Dock, at whatever size is asked for.
+/// Never a stand-in glyph.
+struct AppLogo: View {
+    var size: CGFloat = 92
+
+    var body: some View {
+        Image(nsImage: Self.icon)
+            .resizable()
+            .interpolation(.high)
+            .aspectRatio(contentMode: .fit)
+            .frame(width: size, height: size)
+    }
+
+    /// The bundled copy of the icon art, not the running app's icon: a test
+    /// host or an unsigned run would hand back a generic folder, and a
+    /// stand-in logo is worse than no walkthrough.
+    private static let icon: NSImage = {
+        if let url = Bundle.module.url(forResource: "app-icon", withExtension: "png"),
+           let art = NSImage(contentsOf: url) {
+            return art
+        }
+        return NSApp?.applicationIconImage ?? NSImage()
+    }()
+}
+
+/// Shared chrome so the steps line up exactly as you page through them.
 private struct StepFrame<Content: View>: View {
-    @Environment(\.drawerTheme) private var theme
-    let icon: String
     let title: String
     let subtitle: String
     @ViewBuilder var content: Content
@@ -207,12 +232,7 @@ private struct StepFrame<Content: View>: View {
         // One VStack, so a short step sits centred and a tall one (the feature
         // list) grows into the same space instead of leaving a hole.
         VStack(spacing: 26) {
-            VStack(spacing: 14) {
-                Image(systemName: icon)
-                    .font(.system(size: 30, weight: .medium))
-                    .foregroundStyle(theme.accent)
-                    .frame(width: 64, height: 64)
-                    .background(theme.accent.opacity(0.12), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+            VStack(spacing: 10) {
                 Text(title)
                     .font(.system(size: 25, weight: .semibold))
                 Text(subtitle)
@@ -220,7 +240,7 @@ private struct StepFrame<Content: View>: View {
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
                     .fixedSize(horizontal: false, vertical: true)
-                    .frame(maxWidth: 420)
+                    .frame(maxWidth: 400)
             }
             content
         }
@@ -230,31 +250,53 @@ private struct StepFrame<Content: View>: View {
     }
 }
 
-// MARK: - Step 1, the look
+// MARK: - Step 1, hello
 
-private struct ThemeStep: View {
-    @AppStorage("drawerTheme") private var themeRaw = DrawerTheme.default.rawValue
-
+private struct WelcomeStep: View {
     var body: some View {
-        StepFrame(
-            icon: "paintbrush",
-            title: "Pick a look",
-            subtitle: "Notebook is the one it ships with: ruled paper, pen ink, a red margin. "
-                + "Tap another and the whole app follows, this window included."
-        ) {
-            // Three across, so the nine themes land as a tidy square.
-            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 12), count: 3),
-                      spacing: 12) {
-                ForEach(DrawerTheme.allCases) { theme in
-                    ThemeSwatch(theme: theme, selected: themeRaw == theme.id, height: 58)
-                        .onTapGesture {
-                            withAnimation(.snappy(duration: 0.2)) { themeRaw = theme.id }
-                        }
-                }
+        VStack(spacing: 22) {
+            AppLogo(size: 124)
+            VStack(spacing: 10) {
+                Text("Welcome to Drawer")
+                    .font(.system(size: 30, weight: .semibold))
+                Text("Today's tasks, one shortcut away.")
+                    .font(.title3)
+                    .foregroundStyle(.secondary)
             }
         }
+        .padding(.horizontal, 32)
+        .frame(maxHeight: .infinity)
     }
 }
+
+// The look picker, parked. It shipped as the first step and looked wrong
+// there, so the walkthrough opens on the welcome instead. Settings still
+// has the full theme grid under Appearance.
+// // MARK: - Step 1, the look
+//
+// private struct ThemeStep: View {
+//     @AppStorage("drawerTheme") private var themeRaw = DrawerTheme.default.rawValue
+//
+//     var body: some View {
+//         StepFrame(
+//             icon: "paintbrush",
+//             title: "Pick a look",
+//             subtitle: "Notebook is the one it ships with: ruled paper, pen ink, a red margin. "
+//                 + "Tap another and the whole app follows, this window included."
+//         ) {
+//             // Three across, so the nine themes land as a tidy square.
+//             LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 12), count: 3),
+//                       spacing: 12) {
+//                 ForEach(DrawerTheme.allCases) { theme in
+//                     ThemeSwatch(theme: theme, selected: themeRaw == theme.id, height: 58)
+//                         .onTapGesture {
+//                             withAnimation(.snappy(duration: 0.2)) { themeRaw = theme.id }
+//                         }
+//                 }
+//             }
+//         }
+//     }
+// }
 
 // MARK: - Step 2, the permission behind a one-key shortcut
 
@@ -269,11 +311,9 @@ private struct AccessStep: View {
 
     var body: some View {
         StepFrame(
-            icon: "hand.raised",
-            title: "Let Drawer see the key you press",
-            subtitle: "macOS holds this behind a switch. Turn Drawer on and a single key, "
-                + "right \u{2318} or \u{2325} on its own, can open the drawer from any app. Skip it and "
-                + "you can still use a combination like \u{2303}\u{2325}Space."
+            title: "Let Drawer see your keys",
+            subtitle: "macOS keeps this behind a switch. Turn it on and a single key, "
+                + "right \u{2318} or \u{2325}, can open the drawer from any app."
         ) {
             VStack(spacing: 16) {
                 HStack(spacing: 10) {
@@ -298,8 +338,7 @@ private struct AccessStep: View {
                         .strokeBorder(trusted ? .green : theme.primaryInk.opacity(0.12), lineWidth: 1)
                 )
                 if !trusted {
-                    Text("Privacy & Security, then Accessibility, then switch Drawer on. "
-                        + "This window notices on its own.")
+                    Text("Privacy & Security, then Accessibility. This window notices on its own.")
                         .font(.callout)
                         .foregroundStyle(.secondary)
                         .multilineTextAlignment(.center)
@@ -349,10 +388,8 @@ private struct HotkeyStep: View {
 
     var body: some View {
         StepFrame(
-            icon: "menubar.arrow.down.rectangle",
-            title: "Drawer lives in your menu bar",
-            subtitle: "It stays out of the way until you call it. Click the keys and press "
-                + "whatever you want: a combination, or one modifier on its own."
+            title: "Pick your shortcut",
+            subtitle: "Click the keys and press what you want. One modifier on its own counts."
         ) {
             VStack(spacing: 18) {
                 field
@@ -601,11 +638,8 @@ private struct FilesStep: View {
 
     var body: some View {
         StepFrame(
-            icon: "folder",
             title: "Your tasks are plain files",
-            subtitle: "Drawer keeps a markdown file per day heading, nothing locked away. "
-                + "Put it inside your Obsidian vault if you keep one: it stays readable to "
-                + "you, to Obsidian, and to any AI you point at it."
+            subtitle: "Markdown, in a folder you own. Drop it in your Obsidian vault if you keep one."
         ) {
             VStack(spacing: 18) {
                 VStack(alignment: .leading, spacing: 10) {
@@ -667,10 +701,8 @@ private struct FeaturesStep: View {
 
     var body: some View {
         StepFrame(
-            icon: "slider.horizontal.3",
-            title: "Curate it to how you work",
-            subtitle: "Drawer ships with the useful things on. Turn off what you do not want. "
-                + "All of this lives in Settings later too."
+            title: "Make it yours",
+            subtitle: "Turn off what you do not want. It is all in Settings later."
         ) {
             VStack(spacing: 14) {
                 HStack(spacing: 8) {
