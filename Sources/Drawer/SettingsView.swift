@@ -558,6 +558,8 @@ private struct GeneralSettingsView: View {
                 SettingsCaption("Start the drawer expanded to full screen height instead of the compact size.")
             }
             Section {
+                Button("Redo onboarding") { Onboarding.run() }
+                SettingsCaption("Walks the setup again: look, shortcut, files, features.")
                 Toggle("Launch at login", isOn: $launchAtLogin)
                     .onChange(of: launchAtLogin) { _, enabled in
                         if enabled {
@@ -1049,10 +1051,12 @@ private struct FeatureSettingsView: View {
             Section {
                 SettingsCaption(
                     "Turn features on or off without touching code. Minimal keeps only today's "
-                    + "tasks and carried-over work. Everything turns the full drawer back on."
+                    + "tasks and carried-over work. Recommended is what the app ships with. "
+                    + "Everything turns the full drawer back on."
                 )
                 HStack {
                     Button("Minimal") { model.applyMinimal() }
+                    Button("Recommended") { model.applyDefaults() }
                     Button("Everything") { model.applyEverything() }
                     Spacer()
                 }
