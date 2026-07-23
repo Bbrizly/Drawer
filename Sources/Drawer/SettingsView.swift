@@ -1197,6 +1197,7 @@ private struct AdvancedSettingsView: View {
     @AppStorage("teleprompterSpeed") private var teleprompterSpeed = 45.0
     @AppStorage("teleprompterFontSize") private var teleprompterFontSize = 34.0
     @AppStorage("notesPaneHeight") private var notesPaneHeight = 160.0
+    @AppStorage(DevTools.key) private var devToolsEnabled = false
     @State private var showResetConfirm = false
 
     var body: some View {
@@ -1327,7 +1328,12 @@ private struct AdvancedSettingsView: View {
                 }
                 SettingsCaption("Clears custom paths and advanced toggles. Themes, sounds, and your task file stay as they are.")
             }
-            if DevTools.enabled { DeveloperSettings() }
+            Section {
+                Toggle("Developer tools", isOn: $devToolsEnabled)
+                    .onChange(of: devToolsEnabled) { _, _ in DevTuningStore.shared.refresh() }
+                SettingsCaption("Shows the tuning sliders below. They move the numbers behind how the app feels, not real settings.")
+            }
+            if devToolsEnabled { DeveloperSettings() }
         }
         .formStyle(.grouped)
         .alert("Reset advanced settings?", isPresented: $showResetConfirm) {
