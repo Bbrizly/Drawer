@@ -249,6 +249,56 @@ struct OnboardingView: View {
     }
 }
 
+/// Every number the knock is made of, in one place. Change them here and watch
+/// the change in the "Mark lab" preview at the bottom of this file: it has a
+/// slider for each one and a button to fire the knock.
+struct MarkMotion {
+    /// How far it throws sideways on the first swing, in points. Bigger reads
+    /// heavier.
+    var distance: CGFloat = 16
+    /// How many times it crosses the middle before it stops. Around 2 is a
+    /// knock, 5 is a buzz.
+    var cycles: CGFloat = 2.5
+    /// How long the whole thing takes, start to still.
+    var duration: TimeInterval = 0.36
+    /// How far it tips at full throw, in degrees. 0 is a flat slide.
+    var tilt: Double = 6
+    /// How much it squashes on the hit, then recovers. 1 is no squash.
+    var punch: CGFloat = 0.93
+    /// The idle drift: how far it rises and falls, and how slow.
+    var driftBy: CGFloat = 5
+    var driftSeconds: TimeInterval = 2.8
+
+    static let standard = MarkMotion()
+}
+
+/// One knock: a sine that gets quieter until it is nothing. `animatableData`
+/// counts presses, so the whole number is the resting state and the bit in
+/// between is the swing. Nothing to reset and nothing to hold on to.
+///
+/// It has to be a GeometryEffect. A plain `.offset(x: mySine(t))` does not
+/// work: SwiftUI would draw a straight line from the first offset to the last
+/// one instead of following the curve. Only `animatableData` gets sampled
+/// every frame.
+struct Knock: GeometryEffect {
+    var motion = MarkMotion.standard
+    var animatableData: CGFloat = 0
+
+    func effectValue(size: CGSize) -> ProjectionTransform {
+        let progress = animatableData - animatableData.rounded(.down)
+        // Full throw at the start, nothing left at the end.
+        let swing = sin(progress * .pi * 2 * motion.cycles) * (1 - progress)
+        let squash = motion.punch + (1 - motion.punch) * progress
+        let middle = CGPoint(x: size.width / 2, y: size.height / 2)
+        return ProjectionTransform(
+            CGAffineTransform(translationX: middle.x + motion.distance * swing, y: middle.y)
+                .rotated(by: motion.tilt * swing * .pi / 180)
+                .scaledBy(x: squash, y: squash)
+                .translatedBy(x: -middle.x, y: -middle.y)
+        )
+    }
+}
+
 /// Drawer's mark, open or shut, the same drawing the README uses. It sits
 /// above the first three steps and never slides with them, so paging through
 /// the walkthrough feels like one object you are getting to know.
@@ -259,8 +309,9 @@ struct DrawerMark: View {
     var open = true
     /// One size for the whole walkthrough. It is the same object on every step.
     static let size: CGFloat = 144
-    /// Counts presses. Every bump rattles it, like something inside slid.
+    /// Counts presses. Every bump knocks it, like something inside slid.
     var shakes = 0
+    var motion = MarkMotion.standard
 
     /// Drives the slow idle drift. Flipped once on appear.
     @State private var adrift = false
@@ -268,36 +319,16 @@ struct DrawerMark: View {
     var body: some View {
         art(open ? Self.openArt : Self.shutArt)
             .frame(width: Self.size, height: Self.size)
-            .keyframeAnimator(initialValue: Rattle(), trigger: shakes) { view, rattle in
-                view
-                    .offset(x: rattle.slide)
-                    .rotationEffect(.degrees(rattle.tilt))
-            } keyframes: { _ in
-                // Hard over, back past centre, and settle. Under a fifth of a
-                // second start to finish, so it reads as one knock.
-                KeyframeTrack(\.slide) {
-                    SpringKeyframe(-9, duration: 0.055, spring: .snappy)
-                    SpringKeyframe(7, duration: 0.06, spring: .snappy)
-                    SpringKeyframe(-3, duration: 0.05, spring: .snappy)
-                    SpringKeyframe(0, duration: 0.06, spring: .bouncy)
-                }
-                KeyframeTrack(\.tilt) {
-                    SpringKeyframe(-4, duration: 0.055, spring: .snappy)
-                    SpringKeyframe(3.5, duration: 0.06, spring: .snappy)
-                    SpringKeyframe(-1.5, duration: 0.05, spring: .snappy)
-                    SpringKeyframe(0, duration: 0.06, spring: .bouncy)
-                }
-            }
-            .offset(y: adrift ? -5 : 5)
-            .animation(.easeInOut(duration: 2.8).repeatForever(autoreverses: true), value: adrift)
+            .modifier(Knock(motion: motion, animatableData: CGFloat(shakes)))
+            // Ease out, so the first swing is the fast one. Try .linear here to
+            // hear the raw sine, or a spring to let it overshoot on the way in.
+            .animation(.easeOut(duration: motion.duration), value: shakes)
+            .offset(y: adrift ? -motion.driftBy : motion.driftBy)
+            .animation(
+                .easeInOut(duration: motion.driftSeconds).repeatForever(autoreverses: true),
+                value: adrift)
             .onAppear { adrift = true }
             .accessibilityLabel(open ? "Drawer, open" : "Drawer, shut")
-    }
-
-    /// The two things a knock does: slide sideways, tip a little with it.
-    private struct Rattle {
-        var slide: CGFloat = 0
-        var tilt: Double = 0
     }
 
     private func art(_ image: NSImage) -> some View {
@@ -794,6 +825,8 @@ private struct HotkeyStep: View {
     private func succeed() {
         drawerOpen.toggle()
         presses += 1
+        // The third channel. Pixels alone never feel like anything.
+        NSHapticFeedbackManager.defaultPerformer.perform(.levelChange, performanceTime: .now)
         guard !done else { return }
         withAnimation(.easeOut(duration: 0.2)) { done = true }
     }
@@ -966,3 +999,87 @@ private struct FeaturesStep: View {
         .buttonStyle(.plain)
     }
 }
+
+// MARK: - Previews
+//
+// These only exist for Xcode's canvas. Open this package in Xcode (File, Open,
+// pick Package.swift), put the cursor in here, and turn the canvas on with
+// Option-Command-Return. Nothing below ships.
+
+#if DEBUG
+
+/// The mark on its own, both ways round.
+#Preview("Mark") {
+    HStack(spacing: 40) {
+        DrawerMark(open: false)
+        DrawerMark(open: true)
+    }
+    .padding(50)
+}
+
+/// The knob board. Drag a slider, hit Knock, feel it. When a set of numbers is
+/// right, copy them into `MarkMotion` at the top of this file.
+#Preview("Mark lab") {
+    @Previewable @State var motion = MarkMotion.standard
+    @Previewable @State var presses = 0
+    @Previewable @State var slow = false
+
+    VStack(spacing: 24) {
+        DrawerMark(open: presses.isMultiple(of: 2), shakes: presses, motion: motion)
+            // Slow motion: the only honest way to see what a 0.3s move does.
+            .transaction { if slow { $0.animation = $0.animation?.speed(0.12) } }
+            .frame(height: 170)
+
+        HStack {
+            Button("Knock") { presses += 1 }
+                .buttonStyle(.borderedProminent)
+                .keyboardShortcut(.defaultAction)
+            Toggle("Slow motion", isOn: $slow)
+        }
+
+        Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 8) {
+            knob("distance", $motion.distance, 0...60)
+            knob("cycles", $motion.cycles, 0.5...8)
+            knob("duration", $motion.duration, 0.05...1.5)
+            knob("tilt", $motion.tilt, 0...30)
+            knob("punch", $motion.punch, 0.6...1)
+            knob("drift by", $motion.driftBy, 0...30)
+            knob("drift seconds", $motion.driftSeconds, 0.5...8)
+        }
+        .frame(width: 380)
+    }
+    .padding(40)
+}
+
+/// One row of the lab: name, slider, the number to copy back into the code.
+@ViewBuilder
+private func knob<V: BinaryFloatingPoint>(
+    _ name: String, _ value: Binding<V>, _ range: ClosedRange<V>
+) -> some View where V.Stride: BinaryFloatingPoint {
+    GridRow {
+        Text(name)
+            .font(.caption)
+            .gridColumnAlignment(.trailing)
+        Slider(value: value, in: range)
+        Text(String(format: "%.2f", Double(value.wrappedValue)))
+            .font(.system(.caption, design: .monospaced))
+            .frame(width: 44, alignment: .trailing)
+    }
+}
+
+/// Every step of the walkthrough, paged from the canvas.
+#Preview("Walkthrough") {
+    @Previewable @State var step = 0
+
+    VStack(spacing: 0) {
+        OnboardingView(startStep: step) {}
+            .id(step)
+        Picker("Step", selection: $step) {
+            ForEach(0..<OnboardingView.order.count, id: \.self) { Text("\($0)") }
+        }
+        .pickerStyle(.segmented)
+        .padding(10)
+    }
+}
+
+#endif
