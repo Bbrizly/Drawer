@@ -69,9 +69,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
         var defaults: [String: Any] = [
             "drawerFilePath": AppPaths.defaultDrawerFile,
-            "panelWidth": 300.0,
+            // A wide, full-height drawer that slides in fast: the shape the
+            // app is meant to be used in. All of it moves in Settings.
+            "panelWidth": 520.0,
             "panelCompactHeight": 440.0,
             "panelSlideDuration": 0.11,
+            "startExpanded": true,
             "defaultMinutesText": "25",
             "completionSound": true,
             "showTomorrow": true,

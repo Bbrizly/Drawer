@@ -10,8 +10,8 @@ final class DrawerThemeTests: XCTestCase {
         }
     }
 
-    func testDefaultIsLiquidGlass() {
-        XCTAssertEqual(DrawerTheme.default, .liquidGlass)
+    func testDefaultIsNotebook() {
+        XCTAssertEqual(DrawerTheme.default, .notebook)
     }
 
     func testTokensAreSane() {
@@ -30,7 +30,7 @@ final class DrawerThemeTests: XCTestCase {
 
     func testEnvironmentDefault() {
         let env = EnvironmentValues()
-        XCTAssertEqual(env.drawerTheme, .liquidGlass)
+        XCTAssertEqual(env.drawerTheme, .notebook)
     }
 
     func testArtDirectedThemesExist() {

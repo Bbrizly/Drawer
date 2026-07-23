@@ -52,7 +52,7 @@ struct DrawerView: View {
     @AppStorage("archiveExpanded") private var archiveExpanded = false
     @AppStorage("drawerExpanded") private var drawerExpanded = false
     @AppStorage("drawerTheme") private var themeRaw = DrawerTheme.default.rawValue
-    @AppStorage("panelWidth") private var panelWidth = 300.0
+    @AppStorage("panelWidth") private var panelWidth = 520.0
     // Feature flags (see FeatureFlag). Each gates a slice of the UI so the app
     // can be stripped to the bare task list.
     @AppStorage("typeOnOpen") private var typeOnOpen = false
