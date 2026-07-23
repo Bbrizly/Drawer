@@ -84,7 +84,7 @@ struct OnboardingView: View {
     /// Which way the last move went, so Back slides back.
     @State private var forward = true
     @State private var hotkeyDone = false
-    @State private var trusted = false
+    @State private var trusted = AccessibilityPermission.isTrusted
     @State private var askedForAccess = false
     @AppStorage("drawerTheme") private var themeRaw = DrawerTheme.default.rawValue
     @AppStorage(AppPaths.dataFolderPathKey) private var dataFolderPath = ""
@@ -130,6 +130,15 @@ struct OnboardingView: View {
         }
         .frame(width: 620, height: 580)
         .chromeThemed()
+        .task {
+            // One watcher for every step: the grant lands in another process,
+            // and the user can flip it while looking at any of these screens.
+            guard !appStoreBuild else { return }
+            while !Task.isCancelled {
+                trusted = AccessibilityPermission.isTrusted
+                try? await Task.sleep(nanoseconds: 400_000_000)
+            }
+        }
     }
 
     @ViewBuilder
@@ -139,10 +148,10 @@ struct OnboardingView: View {
             WelcomeStep()
                 .transition(stepTransition)
         case .access:
-            AccessStep(trusted: $trusted, asked: $askedForAccess)
+            AccessStep(trusted: trusted, asked: $askedForAccess)
                 .transition(stepTransition)
         case .shortcut:
-            HotkeyStep(done: $hotkeyDone)
+            HotkeyStep(done: $hotkeyDone, trusted: trusted)
                 .transition(stepTransition)
         case .files:
             FilesStep()
@@ -310,9 +319,12 @@ private struct WelcomeStep: View {
 /// Direct download only: the sandbox denies the whole API.
 private struct AccessStep: View {
     @Environment(\.drawerTheme) private var theme
-    @Binding var trusted: Bool
+    /// Watched for the whole walkthrough by OnboardingView, so this only reads.
+    let trusted: Bool
     @Binding var asked: Bool
-    @State private var poll: Timer?
+    /// Set once the user has been sent to System Settings and the switch has
+    /// not landed for a while, which on this Mac means a stale grant.
+    @State private var stalled = false
 
     var body: some View {
         StepFrame(
@@ -328,7 +340,7 @@ private struct AccessStep: View {
                     Text(trusted ? "Drawer is allowed." : "Not allowed yet.")
                     Spacer(minLength: 12)
                     if !trusted {
-                        Button("Open System Settings") { ask() }
+                        Button(asked ? "Open it again" : "Open System Settings") { ask() }
                             .buttonStyle(.borderedProminent)
                     }
                 }
@@ -343,27 +355,44 @@ private struct AccessStep: View {
                         .strokeBorder(trusted ? .green : theme.primaryInk.opacity(0.12), lineWidth: 1)
                 )
                 if !trusted {
-                    Text("Privacy & Security, then Accessibility. This window notices on its own.")
-                        .font(.callout)
-                        .foregroundStyle(.secondary)
-                        .multilineTextAlignment(.center)
-                        .frame(maxWidth: 420)
+                    if stalled {
+                        stale
+                    } else {
+                        Text("Privacy & Security, then Accessibility. This window notices on its own.")
+                            .font(.callout)
+                            .foregroundStyle(.secondary)
+                            .multilineTextAlignment(.center)
+                            .frame(maxWidth: 420)
+                    }
                 }
             }
+            .animation(.easeInOut(duration: 0.2), value: trusted)
         }
-        .onAppear {
-            trusted = AccessibilityPermission.isTrusted
-            // The grant lands in another process, so watch for it rather than
-            // guess when. Common mode: the walkthrough animates over this.
-            let timer = Timer(timeInterval: 0.5, repeats: true) { _ in
-                Task { @MainActor in trusted = AccessibilityPermission.isTrusted }
+        // Restarts whenever the answer changes, so granting clears the hint.
+        .task(id: asked && !trusted) {
+            guard asked, !trusted else { return }
+            try? await Task.sleep(nanoseconds: 8_000_000_000)
+            guard !Task.isCancelled else { return }
+            withAnimation { stalled = true }
+        }
+    }
+
+    /// macOS ties the grant to the exact copy of the app it was given to. A
+    /// rebuilt or replaced Drawer is a different copy, so the switch stays on
+    /// while the new one is still shut out. Only removing the entry clears it.
+    private var stale: some View {
+        VStack(spacing: 8) {
+            Text("Switch already on? Then macOS is holding an older copy of Drawer. "
+                + "Select Drawer in that list, remove it with the minus button, then add "
+                + "this one back with plus.")
+                .font(.callout)
+                .foregroundStyle(.orange)
+                .multilineTextAlignment(.center)
+                .frame(maxWidth: 430)
+            Button("Show me Drawer in Finder") {
+                NSWorkspace.shared.activateFileViewerSelecting([Bundle.main.bundleURL])
             }
-            RunLoop.main.add(timer, forMode: .common)
-            poll = timer
-        }
-        .onDisappear {
-            poll?.invalidate()
-            poll = nil
+            .buttonStyle(.link)
         }
     }
 
@@ -379,6 +408,9 @@ private struct AccessStep: View {
 private struct HotkeyStep: View {
     @Environment(\.drawerTheme) private var theme
     @Binding var done: Bool
+    /// Live, so granting Accessibility on the step before (or in the middle of
+    /// this one) clears the warning without a click.
+    let trusted: Bool
 
     @State private var binding = HotkeyBinding.saved
     @State private var recording = false
@@ -507,7 +539,7 @@ private struct HotkeyStep: View {
         } else if done {
             Label("That is it. It works.", systemImage: "checkmark.circle.fill")
                 .foregroundStyle(.green)
-        } else if binding.needsAccessibility, !AccessibilityPermission.isTrusted {
+        } else if binding.needsAccessibility, !trusted {
             Label("Works here, but needs Accessibility to work in other apps.", systemImage: "exclamationmark.triangle.fill")
                 .foregroundStyle(.orange)
                 .multilineTextAlignment(.center)
