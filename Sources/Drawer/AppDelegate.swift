@@ -62,11 +62,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         FontLoader.registerBundledFonts() // the Pixel theme's typeface
 
         // Reopen security scopes for user-picked files, then walk a new user
-        // through the shortcut, their folder, and their features. Both run
-        // before anything below reads a path or a feature flag.
+        // through the look, the shortcut, their folder, and their features.
+        // The rest of launch waits for it: everything in there reads a path or
+        // a feature flag the walkthrough decides.
         SandboxBookmarks.restoreAll()
-        Onboarding.runIfNeeded()
+        Onboarding.runIfNeeded { [weak self] in self?.finishLaunching() }
+    }
 
+    private func finishLaunching() {
         var defaults: [String: Any] = [
             "drawerFilePath": AppPaths.defaultDrawerFile,
             // A wide, full-height drawer that slides in fast: the shape the
