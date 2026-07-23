@@ -2,12 +2,16 @@ import AppKit
 import SwiftUI
 
 /// The first-run walkthrough. Four steps: pick a look, learn the shortcut, put
-/// your files somewhere you own, pick the features you want. It runs modally
-/// before the rest of launch because every store built afterwards resolves a
+/// your files somewhere you own, pick the features you want. On first run the
+/// rest of launch waits for it, because every store built afterwards resolves a
 /// path this decides.
 @MainActor
 enum Onboarding {
     static let doneKey = "didOnboard"
+
+    /// Held while the window is up, so it is not deallocated and a second call
+    /// brings the same one forward.
+    private static var window: NSWindow?
 
     static var needed: Bool {
         guard !UserDefaults.standard.bool(forKey: doneKey) else { return false }
@@ -18,35 +22,50 @@ enum Onboarding {
         return appStoreBuild ? !DataFolder.isSet : !existingInstall
     }
 
-    static func runIfNeeded() {
+    /// Runs the walkthrough on a first launch, then calls `then`. Launch carries
+    /// on inside that closure, so the stores below it read the folder the user
+    /// just picked.
+    static func runIfNeeded(then: @escaping () -> Void) {
         guard needed else {
             UserDefaults.standard.set(true, forKey: doneKey)
+            then()
             return
         }
-        run()
+        run(onFinish: then)
     }
 
-    static func run() {
+    /// Opens the walkthrough. Never modal: a nested modal loop started from a
+    /// button in Settings leaves this window drawn but deaf, since the click
+    /// that opened it is still being tracked by the window underneath.
+    static func run(onFinish: (() -> Void)? = nil) {
+        if let open = window, open.isVisible {
+            NSApp.activate(ignoringOtherApps: true)
+            open.makeKeyAndOrderFront(nil)
+            return
+        }
+        // First run has no close button: the App Store build needs a folder out
+        // of it, and every step can be skipped from inside. A redo from
+        // Settings is only a look, so that one closes.
+        let firstRun = onFinish != nil
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 620, height: 580),
-            // No close button on purpose: the App Store build needs a folder
-            // out of this, and every step can be skipped from inside.
-            styleMask: [.titled, .fullSizeContentView],
+            styleMask: firstRun ? [.titled, .fullSizeContentView] : [.titled, .closable, .fullSizeContentView],
             backing: .buffered,
             defer: false
         )
         window.titlebarAppearsTransparent = true
         window.titleVisibility = .hidden
         window.isMovableByWindowBackground = true
+        window.isReleasedWhenClosed = false
         window.center()
         window.contentView = NSHostingView(rootView: OnboardingView {
             UserDefaults.standard.set(true, forKey: doneKey)
-            NSApp.stopModal()
             window.close()
+            onFinish?()
         })
+        Self.window = window
         NSApp.activate(ignoringOtherApps: true)
         window.makeKeyAndOrderFront(nil)
-        NSApp.runModal(for: window)
     }
 }
 
