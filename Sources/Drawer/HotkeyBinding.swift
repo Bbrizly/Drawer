@@ -142,12 +142,28 @@ struct HotkeyBinding: Equatable, Hashable, Identifiable {
     static var saved: HotkeyBinding {
         let defaults = UserDefaults.standard
         if defaults.object(forKey: "hotkeyKeyCode") != nil {
-            return HotkeyBinding(
+            let stored = HotkeyBinding(
                 keyCode: UInt32(defaults.integer(forKey: "hotkeyKeyCode")),
                 modifiers: UInt32(defaults.integer(forKey: "hotkeyModifiers"))
             )
+            // A tap of something that is not a modifier can never fire, and
+            // Carbon cannot take it either, so it would leave no shortcut at
+            // all. Fall back rather than go silent.
+            if stored.isModifierTap, stored.tapFlag == nil { return .ctrlOptSpace }
+            return stored
         }
         return legacyPreset(defaults.string(forKey: "hotkeyPreset") ?? "") ?? .ctrlOptSpace
+    }
+
+    /// The old separate "Tap right ⌘ to open" switch. A tap shortcut does the
+    /// same job now, and leaving both on fired the drawer twice per tap, which
+    /// read as the shortcut being dead. Fold it into the shortcut once.
+    static func migrateRightCommandTap() {
+        let defaults = UserDefaults.standard
+        guard defaults.bool(forKey: "rightCommandTapEnabled") else { return }
+        defaults.removeObject(forKey: "rightCommandTapEnabled")
+        guard !saved.isModifierTap else { return }
+        tap(UInt32(kVK_RightCommand)).save()
     }
 
     func save() {

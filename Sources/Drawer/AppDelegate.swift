@@ -35,14 +35,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// What is registered right now, so a defaults change that did not touch
     /// the shortcut does not re-register it.
     private var registeredHotkey: HotkeyBinding?
-    private let rightCommandTap = ModifierTapMonitor()
     /// Runs the main shortcut when it is a tapped modifier rather than a
     /// Carbon key combination.
     private let shortcutTap = ModifierTapMonitor()
+    /// Waits for accessibility to be granted after the user picks a tap, then
+    /// starts the monitor without needing a relaunch.
     private var shortcutTapPoll: Timer?
-    /// Waits for accessibility to be granted after the user opts in, then
-    /// starts the tap monitor without needing a relaunch.
-    private var rightCommandTapPoll: Timer?
     private var statusItem: NSStatusItem!
     private var escMonitor: Any?
     private var settingsWindow: NSWindow?
@@ -100,7 +98,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             "teleprompterFontSize": 34.0,
             "notesPaneHeight": 160.0,
             "exportWorkLogMarkdown": AppPaths.defaultExportWorkLogMarkdown,
-            "rightCommandTapEnabled": false,
         ]
         defaults.merge(PomodoroPreferences.defaults) { current, _ in current }
         UserDefaults.standard.register(defaults: defaults)
@@ -198,19 +195,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         // has to slide an already-built window in, not build the view graph.
         panelController.prewarm()
 
+        HotkeyBinding.migrateRightCommandTap()
         _ = applyHotkey(HotkeyBinding.saved)
-        // The walkthrough writes a new shortcut straight to defaults, so pick
-        // it up from there instead of waiting for a relaunch.
+        // The walkthrough and settings write a new shortcut straight to
+        // defaults, so pick it up from there instead of waiting for a relaunch.
         NotificationCenter.default.addObserver(
             self, selector: #selector(syncHotkey),
             name: UserDefaults.didChangeNotification, object: nil)
-
-        // Restore the opt-in right-Command tap. Do not prompt on launch; only
-        // start if the user already granted access.
-        applyRightCommandTap(
-            enabled: UserDefaults.standard.bool(forKey: "rightCommandTapEnabled"),
-            prompt: false
-        )
 
         escMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             guard let self else { return event }
@@ -344,6 +335,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             hotkey.unregister()  // the old combination must stop working
             guard AccessibilityPermission.isTrusted else {
                 shortcutTap.stop()
+                // Nothing is live, so say so in the menu instead of naming a
+                // shortcut that does nothing.
+                registeredHotkey = nil
+                toggleMenuItem?.title = "Toggle Drawer (needs Accessibility)"
                 pollForShortcutTapPermission()
                 return false
             }
@@ -651,62 +646,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         return NSImage(systemSymbolName: "sidebar.left", accessibilityDescription: "Drawer")
     }
 
-    // MARK: - Right Command tap
-
-    /// Turns the right-Command tap trigger on or off. When turning on without
-    /// accessibility yet, prompts once (if asked) and waits for the grant.
-    func applyRightCommandTap(enabled: Bool, prompt: Bool) {
-        rightCommandTapPoll?.invalidate()
-        rightCommandTapPoll = nil
-
-        tapLog.notice(
-            "apply tap enabled=\(enabled) prompt=\(prompt) trusted=\(AccessibilityPermission.isTrusted)"
-        )
-        // The tap needs Accessibility, which the sandboxed App Store build
-        // cannot use; its toggle is also hidden from Settings.
-        guard enabled, !appStoreBuild else {
-            rightCommandTap.stop()
-            return
-        }
-        if AccessibilityPermission.isTrusted {
-            startRightCommandTap()
-            return
-        }
-        if prompt { AccessibilityPermission.prompt() }
-        pollForRightCommandTapPermission()
-    }
-
-    private func startRightCommandTap() {
-        rightCommandTap.start { [weak self] in
-            self?.panelController.toggle()
-        }
-    }
-
-    /// Global key monitors only deliver once the process is trusted, and an
-    /// already-installed monitor may miss a late grant, so restart it the
-    /// moment access appears.
-    private func pollForRightCommandTapPermission() {
-        let timer = Timer(timeInterval: 1.0, repeats: true) { [weak self] timer in
-            Task { @MainActor in
-                guard let self else { timer.invalidate(); return }
-                guard UserDefaults.standard.bool(forKey: "rightCommandTapEnabled") else {
-                    timer.invalidate()
-                    self.rightCommandTapPoll = nil
-                    return
-                }
-                if AccessibilityPermission.isTrusted {
-                    tapLog.notice("accessibility granted, starting tap monitor")
-                    self.rightCommandTap.stop()
-                    self.startRightCommandTap()
-                    timer.invalidate()
-                    self.rightCommandTapPoll = nil
-                }
-            }
-        }
-        RunLoop.main.add(timer, forMode: .common)
-        rightCommandTapPoll = timer
-    }
-
     // MARK: - Settings
 
     @objc private func openSettings() {
@@ -723,9 +662,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 },
                 onLayoutChange: { [weak self] in
                     self?.panelController.refreshFrame()
-                },
-                onRightCommandTapChange: { [weak self] enabled in
-                    self?.applyRightCommandTap(enabled: enabled, prompt: true)
                 }
             )
             #if canImport(DrawerBureau)
