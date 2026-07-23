@@ -32,9 +32,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     #endif
     private var historyMenuItem: NSMenuItem?
     private let hotkey = HotkeyManager()
-    /// What is registered right now, so a defaults change that did not touch
-    /// the shortcut does not re-register it.
-    private var registeredHotkey: HotkeyBinding?
+    /// The shortcut we last tried to put in place, so a defaults change that
+    /// did not touch it does no work. This is what was asked for, not what
+    /// ended up live: a tap with no Accessibility yet still counts as done, or
+    /// every write to defaults would ask the system for permission again.
+    private var requestedHotkey: HotkeyBinding?
     /// Runs the main shortcut when it is a tapped modifier rather than a
     /// Carbon key combination.
     private let shortcutTap = ModifierTapMonitor()
@@ -331,21 +333,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// tapped modifier cannot be a Carbon hotkey, so it runs on the monitor
     /// instead, and only once Drawer is trusted for Accessibility.
     private func applyHotkey(_ binding: HotkeyBinding) -> Bool {
+        requestedHotkey = binding
         if let flag = binding.tapFlag, binding.isModifierTap {
-            hotkey.unregister()  // the old combination must stop working
             guard AccessibilityPermission.isTrusted else {
                 shortcutTap.stop()
-                // Nothing is live, so say so in the menu instead of naming a
-                // shortcut that does nothing.
-                registeredHotkey = nil
-                toggleMenuItem?.title = "Toggle Drawer (needs Accessibility)"
+                // A tap needs Accessibility. Leaving it at that left the app
+                // with no shortcut at all, so pressing the key did nothing and
+                // only the menu said why. Hold the standby combination until
+                // the grant lands, and name it where the user will look.
+                let standby = HotkeyBinding.ctrlOptSpace
+                _ = hotkey.register(keyCode: standby.keyCode, modifiers: standby.modifiers) {
+                    [weak self] in self?.panelController.toggle()
+                }
+                toggleMenuItem?.title =
+                    "Toggle Drawer (\(standby.label), tap \(binding.label) needs Accessibility)"
                 pollForShortcutTapPermission()
                 return false
             }
+            hotkey.unregister()  // the old combination must stop working
             shortcutTap.start(key: UInt16(binding.keyCode), flag: flag) { [weak self] in
                 self?.panelController.toggle()
             }
-            registeredHotkey = binding
             toggleMenuItem?.title = "Toggle Drawer (tap \(binding.label))"
             return true
         }
@@ -354,7 +362,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             [weak self] in self?.panelController.toggle()
         }
         guard taken else { return false }
-        registeredHotkey = binding
         toggleMenuItem?.title = "Toggle Drawer (\(binding.label))"
         return true
     }
@@ -382,7 +389,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     @objc private func syncHotkey() {
         let saved = HotkeyBinding.saved
-        guard saved != registeredHotkey else { return }
+        guard saved != requestedHotkey else { return }
         _ = applyHotkey(saved)
     }
 
