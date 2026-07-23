@@ -22,7 +22,7 @@ final class OnboardingRenderTests: XCTestCase {
 
         for theme in themes {
             UserDefaults.standard.set(theme.rawValue, forKey: "drawerTheme")
-            for step in 0...3 {
+            for step in 0..<OnboardingView.order.count {
                 try render(
                     OnboardingView(startStep: step) {},
                     size: NSSize(width: 620, height: 580),

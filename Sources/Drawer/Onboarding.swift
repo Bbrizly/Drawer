@@ -82,19 +82,38 @@ struct OnboardingView: View {
 
     @State private var step: Int
     @State private var hotkeyDone = false
+    @State private var trusted = false
+    @State private var askedForAccess = false
     @AppStorage("drawerTheme") private var themeRaw = DrawerTheme.default.rawValue
     @AppStorage(AppPaths.dataFolderPathKey) private var dataFolderPath = ""
 
-    private let lastStep = 3
+    enum Step {
+        case look, access, shortcut, files, features
+    }
+
+    /// The App Store build has no permission step: the sandbox denies the
+    /// Accessibility API outright, so there is nothing to grant.
+    static var order: [Step] {
+        appStoreBuild ? [.look, .shortcut, .files, .features] : [.look, .access, .shortcut, .files, .features]
+    }
+
+    private var lastStep: Int { Self.order.count - 1 }
+    private var current: Step { Self.order[min(step, lastStep)] }
 
     private var theme: DrawerTheme { DrawerTheme(rawValue: themeRaw) ?? .default }
 
     private var canContinue: Bool {
-        switch step {
-        case 1: return hotkeyDone
-        // The sandbox cannot write a user folder it was never handed, so the
-        // store build waits for the pick. The direct build can use its default.
-        case 2: return !appStoreBuild || !dataFolderPath.isEmpty
+        switch current {
+        // Granting is the point of the step, so it holds. Once the user has
+        // been sent to System Settings they can move on either way: a
+        // permission that sometimes wants a relaunch must not strand a launch.
+        case .access: return trusted || askedForAccess
+        // The sandbox cannot write to a folder it was never handed, so the
+        // store build waits for the pick. The direct build has a default.
+        case .files: return !appStoreBuild || !dataFolderPath.isEmpty
+        // The shortcut step does not wait for a successful press: a
+        // combination the system swallows first would never arrive, and that
+        // is a dead end, not a lesson.
         default: return true
         }
     }
@@ -111,17 +130,20 @@ struct OnboardingView: View {
 
     @ViewBuilder
     private var steps: some View {
-        switch step {
-        case 0:
+        switch current {
+        case .look:
             ThemeStep()
                 .transition(stepTransition)
-        case 1:
+        case .access:
+            AccessStep(trusted: $trusted, asked: $askedForAccess)
+                .transition(stepTransition)
+        case .shortcut:
             HotkeyStep(done: $hotkeyDone)
                 .transition(stepTransition)
-        case 2:
+        case .files:
             FilesStep()
                 .transition(stepTransition)
-        default:
+        case .features:
             FeaturesStep()
                 .transition(stepTransition)
         }
@@ -234,139 +256,334 @@ private struct ThemeStep: View {
     }
 }
 
-// MARK: - Step 2, the shortcut
+// MARK: - Step 2, the permission behind a one-key shortcut
+
+/// macOS will not let any app watch the keyboard until you say so, and a
+/// shortcut that is one modifier key on its own can only be caught that way.
+/// Direct download only: the sandbox denies the whole API.
+private struct AccessStep: View {
+    @Environment(\.drawerTheme) private var theme
+    @Binding var trusted: Bool
+    @Binding var asked: Bool
+    @State private var poll: Timer?
+
+    var body: some View {
+        StepFrame(
+            icon: "hand.raised",
+            title: "Let Drawer see the key you press",
+            subtitle: "macOS holds this behind a switch. Turn Drawer on and a single key, "
+                + "right \u{2318} or \u{2325} on its own, can open the drawer from any app. Skip it and "
+                + "you can still use a combination like \u{2303}\u{2325}Space."
+        ) {
+            VStack(spacing: 16) {
+                HStack(spacing: 10) {
+                    Image(systemName: trusted ? "checkmark.circle.fill" : "circle.dashed")
+                        .foregroundStyle(trusted ? Color.green : Color.secondary)
+                        .font(.system(size: 20))
+                    Text(trusted ? "Drawer is allowed." : "Not allowed yet.")
+                    Spacer(minLength: 12)
+                    if !trusted {
+                        Button("Open System Settings") { ask() }
+                            .buttonStyle(.borderedProminent)
+                    }
+                }
+                .padding(16)
+                .frame(width: 430)
+                .background(
+                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        .fill(theme.primaryInk.opacity(0.045))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        .strokeBorder(trusted ? .green : theme.primaryInk.opacity(0.12), lineWidth: 1)
+                )
+                if !trusted {
+                    Text("Privacy & Security, then Accessibility, then switch Drawer on. "
+                        + "This window notices on its own.")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+                        .frame(maxWidth: 420)
+                }
+            }
+        }
+        .onAppear {
+            trusted = AccessibilityPermission.isTrusted
+            // The grant lands in another process, so watch for it rather than
+            // guess when. Common mode: the walkthrough animates over this.
+            let timer = Timer(timeInterval: 0.5, repeats: true) { _ in
+                Task { @MainActor in trusted = AccessibilityPermission.isTrusted }
+            }
+            RunLoop.main.add(timer, forMode: .common)
+            poll = timer
+        }
+        .onDisappear {
+            poll?.invalidate()
+            poll = nil
+        }
+    }
+
+    private func ask() {
+        asked = true
+        AccessibilityPermission.prompt()
+        AccessibilityPermission.openSettings()
+    }
+}
+
+// MARK: - Step 3, the shortcut
 
 private struct HotkeyStep: View {
     @Environment(\.drawerTheme) private var theme
     @Binding var done: Bool
 
     @State private var binding = HotkeyBinding.saved
+    @State private var recording = false
+    @State private var held: NSEvent.ModifierFlags = []
+    @State private var rejected: String?
+    /// True while the shortcut itself is physically down, so the caps light up
+    /// under your fingers and you can see it land.
+    @State private var pressing = false
+    @State private var recorder = HotkeyRecorder()
     @State private var monitor: Any?
-    @State private var tapMonitor = RightCommandTapMonitor()
-    @State private var trustPoll: Timer?
-    @State private var waitingForTrust = false
-    @State private var caughtRightCommand = false
+    @State private var tapDetector = ModifierTapDetector()
 
     var body: some View {
         StepFrame(
             icon: "menubar.arrow.down.rectangle",
             title: "Drawer lives in your menu bar",
-            subtitle: "It stays out of the way until you call it. One shortcut slides it out, "
-                + "the same one puts it back."
+            subtitle: "It stays out of the way until you call it. Click the keys and press "
+                + "whatever you want: a combination, or one modifier on its own."
         ) {
-            VStack(spacing: 22) {
-                keyCaps
+            VStack(spacing: 18) {
+                field
                 status
-                if !appStoreBuild { rightCommandOption }
-                Menu("Use a different shortcut") {
+                Menu("Pick a ready-made one") {
+                    if !appStoreBuild {
+                        ForEach(HotkeyBinding.tapPresets) { preset in
+                            Button("Tap \(preset.label)") { set(preset) }
+                        }
+                        Divider()
+                    }
                     ForEach(HotkeyBinding.modifierPresets) { preset in
-                        Button(preset.label) { pick(preset) }
+                        Button(preset.label) { set(preset) }
                     }
                     ForEach(HotkeyBinding.singleKeyPresets) { preset in
-                        Button(preset.label) { pick(preset) }
+                        Button(preset.label) { set(preset) }
                     }
                 }
                 .menuStyle(.borderlessButton)
                 .fixedSize()
                 .font(.callout)
-                .foregroundStyle(.secondary)
             }
         }
         .onAppear(perform: watchKeys)
-        .onDisappear(perform: stopWatching)
+        .onDisappear(perform: stopEverything)
     }
 
-    private var keyCaps: some View {
-        HStack(spacing: 8) {
-            ForEach(Array(binding.parts.enumerated()), id: \.offset) { _, part in
-                Text(part)
-                    .font(.system(size: 20, weight: .medium, design: .rounded))
-                    .frame(minWidth: 52, minHeight: 52)
-                    .padding(.horizontal, 10)
-                    .background(
-                        RoundedRectangle(cornerRadius: 12, style: .continuous)
-                            .fill(.background.secondary)
-                            .shadow(color: .black.opacity(0.18), radius: 3, y: 2)
-                    )
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 12, style: .continuous)
-                            .strokeBorder(done ? theme.accent : Color.secondary.opacity(0.25), lineWidth: 1.5)
-                    )
+    /// Click it and it listens. Same shape either way, so the keys you press
+    /// land where the old ones were.
+    private var field: some View {
+        Button { recording ? stopRecording() : startRecording() } label: {
+            HStack(spacing: 8) {
+                ForEach(Array(caps.enumerated()), id: \.offset) { _, part in
+                    keyCap(part)
+                }
+                Spacer(minLength: 14)
+                Text(recording ? "Esc to keep the old one" : "Click to change")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 14)
+            .frame(width: 430)
+            .background(
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .fill(theme.primaryInk.opacity(recording ? 0.08 : 0.045))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .strokeBorder(fieldEdge, lineWidth: recording || pressing ? 2 : 1)
+            )
         }
-        .scaleEffect(done ? 1.04 : 1)
-        .animation(.spring(response: 0.3, dampingFraction: 0.6), value: done)
+        .buttonStyle(.plain)
+        .animation(.easeOut(duration: 0.12), value: pressing)
+        .animation(.easeOut(duration: 0.15), value: recording)
+    }
+
+    private var fieldEdge: Color {
+        if recording || pressing { return theme.accent }
+        return done ? .green : theme.primaryInk.opacity(0.12)
+    }
+
+    /// What the field shows: the live keys while recording, the saved shortcut
+    /// otherwise. A press still waiting for its key gets a placeholder cap.
+    private var caps: [String] {
+        guard recording else { return binding.parts }
+        return HotkeyBinding.modifierParts(held) + ["?"]
+    }
+
+    private func keyCap(_ part: String) -> some View {
+        Text(part)
+            .font(.system(size: 20, weight: .medium, design: .rounded))
+            .foregroundStyle(capInk(part))
+            .frame(minWidth: 52, minHeight: 52)
+            .padding(.horizontal, 10)
+            .background(
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .fill(pressing ? AnyShapeStyle(theme.accent.opacity(0.16)) : AnyShapeStyle(.background.secondary))
+                    .shadow(color: .black.opacity(pressing ? 0.05 : 0.18), radius: 3, y: pressing ? 0 : 2)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .strokeBorder(
+                        pressing ? theme.accent : (done ? .green : Color.secondary.opacity(0.25)),
+                        lineWidth: 1.5)
+            )
+            // Pressed keys sit a hair lower, the way a real one does.
+            .offset(y: pressing ? 2 : 0)
+    }
+
+    private func capInk(_ part: String) -> Color {
+        if part == "?" { return .secondary }
+        return pressing ? theme.accent : .primary
     }
 
     @ViewBuilder
     private var status: some View {
-        if done {
-            Label(
-                caughtRightCommand ? "That is the right Command tap. Both work." : "That is it. Try it any time.",
-                systemImage: "checkmark.circle.fill"
-            )
-            .foregroundStyle(.green)
-        } else if waitingForTrust {
-            Label("Waiting for Accessibility. Turn Drawer on in the list, then tap right ⌘.", systemImage: "hourglass")
+        if let rejected {
+            Label(rejected, systemImage: "exclamationmark.triangle.fill")
                 .foregroundStyle(.orange)
                 .multilineTextAlignment(.center)
+                .frame(maxWidth: 420)
+        } else if recording {
+            Text(held.isEmpty
+                 ? "Press the keys you want. One modifier on its own counts."
+                 : "Add a key, or let go to use \(HotkeyBinding.modifierParts(held).joined()) on its own.")
+                .foregroundStyle(.secondary)
+                .frame(maxWidth: 420)
+                .multilineTextAlignment(.center)
+        } else if done {
+            Label("That is it. It works.", systemImage: "checkmark.circle.fill")
+                .foregroundStyle(.green)
+        } else if binding.needsAccessibility, !AccessibilityPermission.isTrusted {
+            Label("Works here, but needs Accessibility to work in other apps.", systemImage: "exclamationmark.triangle.fill")
+                .foregroundStyle(.orange)
+                .multilineTextAlignment(.center)
+                .frame(maxWidth: 420)
         } else {
-            Text("Press it now.")
+            Text(binding.isModifierTap ? "Tap it now to try it." : "Press it now to try it.")
                 .foregroundStyle(.secondary)
         }
     }
 
-    /// The right-Command tap rides the Accessibility API, which the sandbox
-    /// denies, so this whole option is direct-download only.
-    @ViewBuilder
-    private var rightCommandOption: some View {
-        if !done, !waitingForTrust {
-            Button("Or tap the right ⌘ key instead") { startRightCommand() }
-                .buttonStyle(.link)
+    private func startRecording() {
+        stopWatching()
+        rejected = nil
+        held = []
+        pressing = false
+        recording = true
+        recorder.start(held: { held = $0 }, capture: captured)
+    }
+
+    /// Ends the listening state and leaves the shortcut as it was.
+    private func stopRecording() {
+        recorder.stop()
+        recording = false
+        held = []
+        watchKeys()
+    }
+
+    private func captured(_ candidate: HotkeyBinding) {
+        // Esc backs out, the same way it does everywhere else on the Mac.
+        if candidate.isEscape {
+            rejected = nil
+            stopRecording()
+            return
+        }
+        // Keep listening on a bad one, so a stray key is not a dead end.
+        if let problem = candidate.problem {
+            rejected = problem
+            return
+        }
+        rejected = nil
+        stopRecording()
+        set(candidate)
+    }
+
+    private func set(_ new: HotkeyBinding) {
+        binding = new
+        new.save()  // AppDelegate re-registers it off the defaults change
+        // A new shortcut has not been tried yet, so ask for it again.
+        done = false
+        pressing = false
+        rejected = nil
+        watchKeys()
+    }
+
+    /// Watches our own window for the shortcut, so the press can be confirmed
+    /// before macOS has been told to trust Drawer anywhere else.
+    private func watchKeys() {
+        stopWatching()
+        tapDetector = ModifierTapDetector()
+        monitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .keyUp, .flagsChanged]) { event in
+            handle(event)
+            // Swallow a matching press: the drawer it would open is not built
+            // yet on a first run.
+            return binding.matches(event) ? nil : event
         }
     }
 
-    private func pick(_ preset: HotkeyBinding) {
-        binding = preset
-        preset.save()
+    private func handle(_ event: NSEvent) {
+        switch event.type {
+        case .flagsChanged:
+            let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask).subtracting(.capsLock)
+            if binding.isModifierTap {
+                trackTap(event, flags: flags)
+            } else {
+                // The modifiers of a combination, all down and nothing extra.
+                pressing = !binding.eventFlags.isEmpty && flags == binding.eventFlags
+            }
+        case .keyDown:
+            tapDetector.otherActivity()
+            if binding.matches(event) {
+                pressing = true
+                succeed()
+            }
+        case .keyUp:
+            pressing = false
+        default:
+            break
+        }
     }
 
-    private func watchKeys() {
-        monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
-            guard binding.matches(event) else { return event }
-            succeed(rightCommand: false)
-            return nil  // swallow it, the drawer is not built yet
+    private func trackTap(_ event: NSEvent, flags: NSEvent.ModifierFlags) {
+        guard let flag = binding.tapFlag, event.keyCode == UInt16(binding.keyCode) else {
+            tapDetector.otherActivity()
+            pressing = false
+            return
+        }
+        if flags.contains(flag) {
+            pressing = true
+            tapDetector.down(at: event.timestamp)
+        } else {
+            pressing = false
+            if tapDetector.up(at: event.timestamp) { succeed() }
         }
     }
 
     private func stopWatching() {
         if let monitor { NSEvent.removeMonitor(monitor) }
         monitor = nil
-        trustPoll?.invalidate()
-        trustPoll = nil
-        tapMonitor.stop()
+        pressing = false
     }
 
-    private func startRightCommand() {
-        UserDefaults.standard.set(true, forKey: "rightCommandTapEnabled")
-        AccessibilityPermission.prompt()
-        AccessibilityPermission.openSettings()
-        waitingForTrust = true
-        // The grant lands in another process, so poll rather than guess when.
-        trustPoll = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { _ in
-            Task { @MainActor in
-                guard AccessibilityPermission.isTrusted else { return }
-                trustPoll?.invalidate()
-                trustPoll = nil
-                tapMonitor.start { succeed(rightCommand: true) }
-            }
-        }
+    private func stopEverything() {
+        stopWatching()
+        recorder.stop()
     }
 
-    private func succeed(rightCommand: Bool) {
+    private func succeed() {
         guard !done else { return }
-        caughtRightCommand = rightCommand
-        waitingForTrust = false
         withAnimation(.easeOut(duration: 0.2)) { done = true }
     }
 }
