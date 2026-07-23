@@ -11,9 +11,30 @@ enum AppPaths {
     static let ideasDirectoryPathKey = "ideasDirectoryPath"
     static let plannerPrioritiesPathKey = "plannerPrioritiesPath"
     static let parkingLotFilePathKey = "parkingLotFilePath"
+    static let dataFolderPathKey = "dataFolderPath"
 
-    // The default lives in DrawerCore so the MCP binary resolves it identically.
-    static let defaultDrawerFile = DrawerFilePath.default
+    /// The folder the App Store build asks for on first run. A sandboxed app
+    /// writes into a hidden container unless the user picks somewhere, and
+    /// App Review rejects user files kept there (guideline 2.4.5). Empty
+    /// until the pick; always empty in the direct build, which is not
+    /// sandboxed and defaults into the vault.
+    static var dataFolder: String {
+        guard appStoreBuild else { return "" }
+        return UserDefaults.standard.string(forKey: dataFolderPathKey) ?? ""
+    }
+
+    /// A user file inside that picked folder, or nil when there is no pick.
+    static func inDataFolder(_ name: String, isDirectory: Bool = false) -> String? {
+        let folder = dataFolder
+        guard !folder.isEmpty else { return nil }
+        return URL(fileURLWithPath: folder)
+            .appendingPathComponent(name, isDirectory: isDirectory).path
+    }
+
+    // The fallback lives in DrawerCore so the MCP binary resolves it identically.
+    static var defaultDrawerFile: String {
+        inDataFolder("Drawer.md") ?? DrawerFilePath.default
+    }
 
     static var drawerDataDirectory: URL {
         let base = FileManager.default
@@ -23,7 +44,8 @@ enum AppPaths {
     }
 
     static var defaultNotesFile: String {
-        drawerDataDirectory.appendingPathComponent("notes.md").path
+        inDataFolder("Notes.md")
+            ?? drawerDataDirectory.appendingPathComponent("notes.md").path
     }
 
     static var defaultWorkLogFile: String {
@@ -35,7 +57,8 @@ enum AppPaths {
     // defaults stay inside (or, for the priorities file, empty = off).
     static var defaultWorkLogMarkdownFile: String {
         appStoreBuild
-            ? drawerDataDirectory.appendingPathComponent("Work Log.md").path
+            ? (inDataFolder("Work Log.md")
+                ?? drawerDataDirectory.appendingPathComponent("Work Log.md").path)
             : FileManager.default.homeDirectoryForCurrentUser
                 .appendingPathComponent("Library/Mobile Documents/iCloud~md~obsidian/Documents")
                 .appendingPathComponent("My life/1 Projects/Work Log.md")
@@ -43,7 +66,8 @@ enum AppPaths {
     }
 
     static var defaultIdeasDirectory: String {
-        drawerDataDirectory.appendingPathComponent("Ideas", isDirectory: true).path
+        inDataFolder("Ideas", isDirectory: true)
+            ?? drawerDataDirectory.appendingPathComponent("Ideas", isDirectory: true).path
     }
 
     // Attribution sidecars (spec 02), all local-only under Application Support.

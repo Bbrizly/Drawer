@@ -1157,6 +1157,7 @@ private struct FeatureSettingsView: View {
 }
 
 private struct AdvancedSettingsView: View {
+    @AppStorage(AppPaths.dataFolderPathKey) private var dataFolderPath = ""
     @AppStorage(AppPaths.notesFilePathKey) private var notesFilePath = ""
     @AppStorage(AppPaths.workLogFilePathKey) private var workLogFilePath = ""
     @AppStorage(AppPaths.workLogMarkdownFilePathKey) private var workLogMarkdownPath = ""
@@ -1182,6 +1183,20 @@ private struct AdvancedSettingsView: View {
                     )
                 }
                 Section("Data files") {
+                    // Sandboxed, so every file sits in this folder unless a row
+                    // below points somewhere else.
+                    if appStoreBuild {
+                        SettingsPathRow(
+                            title: "Your Drawer folder",
+                            caption: "Where Drawer keeps your task file, notes, and ideas. "
+                                + "Files already there stay put; move them yourself if you "
+                                + "change this.",
+                            storedPath: $dataFolderPath,
+                            defaultPath: AppPaths.drawerDataDirectory.path,
+                            settingKey: AppPaths.dataFolderPathKey,
+                            pickKind: .directory
+                        )
+                    }
                     SettingsPathRow(
                         title: "Notes scratchpad",
                         caption: "The in-drawer notes pad. Kept out of your task vault by default.",
