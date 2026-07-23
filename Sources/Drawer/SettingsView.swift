@@ -1257,6 +1257,7 @@ private struct AdvancedSettingsView: View {
                         defaultPath: AppPaths.defaultPrioritiesFile,
                         settingKey: AppPaths.plannerPrioritiesPathKey
                     )
+                    Button("Show the welcome walkthrough again") { Onboarding.run() }
                     Button("Open Drawer data folder") {
                         let dir = AppPaths.drawerDataDirectory
                         try? FileManager.default.createDirectory(

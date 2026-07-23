@@ -208,6 +208,14 @@ final class FeatureFlagsModel: ObservableObject {
         objectWillChange.send()
     }
 
+    /// Back to the shipped defaults: everything on except the finicky opt-ins.
+    func applyDefaults() {
+        for flag in FeatureFlag.availableCases {
+            UserDefaults.standard.set(flag.defaultValue, forKey: flag.key)
+        }
+        objectWillChange.send()
+    }
+
     func applyEverything() {
         for flag in FeatureFlag.availableCases {
             UserDefaults.standard.set(true, forKey: flag.key)
