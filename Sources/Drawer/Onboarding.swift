@@ -245,14 +245,17 @@ struct OnboardingView: View {
         forward = next > step
         // Only a shortcut opens the drawer, so it is shut on every other step.
         if Self.order[min(next, lastStep)] != .shortcut { drawerOpen = false }
-        withAnimation(.easeInOut(duration: 0.22)) { step = next }
+        withAnimation(.easeInOut(duration: DevTuningStore.shared.tuning.stepSeconds)) {
+            step = next
+        }
     }
 }
 
-/// Every number the knock is made of, in one place. Change them here and watch
-/// the change in the "Mark lab" preview at the bottom of this file: it has a
-/// slider for each one and a button to fire the knock.
-struct MarkMotion {
+/// Every number the knock is made of, in one place. These are the shipped
+/// values. To find better ones, open Settings, Advanced, Developer: there is a
+/// slider for each one and the mark reacts as you drag. When a set feels right,
+/// hit "Copy Swift" and paste it over this struct.
+struct MarkMotion: Codable, Equatable {
     /// How big the mark is, in points. One size for the whole walkthrough, so
     /// it stays the same object on every step.
     var size: CGFloat = 144
@@ -312,26 +315,37 @@ struct DrawerMark: View {
     var open = true
     /// Counts presses. Every bump knocks it, like something inside slid.
     var shakes = 0
-    var motion = MarkMotion.standard
+    /// Pass numbers to pin them. Leave it off and the mark follows the sliders
+    /// in Settings, Advanced, Developer.
+    var motion: MarkMotion?
 
+    @ObservedObject private var store = DevTuningStore.shared
     /// Drives the slow idle drift. Flipped once on appear.
     @State private var adrift = false
 
+    private var now: MarkMotion { motion ?? store.tuning.mark }
+
     var body: some View {
         art(open ? Self.openArt : Self.shutArt)
-            .frame(width: motion.size, height: motion.size)
+            .frame(width: now.size, height: now.size)
             // The swap is a cut, never a fade. Whatever animation the step
             // change or the press is running, this one picture is exempt.
             .animation(nil, value: open)
-            .modifier(Knock(motion: motion, animatableData: CGFloat(shakes)))
+            .modifier(Knock(motion: now, animatableData: CGFloat(shakes)))
             // Ease out, so the first swing is the fast one. Try .linear here to
             // hear the raw sine, or a spring to let it overshoot on the way in.
-            .animation(.easeOut(duration: motion.duration), value: shakes)
-            .offset(y: adrift ? -motion.driftBy : motion.driftBy)
+            .animation(.easeOut(duration: now.duration), value: shakes)
+            .offset(y: adrift ? -now.driftBy : now.driftBy)
             .animation(
-                .easeInOut(duration: motion.driftSeconds).repeatForever(autoreverses: true),
+                .easeInOut(duration: now.driftSeconds).repeatForever(autoreverses: true),
                 value: adrift)
-            .onAppear { adrift = true }
+            // A repeating animation only starts when its value flips, so it has
+            // to be stopped and started again to pick up retuned numbers.
+            .task(id: now.driftBy + CGFloat(now.driftSeconds)) {
+                adrift = false
+                try? await Task.sleep(for: .milliseconds(20))
+                adrift = true
+            }
             .accessibilityLabel(open ? "Drawer, open" : "Drawer, shut")
     }
 
@@ -1043,7 +1057,7 @@ private struct FeaturesStep: View {
         }
 
         Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 8) {
-            knob("size", $motion.size, 60...260)
+            knob("size", $motion.size, 60...200)
             knob("distance", $motion.distance, 0...60)
             knob("cycles", $motion.cycles, 0.5...8)
             knob("duration", $motion.duration, 0.05...1.5)

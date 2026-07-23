@@ -45,10 +45,15 @@ final class PanelController {
         shouldReduceMotion ? 0 : UserDefaults.standard.double(forKey: "panelSlideDuration")
     }
 
-    /// Snappy ease-out for slide-in; tuned for short UI motion.
-    private static let showTiming = CAMediaTimingFunction(controlPoints: 0.16, 1.0, 0.3, 1.0)
+    /// Snappy ease-out for slide-in; tuned for short UI motion. The shipped
+    /// numbers live in DevTuning, where the Developer sliders can move them.
+    private var showTiming: CAMediaTimingFunction {
+        DevTuningStore.shared.tuning.slideIn.timing
+    }
     /// Quick ease-in for slide-out.
-    private static let hideTiming = CAMediaTimingFunction(controlPoints: 0.4, 0.0, 1.0, 1.0)
+    private var hideTiming: CAMediaTimingFunction {
+        DevTuningStore.shared.tuning.slideOut.timing
+    }
 
     init<V: View>(rootView: V) {
         let hosting = NSHostingView(rootView: AnyView(rootView))
@@ -189,7 +194,7 @@ final class PanelController {
         hosting.layoutSubtreeIfNeeded()
         NSAnimationContext.runAnimationGroup { ctx in
             ctx.duration = slideDuration
-            ctx.timingFunction = Self.showTiming
+            ctx.timingFunction = showTiming
             panel.animator().setFrame(target, display: true)
         }
         transitionState.beginShow()
@@ -204,7 +209,7 @@ final class PanelController {
         off.origin = offScreenOrigin(for: panel.frame, hiding: true)
         NSAnimationContext.runAnimationGroup({ ctx in
             ctx.duration = slideDuration
-            ctx.timingFunction = Self.hideTiming
+            ctx.timingFunction = hideTiming
             panel.animator().setFrame(off, display: true)
         }, completionHandler: { [weak self] in
             Task { @MainActor in
