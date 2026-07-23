@@ -86,10 +86,10 @@ struct OnboardingView: View {
     @State private var hotkeyDone = false
     @State private var trusted = AccessibilityPermission.isTrusted
     @State private var askedForAccess = false
-    /// What the mark above the steps is doing: shut or open, and whether the
-    /// shortcut is under a finger right now.
+    /// What the mark above the steps is doing: shut or open, and how many good
+    /// presses it has taken, which is what rattles it.
     @State private var drawerOpen = true
-    @State private var shortcutHeld = false
+    @State private var presses = 0
     @AppStorage("drawerTheme") private var themeRaw = DrawerTheme.default.rawValue
     @AppStorage(AppPaths.dataFolderPathKey) private var dataFolderPath = ""
 
@@ -132,8 +132,8 @@ struct OnboardingView: View {
                 // The welcome is one block of mark and greeting, centred. Every
                 // other step hangs from the top so its own content leads.
                 if current == .welcome { Spacer(minLength: 0) }
-                if let size = markSize {
-                    DrawerMark(open: drawerOpen, size: size, pressed: shortcutHeld)
+                if showsMark {
+                    DrawerMark(open: drawerOpen, shakes: presses)
                         .padding(.top, current == .welcome ? 0 : 24)
                 }
                 steps
@@ -166,14 +166,11 @@ struct OnboardingView: View {
         }
     }
 
-    /// How big the mark is here. Nil on the last two steps: their own content
-    /// wants the whole page.
-    private var markSize: CGFloat? {
+    /// The last two steps drop the mark: their own content wants the page.
+    private var showsMark: Bool {
         switch current {
-        case .welcome: return 176
-        case .access: return 104
-        case .shortcut: return 104
-        case .files, .features: return nil
+        case .welcome, .access, .shortcut: return true
+        case .files, .features: return false
         }
     }
 
@@ -190,7 +187,7 @@ struct OnboardingView: View {
                 .transition(stepTransition)
         case .shortcut:
             HotkeyStep(done: $hotkeyDone, trusted: trusted,
-                       drawerOpen: $drawerOpen, held: $shortcutHeld)
+                       drawerOpen: $drawerOpen, presses: $presses)
                 .transition(stepTransition)
         case .files:
             FilesStep()
@@ -249,7 +246,6 @@ struct OnboardingView: View {
         // Only the shortcut step shuts the drawer. Leave it open anywhere else,
         // however the last press left it.
         if Self.order[min(next, lastStep)] != .shortcut { drawerOpen = true }
-        shortcutHeld = false
         withAnimation(.easeInOut(duration: 0.22)) { step = next }
     }
 }
@@ -258,30 +254,51 @@ struct OnboardingView: View {
 /// above the first three steps and never slides with them, so paging through
 /// the walkthrough feels like one object you are getting to know.
 struct DrawerMark: View {
-    /// Which drawing to show. The shortcut step flips this.
+    /// Which drawing to show. The shortcut step flips this. No fade: a drawer
+    /// is open or it is shut, and the swap has to land on the same beat as the
+    /// key.
     var open = true
-    var size: CGFloat = 120
-    /// True while the shortcut is physically held down, so it braces.
-    var pressed = false
+    /// One size for the whole walkthrough. It is the same object on every step.
+    static let size: CGFloat = 144
+    /// Counts presses. Every bump rattles it, like something inside slid.
+    var shakes = 0
 
     /// Drives the slow idle drift. Flipped once on appear.
     @State private var adrift = false
 
     var body: some View {
-        ZStack {
-            art(Self.shut).opacity(open ? 0 : 1)
-            art(Self.open).opacity(open ? 1 : 0)
-        }
-        .frame(width: size, height: size)
-        // Braced: a little smaller, tipped, the way a drawer is before it goes.
-        .scaleEffect(pressed ? 0.93 : 1)
-        .rotationEffect(.degrees(pressed ? -3.5 : 0))
-        .animation(.spring(response: 0.3, dampingFraction: 0.5), value: pressed)
-        .animation(.spring(response: 0.4, dampingFraction: 0.62), value: open)
-        .offset(y: adrift ? -5 : 5)
-        .animation(.easeInOut(duration: 2.8).repeatForever(autoreverses: true), value: adrift)
-        .onAppear { adrift = true }
-        .accessibilityLabel(open ? "Drawer, open" : "Drawer, shut")
+        art(open ? Self.openArt : Self.shutArt)
+            .frame(width: Self.size, height: Self.size)
+            .keyframeAnimator(initialValue: Rattle(), trigger: shakes) { view, rattle in
+                view
+                    .offset(x: rattle.slide)
+                    .rotationEffect(.degrees(rattle.tilt))
+            } keyframes: { _ in
+                // Hard over, back past centre, and settle. Under a fifth of a
+                // second start to finish, so it reads as one knock.
+                KeyframeTrack(\.slide) {
+                    SpringKeyframe(-9, duration: 0.055, spring: .snappy)
+                    SpringKeyframe(7, duration: 0.06, spring: .snappy)
+                    SpringKeyframe(-3, duration: 0.05, spring: .snappy)
+                    SpringKeyframe(0, duration: 0.06, spring: .bouncy)
+                }
+                KeyframeTrack(\.tilt) {
+                    SpringKeyframe(-4, duration: 0.055, spring: .snappy)
+                    SpringKeyframe(3.5, duration: 0.06, spring: .snappy)
+                    SpringKeyframe(-1.5, duration: 0.05, spring: .snappy)
+                    SpringKeyframe(0, duration: 0.06, spring: .bouncy)
+                }
+            }
+            .offset(y: adrift ? -5 : 5)
+            .animation(.easeInOut(duration: 2.8).repeatForever(autoreverses: true), value: adrift)
+            .onAppear { adrift = true }
+            .accessibilityLabel(open ? "Drawer, open" : "Drawer, shut")
+    }
+
+    /// The two things a knock does: slide sideways, tip a little with it.
+    private struct Rattle {
+        var slide: CGFloat = 0
+        var tilt: Double = 0
     }
 
     private func art(_ image: NSImage) -> some View {
@@ -291,8 +308,8 @@ struct DrawerMark: View {
             .aspectRatio(contentMode: .fit)
     }
 
-    private static let open = load("logo-open")
-    private static let shut = load("logo-shut")
+    private static let openArt = load("logo-open")
+    private static let shutArt = load("logo-shut")
 
     private static func load(_ name: String) -> NSImage {
         guard let url = Bundle.module.url(forResource: name, withExtension: "png"),
@@ -509,11 +526,13 @@ private struct HotkeyStep: View {
     /// The mark above this step. Every good press slides it the other way, so
     /// the shortcut shows you what it does before there is a drawer to open.
     @Binding var drawerOpen: Bool
-    /// True while the shortcut itself is physically down, so the caps light up
-    /// under your fingers and the mark braces with them.
-    @Binding var held: Bool
+    /// Bumped on every good press, which is what rattles the mark.
+    @Binding var presses: Int
 
     @State private var binding = HotkeyBinding.saved
+    /// True while the shortcut itself is physically down, so the caps light up
+    /// under your fingers.
+    @State private var held = false
     @State private var recording = false
     @State private var modifiers: NSEvent.ModifierFlags = []
     @State private var rejected: String?
@@ -759,6 +778,7 @@ private struct HotkeyStep: View {
     /// way the real shortcut will, and marks the step done the first time.
     private func succeed() {
         drawerOpen.toggle()
+        presses += 1
         guard !done else { return }
         withAnimation(.easeOut(duration: 0.2)) { done = true }
     }
