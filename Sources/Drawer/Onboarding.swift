@@ -88,7 +88,7 @@ struct OnboardingView: View {
     @State private var askedForAccess = false
     /// What the mark above the steps is doing: shut or open, and how many good
     /// presses it has taken, which is what rattles it.
-    @State private var drawerOpen = true
+    @State private var drawerOpen = false
     @State private var presses = 0
     @AppStorage("drawerTheme") private var themeRaw = DrawerTheme.default.rawValue
     @AppStorage(AppPaths.dataFolderPathKey) private var dataFolderPath = ""
@@ -243,9 +243,8 @@ struct OnboardingView: View {
         // Set before the step changes: both the leaving and the arriving view
         // read this when SwiftUI builds their transitions.
         forward = next > step
-        // Only the shortcut step shuts the drawer. Leave it open anywhere else,
-        // however the last press left it.
-        if Self.order[min(next, lastStep)] != .shortcut { drawerOpen = true }
+        // Only a shortcut opens the drawer, so it is shut on every other step.
+        if Self.order[min(next, lastStep)] != .shortcut { drawerOpen = false }
         withAnimation(.easeInOut(duration: 0.22)) { step = next }
     }
 }
@@ -714,8 +713,10 @@ private struct HotkeyStep: View {
     private func set(_ new: HotkeyBinding) {
         binding = new
         new.save()  // AppDelegate re-registers it off the defaults change
-        // A new shortcut has not been tried yet, so ask for it again.
+        // A new shortcut has not been tried yet, so ask for it again, with the
+        // drawer back the way it started.
         done = false
+        drawerOpen = false
         held = false
         rejected = nil
         watchKeys()
