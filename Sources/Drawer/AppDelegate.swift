@@ -60,6 +60,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         FontLoader.registerBundledFonts() // the Pixel theme's typeface
+
+        // Reopen security scopes for user-picked files, and on the App Store
+        // build ask for the folder to keep them in, before anything below
+        // reads a default path.
+        SandboxBookmarks.restoreAll()
+        if appStoreBuild, !DataFolder.isSet { DataFolder.choose() }
+
         var defaults: [String: Any] = [
             "drawerFilePath": AppPaths.defaultDrawerFile,
             "panelWidth": 300.0,
@@ -97,9 +104,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             UserDefaults.standard.set(true, forKey: "didRegisterLoginItem")
         }
 
-        // Reopen security scopes for user-picked files before any store reads
-        // them, and make the sandboxed default drawer location exist.
-        SandboxBookmarks.restoreAll()
+        // Make the drawer file's folder exist before the store reads it.
         if appStoreBuild {
             try? FileManager.default.createDirectory(
                 at: URL(fileURLWithPath: AppPaths.drawerFile).deletingLastPathComponent(),

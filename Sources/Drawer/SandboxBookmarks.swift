@@ -15,6 +15,7 @@ enum SandboxBookmarks {
 
     /// Every path setting whose value can point outside the sandbox container.
     static let userPathKeys = [
+        AppPaths.dataFolderPathKey,
         AppPaths.drawerFilePathKey,
         AppPaths.notesFilePathKey,
         AppPaths.workLogFilePathKey,
