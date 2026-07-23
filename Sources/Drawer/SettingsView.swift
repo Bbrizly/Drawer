@@ -1327,6 +1327,7 @@ private struct AdvancedSettingsView: View {
                 }
                 SettingsCaption("Clears custom paths and advanced toggles. Themes, sounds, and your task file stay as they are.")
             }
+            if DevTools.enabled { DeveloperSettings() }
         }
         .formStyle(.grouped)
         .alert("Reset advanced settings?", isPresented: $showResetConfirm) {
