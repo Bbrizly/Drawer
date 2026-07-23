@@ -34,7 +34,6 @@ final class OnboardingRenderTests: XCTestCase {
                     onChooseFile: { _ in },
                     onHotkeyChange: { _ in true },
                     onLayoutChange: {},
-                    onRightCommandTapChange: { _ in }
                 ),
                 size: NSSize(width: 540, height: 580),
                 to: out.appendingPathComponent("settings-\(theme.rawValue).png")

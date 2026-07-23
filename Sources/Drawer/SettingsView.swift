@@ -11,7 +11,6 @@ struct SettingsView: View {
     var onChooseFile: (URL) -> Void
     var onHotkeyChange: (HotkeyBinding) -> Bool
     var onLayoutChange: () -> Void
-    var onRightCommandTapChange: (Bool) -> Void
     #if canImport(DrawerBureau)
     /// The Bureau tuning object, passed in when the feature is wired so the
     /// Settings window can embed its slider controls. Nil leaves the tab out.
@@ -96,8 +95,7 @@ struct SettingsView: View {
                 GeneralSettingsView(
                     onChooseFile: onChooseFile,
                     onHotkeyChange: onHotkeyChange,
-                    onLayoutChange: onLayoutChange,
-                    onRightCommandTapChange: onRightCommandTapChange
+                    onLayoutChange: onLayoutChange
                 )
             case .appearance:
                 AppearanceSettingsView()
@@ -399,7 +397,6 @@ private struct GeneralSettingsView: View {
     var onChooseFile: (URL) -> Void
     var onHotkeyChange: (HotkeyBinding) -> Bool
     var onLayoutChange: () -> Void
-    var onRightCommandTapChange: (Bool) -> Void
 
     @AppStorage("drawerFilePath") private var filePath = AppPaths.defaultDrawerFile
     @State private var hotkey = HotkeyBinding.saved
@@ -411,7 +408,6 @@ private struct GeneralSettingsView: View {
     @State private var showHotkeyError = false
     @State private var isRecordingHotkey = false
     @State private var hotkeyRecorder = HotkeyRecorder()
-    @AppStorage("rightCommandTapEnabled") private var rightCommandTapEnabled = false
     @AppStorage("typeOnOpen") private var typeOnOpen = false
     @State private var axTrusted = AccessibilityPermission.isTrusted
 
@@ -455,9 +451,21 @@ private struct GeneralSettingsView: View {
                         .foregroundStyle(.orange)
                 }
                 if hotkey.needsAccessibility, !axTrusted {
+                    HStack(spacing: 6) {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .foregroundStyle(.orange)
+                        Text("Waiting for Accessibility access.")
+                            .font(.caption)
+                        Spacer()
+                        Button("Open Settings") { AccessibilityPermission.openSettings() }
+                            .controlSize(.small)
+                    }
                     SettingsCaption(
                         "A single modifier is caught by watching the keyboard, so Drawer needs "
-                        + "Accessibility before this one works outside its own windows."
+                        + "Accessibility before this one works outside its own windows. Turn Drawer "
+                        + "on under Privacy & Security, then Accessibility. If Drawer is already "
+                        + "listed but off, or shows after an update, remove it with the minus button "
+                        + "and add it again."
                     )
                     .foregroundStyle(.orange)
                 }
@@ -479,52 +487,18 @@ private struct GeneralSettingsView: View {
                     }
                 }
                 DisclosureGroup("Shortcuts with modifiers") {
-                    Picker("Preset", selection: $hotkey) {
+                    // Its own binding, not $hotkey: sharing that state made a
+                    // preset button apply twice, once for the tap and once for
+                    // the picker noticing the same change.
+                    Picker("Preset", selection: Binding(
+                        get: { hotkey },
+                        set: { pick(_: $0) }
+                    )) {
                         ForEach(HotkeyBinding.modifierPresets) { binding in
                             Text(binding.label).tag(binding)
                         }
                     }
                     .labelsHidden()
-                    .onChange(of: hotkey) { old, new in
-                        guard !isRecordingHotkey else { return }
-                        applyHotkey(new, revertingTo: old)
-                    }
-                }
-                // The tap rides Accessibility, which the sandboxed App Store
-                // build cannot use; the whole control disappears there.
-                if !appStoreBuild {
-                    Divider()
-                    Toggle("Tap right ⌘ to open", isOn: $rightCommandTapEnabled)
-                        .onChange(of: rightCommandTapEnabled) { _, enabled in
-                            onRightCommandTapChange(enabled)
-                            axTrusted = AccessibilityPermission.isTrusted
-                        }
-                    if rightCommandTapEnabled {
-                        HStack(spacing: 6) {
-                            Image(systemName: axTrusted ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
-                                .foregroundStyle(axTrusted ? Color.green : Color.orange)
-                            Text(axTrusted
-                                 ? "Accessibility granted. Tap the right Command key to open."
-                                 : "Waiting for Accessibility access.")
-                            .font(.caption)
-                            Spacer()
-                            Button("Open Settings") { AccessibilityPermission.openSettings() }
-                                .controlSize(.small)
-                        }
-                        if !axTrusted {
-                            SettingsCaption(
-                                "Turn Drawer on under Privacy & Security → Accessibility, then quit and "
-                                + "reopen Drawer. If Drawer is already listed but off, or shows after an "
-                                + "update, remove it with the minus button and add it again."
-                            )
-                            .foregroundStyle(.orange)
-                        }
-                    }
-                    SettingsCaption(
-                        "A single tap of the right Command key shows or hides the drawer, on top of "
-                        + "the shortcut above. This needs Accessibility access, which the built shortcut "
-                        + "does not."
-                    )
                 }
                 Divider()
                 Toggle("Start typing a new task on open", isOn: $typeOnOpen)
@@ -596,6 +570,13 @@ private struct GeneralSettingsView: View {
             }
         }
         .onDisappear { stopHotkeyRecording() }
+        // The walkthrough writes the shortcut straight to defaults, so follow
+        // it instead of showing whatever was saved when this tab opened.
+        .onReceive(NotificationCenter.default.publisher(for: UserDefaults.didChangeNotification)) { _ in
+            guard !isRecordingHotkey else { return }
+            let live = HotkeyBinding.saved
+            if live != hotkey { hotkey = live }
+        }
         .onChange(of: panelWidth) { _, _ in onLayoutChange() }
         .onChange(of: panelHeight) { _, _ in onLayoutChange() }
         .alert("Shortcut unavailable", isPresented: $showHotkeyError) {
@@ -606,13 +587,17 @@ private struct GeneralSettingsView: View {
     }
 
     private func presetButton(_ binding: HotkeyBinding, label: String) -> some View {
-        Button(label) {
-            let previous = hotkey
-            hotkey = binding
-            applyHotkey(binding, revertingTo: previous)
-        }
-        .buttonStyle(.bordered)
-        .controlSize(.small)
+        Button(label) { pick(binding) }
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+    }
+
+    /// One way in for every control that sets the shortcut.
+    private func pick(_ binding: HotkeyBinding) {
+        guard binding != hotkey else { return }
+        let previous = hotkey
+        hotkey = binding
+        applyHotkey(binding, revertingTo: previous)
     }
 
     private func startHotkeyRecording() {
