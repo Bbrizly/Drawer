@@ -18,7 +18,9 @@ enum DrawerTheme: String, CaseIterable, Identifiable {
     case windowsXP
     case bureau
 
-    /// Notebook is the shipped look: ruled paper, pen ink, a red margin.
+    /// Notebook is the shipped look: ruled paper, pen ink, a red margin. The
+    /// chrome windows (Settings, the walkthrough) follow whatever is picked
+    /// here, so the whole app reads as one surface out of the box.
     static let `default` = DrawerTheme.notebook
 
     var id: String { rawValue }
@@ -55,6 +57,21 @@ enum DrawerTheme: String, CaseIterable, Identifiable {
         case .notebook, .medieval, .windowsXP, .bureau: return .light
         case .pixel, .dots: return .dark
         default: return nil
+        }
+    }
+
+    /// The flat backing for a chrome window (Settings, the walkthrough). Those
+    /// are full of controls, so they take the theme's paper as one calm fill
+    /// rather than the drawer's full art surface. The themes with no paper of
+    /// their own (glass, material) keep the system window color.
+    var chromeSurface: Color {
+        switch self {
+        case .notebook: return Palette.notebookPaper
+        case .medieval: return Palette.parchment
+        case .pixel: return Palette.pixelNight
+        case .windowsXP: return Palette.xpBeige
+        case .bureau: return Palette.bureauCream
+        default: return Color(nsColor: .windowBackgroundColor)
         }
     }
 
@@ -335,6 +352,10 @@ struct Palette {
     static let xpBevelShadowRGBA = RGBA(0.40, 0.40, 0.40)
     /// X of the notebook red margin; the task list insets past it (DrawerView).
     static let notebookMargin: CGFloat = 40
+    static let notebookPaper = Color(red: 0.985, green: 0.98, blue: 0.955)  // warm white stock
+    static let notebookHole = Color(red: 0.90, green: 0.89, blue: 0.86)
+    static let parchment = Color(red: 0.95, green: 0.89, blue: 0.74)
+    static let pixelNight = Color(red: 0.07, green: 0.07, blue: 0.20)
 
     // Bureau theme (spec Decision 5): the same dusty register the drawer scene
     // paints (see BureauPalette in DrawerBureau), mirrored here because the
@@ -384,10 +405,28 @@ struct Palette {
     )
 }
 
-/// Tokens for the Settings window. These intentionally follow the Settings
-/// surface instead of any drawer art theme surface, so controls stay readable
-/// while a dark Pixel/Dots drawer theme is selected.
+/// Tokens for the custom controls in the Settings window. They follow the
+/// picked theme (see `forTheme`), on the theme's own chrome surface, so
+/// Settings and the drawer read as one app. Fills stay low-opacity tints of
+/// the theme ink and accent, which is what keeps them readable on a dark
+/// Pixel board and on Notebook paper alike.
 struct SettingsPalette {
+    static func forTheme(_ theme: DrawerTheme) -> SettingsPalette {
+        let p = theme.palette
+        return SettingsPalette(
+            primary: p.primary,
+            secondary: p.secondary,
+            tertiary: p.tertiary,
+            accent: p.accent,
+            accentFill: p.accent.opacity(0.14),
+            controlFill: p.primary.opacity(0.055),
+            controlFillStrong: p.primary.opacity(0.075),
+            stroke: p.primary.opacity(0.10),
+            selectedStroke: p.accent.opacity(0.42)
+        )
+    }
+
+    /// The system-tinted set, for anything drawn outside a themed window.
     static let standard = SettingsPalette(
         primary: .primary,
         secondary: .secondary,
@@ -523,8 +562,8 @@ private struct WindowsXPPanel: View {
 private struct NotebookPaper: View {
     let shape: RoundedRectangle
 
-    private let paper = Color(red: 0.985, green: 0.98, blue: 0.955) // warm white
-    private let holeFill = Color(red: 0.90, green: 0.89, blue: 0.86)
+    private let paper = Palette.notebookPaper
+    private let holeFill = Palette.notebookHole
 
     var body: some View {
         shape
@@ -560,10 +599,7 @@ private struct MedievalParchment: View {
     var body: some View {
         shape
             .fill(LinearGradient(
-                colors: [
-                    Color(red: 0.95, green: 0.89, blue: 0.74),
-                    Color(red: 0.89, green: 0.81, blue: 0.63),
-                ],
+                colors: [Palette.parchment, Color(red: 0.89, green: 0.81, blue: 0.63)],
                 startPoint: .top, endPoint: .bottom
             ))
             .overlay(ParchmentGrain().opacity(0.05).clipShape(shape))
@@ -612,7 +648,7 @@ private struct PixelFrame: View {
 
     var body: some View {
         shape
-            .fill(Color(red: 0.07, green: 0.07, blue: 0.20))
+            .fill(Palette.pixelNight)
             .overlay(Scanlines().opacity(0.06).clipShape(shape))
             .overlay(shape.strokeBorder(accent.opacity(0.85), lineWidth: 2))
             .overlay(
