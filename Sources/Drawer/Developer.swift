@@ -1,16 +1,18 @@
 import AppKit
 import SwiftUI
 
-/// The switch for the Developer section in Settings, Advanced.
+/// The switch for the Developer section in Settings, Advanced. It is a toggle
+/// at the bottom of Advanced, off by default, so a stranger's build never shows
+/// the knobs.
 ///
-/// True: the sliders show, and the numbers you drag are saved and used by the
+/// On: the sliders show, and the numbers you drag are saved and used by the
 /// running app, so you can feel a change straight away.
 ///
-/// False: the section is gone and every saved number is ignored, so the app
-/// behaves exactly as the values written in the code say. Flip it before a
-/// release and nobody but you ever sees the knobs.
+/// Off: the section is gone and every saved number is ignored, so the app
+/// behaves exactly as the values written in the code say.
 enum DevTools {
-    static let enabled = true
+    static let key = "devToolsEnabled"
+    static var enabled: Bool { UserDefaults.standard.bool(forKey: key) }
 }
 
 /// A cubic ease, the four control points Core Animation wants.
@@ -62,6 +64,19 @@ final class DevTuningStore: ObservableObject {
     private var pendingSave: Task<Void, Never>?
 
     private init() {
+        if DevTools.enabled,
+           let saved = UserDefaults.standard.data(forKey: Self.key),
+           let tuned = try? JSONDecoder().decode(DevTuning.self, from: saved) {
+            tuning = tuned
+        } else {
+            tuning = .standard
+        }
+    }
+
+    /// Re-read the saved numbers, or drop back to the shipped ones when DevTools
+    /// is off. The Advanced toggle calls this so a flip takes hold now, not on
+    /// next launch.
+    func refresh() {
         if DevTools.enabled,
            let saved = UserDefaults.standard.data(forKey: Self.key),
            let tuned = try? JSONDecoder().decode(DevTuning.self, from: saved) {
