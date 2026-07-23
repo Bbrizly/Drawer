@@ -362,6 +362,11 @@ struct DrawerMark: View {
                 adrift = true
             }
             .accessibilityLabel(open ? "Drawer, open" : "Drawer, shut")
+            // The open drawing is bigger than the shut one, so without a fixed
+            // box the swap would grow the mark and shove the text below it up
+            // and down. Pin the footprint to the larger of the two; the offset
+            // above still nudges the picture inside it.
+            .frame(width: max(now.size, now.openSize), height: max(now.size, now.openSize))
     }
 
     private func art(_ image: NSImage) -> some View {
