@@ -425,7 +425,8 @@ struct AppLogo: View {
 /// Shared chrome so the steps line up exactly as you page through them.
 private struct StepFrame<Content: View>: View {
     let title: String
-    let subtitle: String
+    // A key, not a plain String, so a subtitle can use **bold** markdown.
+    let subtitle: LocalizedStringKey
     /// True on the steps with the mark above them, so the two do not drift
     /// apart. The rest sit in the middle of the page.
     var underMark = false
@@ -517,14 +518,13 @@ private struct AccessStep: View {
 
     var body: some View {
         StepFrame(
-            title: "Let Drawer see your keys",
-            subtitle: "macOS keeps this behind a switch. Turn it on and a single key, "
-                + "right \u{2318} or \u{2325}, can open the drawer from any app.",
+            title: "Use any shortcut you like",
+            subtitle: "Turn on one macOS switch and any key can open Drawer anywhere.",
             underMark: true
         ) {
             VStack(spacing: 16) {
                 HStack(spacing: 10) {
-                    Image(systemName: trusted ? "checkmark.circle.fill" : "circle.dashed")
+                    Image(systemName: trusted ? "checkmark.square.fill" : "square")
                         .foregroundStyle(trusted ? Color.green : Color.secondary)
                         .font(.system(size: 20))
                     Text(trusted ? "Drawer is allowed." : "Not allowed yet.")
@@ -572,9 +572,8 @@ private struct AccessStep: View {
     /// while the new one is still shut out. Only removing the entry clears it.
     private var stale: some View {
         VStack(spacing: 8) {
-            Text("Switch already on? Then macOS is holding an older copy of Drawer. "
-                + "Select Drawer in that list, remove it with the minus button, then add "
-                + "this one back with plus.")
+            Text("Switch already on? macOS is holding an old copy. "
+                + "Remove Drawer from the list with the minus button, then add it back with plus.")
                 .font(.callout)
                 .foregroundStyle(.orange)
                 .multilineTextAlignment(.center)
@@ -624,7 +623,7 @@ private struct HotkeyStep: View {
     var body: some View {
         StepFrame(
             title: "Pick your shortcut",
-            subtitle: "Click the keys and press what you want. One modifier on its own counts.",
+            subtitle: "Click the keys and press what you want.",
             underMark: true
         ) {
             VStack(spacing: 18) {
@@ -736,8 +735,8 @@ private struct HotkeyStep: View {
                 .frame(maxWidth: 420)
         } else if recording {
             Text(modifiers.isEmpty
-                 ? "Press the keys you want. One modifier on its own counts."
-                 : "Add a key, or let go to use \(HotkeyBinding.modifierParts(modifiers).joined()) on its own.")
+                 ? "Press any keys. One modifier alone works."
+                 : "Add a key, or let go to use \(HotkeyBinding.modifierParts(modifiers).joined()) alone.")
                 .foregroundStyle(.secondary)
                 .frame(maxWidth: 420)
                 .multilineTextAlignment(.center)
@@ -745,7 +744,7 @@ private struct HotkeyStep: View {
             Label("That is it. It works.", systemImage: "checkmark.circle.fill")
                 .foregroundStyle(.green)
         } else if binding.needsAccessibility, !trusted {
-            Label("Works here, but needs Accessibility to work in other apps.", systemImage: "exclamationmark.triangle.fill")
+            Label("Works here. Needs Accessibility for other apps.", systemImage: "exclamationmark.triangle.fill")
                 .foregroundStyle(.orange)
                 .multilineTextAlignment(.center)
                 .frame(maxWidth: 420)
@@ -893,29 +892,33 @@ private struct FilesStep: View {
 
     var body: some View {
         StepFrame(
-            title: "Your tasks are plain files",
-            subtitle: "Markdown, in a folder you pick. Put it in your Obsidian vault and your tasks are just notes."
+            title: "Your tasks are markdown files",
+            subtitle: "Put it in your Obsidian vault, and let AI add tasks if you like."
         ) {
             VStack(spacing: 16) {
-                VStack(alignment: .leading, spacing: 10) {
-                    HStack(spacing: 8) {
+                VStack(alignment: .leading, spacing: 12) {
+                    HStack(alignment: .top, spacing: 10) {
                         Image(systemName: dataFolderPath.isEmpty ? "questionmark.folder" : "checkmark.circle.fill")
                             .foregroundStyle(dataFolderPath.isEmpty ? Color.secondary : Color.green)
+                            .padding(.top, 3)
+                        // The whole path, wrapped, so a long one is still readable
+                        // in full instead of cut in the middle.
                         Text(shown)
                             .font(.callout)
-                            .truncationMode(.middle)
-                            .lineLimit(1)
-                        Spacer(minLength: 8)
+                            .textSelection(.enabled)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .frame(maxWidth: .infinity, alignment: .leading)
                         Button(dataFolderPath.isEmpty ? "Choose…" : "Change…") { DataFolder.choose() }
+                            .controlSize(.large)
                     }
                     Divider()
                     ForEach(Self.files, id: \.0) { name, what in
                         HStack(spacing: 8) {
                             Text(name)
-                                .font(.system(.footnote, design: .monospaced))
+                                .font(.system(size: 14, weight: .medium, design: .monospaced))
                                 .foregroundStyle(.primary)
                             Text(what)
-                                .font(.footnote)
+                                .font(.system(size: 14))
                                 .foregroundStyle(.secondary)
                             Spacer(minLength: 0)
                         }
@@ -924,7 +927,7 @@ private struct FilesStep: View {
                 .padding(16)
                 .background(.quaternary.opacity(0.4), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
 
-                Text("Anything that edits files can edit your day. Point Claude or ChatGPT at that folder and it adds tasks, ticks them off, and moves them to tomorrow.")
+                Text("Anything that edits files can edit your day.\nPoint Claude or ChatGPT at the folder. It adds tasks, ticks them off, rolls them to tomorrow.")
                     .font(.callout)
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
@@ -932,7 +935,7 @@ private struct FilesStep: View {
                     .frame(maxWidth: 460)
 
                 if appStoreBuild, dataFolderPath.isEmpty {
-                    Text("Pick a folder to carry on. Documents is a fine answer.")
+                    Text("Pick a folder to carry on. Documents works fine.")
                         .font(.callout)
                         .foregroundStyle(.orange)
                 }
@@ -953,7 +956,8 @@ private struct FilesStep: View {
 private struct FeaturesStep: View {
     @Environment(\.drawerTheme) private var theme
     @StateObject private var model = FeatureFlagsModel()
-    @State private var preset: String?
+    /// The middle button starts lit: Recommended is the set the app ships on.
+    @State private var preset: String? = "Recommended"
 
     /// Settings leaves the timer flags out of its generic list because they
     /// have dedicated controls on another tab. Here they are just features, so
@@ -964,7 +968,7 @@ private struct FeaturesStep: View {
     var body: some View {
         StepFrame(
             title: "Make it yours",
-            subtitle: "Turn off what you do not want. It is all in Settings later."
+            subtitle: "Change any of it later in Settings."
         ) {
             VStack(spacing: 14) {
                 HStack(spacing: 8) {
@@ -977,20 +981,27 @@ private struct FeaturesStep: View {
                         ForEach(Self.groups, id: \.self) { group in
                             let flags = FeatureFlag.availableCases.filter { $0.group == group }
                             if !flags.isEmpty {
-                                VStack(alignment: .leading, spacing: 6) {
-                                    Text(group.uppercased())
-                                        .font(.caption2.weight(.semibold))
-                                        .foregroundStyle(.tertiary)
+                                VStack(alignment: .leading, spacing: 8) {
+                                    // A rule across the width, so each group reads
+                                    // as its own labelled section.
+                                    HStack(spacing: 8) {
+                                        Text(group.uppercased())
+                                            .font(.caption.weight(.semibold))
+                                            .foregroundStyle(.secondary)
+                                        Rectangle()
+                                            .fill(Color.secondary.opacity(0.2))
+                                            .frame(height: 1)
+                                    }
                                     ForEach(flags) { flag in
                                         Toggle(isOn: model.binding(flag)) {
-                                            VStack(alignment: .leading, spacing: 1) {
+                                            VStack(alignment: .leading, spacing: 2) {
                                                 Text(flag.title)
-                                                    .font(.callout)
+                                                    .font(.system(size: 16, weight: .medium))
                                                 Text(flag.blurb)
-                                                    .font(.caption)
+                                                    .font(.system(size: 13))
                                                     .foregroundStyle(.secondary)
-                                                    .lineLimit(1)
-                                                    .truncationMode(.tail)
+                                                    .lineLimit(2)
+                                                    .fixedSize(horizontal: false, vertical: true)
                                             }
                                             // Without this the switch hugs the
                                             // label and every row lands at a
@@ -998,7 +1009,7 @@ private struct FeaturesStep: View {
                                             .frame(maxWidth: .infinity, alignment: .leading)
                                         }
                                         .toggleStyle(.switch)
-                                        .controlSize(.mini)
+                                        .controlSize(.small)
                                     }
                                 }
                             }
