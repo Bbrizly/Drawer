@@ -282,9 +282,9 @@ struct MarkMotion: Codable, Equatable {
     var distance: CGFloat = 9
     /// How many times it crosses the middle before it stops. Around 2 is a
     /// knock, 5 is a buzz.
-    var cycles: CGFloat = 2.5
+    var cycles: CGFloat = 1.5
     /// How long the whole thing takes, start to still.
-    var duration: TimeInterval = 0.43
+    var duration: TimeInterval = 0.22
     /// How far it tips at full throw, in degrees. 0 is a flat slide.
     var tilt: Double = 9
     /// How much it squashes on the hit, then recovers. 1 is no squash.
