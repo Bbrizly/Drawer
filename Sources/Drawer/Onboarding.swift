@@ -9,6 +9,12 @@ import SwiftUI
 enum Onboarding {
     static let doneKey = "didOnboard"
 
+    /// True while the shortcut step is on screen and testing a press. Redoing
+    /// the walkthrough from Settings runs against a live app, so a real press
+    /// would slide the actual drawer open behind the window. The shortcut
+    /// handlers check this so the test only rattles the mark, not the panel.
+    static var suppressShortcut = false
+
     /// Held while the window is up, so it is not deallocated and a second call
     /// brings the same one forward.
     private static var window: NSWindow?
@@ -648,8 +654,16 @@ private struct HotkeyStep: View {
                 .font(.callout)
             }
         }
-        .onAppear(perform: watchKeys)
-        .onDisappear(perform: stopEverything)
+        .onAppear {
+            // Hold off the real shortcut while this step tests presses, so a
+            // redo from Settings rattles the mark instead of opening the panel.
+            Onboarding.suppressShortcut = true
+            watchKeys()
+        }
+        .onDisappear {
+            Onboarding.suppressShortcut = false
+            stopEverything()
+        }
     }
 
     /// Click it and it listens. Same shape either way, so the keys you press
