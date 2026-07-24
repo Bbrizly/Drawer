@@ -1349,6 +1349,7 @@ private struct AdvancedSettingsView: View {
                 }
                 SettingsCaption("Clears custom paths and advanced toggles. Themes, sounds, and your task file stay as they are.")
             }
+            StorageSection()
             Section {
                 Toggle("Developer tools", isOn: $devToolsEnabled)
                     .onChange(of: devToolsEnabled) { _, _ in DevTuningStore.shared.refresh() }
@@ -1375,6 +1376,101 @@ private struct AdvancedSettingsView: View {
         teleprompterSpeed = 45.0
         teleprompterFontSize = 34.0
         notesPaneHeight = 160.0
+    }
+}
+
+/// Advanced > storage. What Drawer keeps on disk and how big it is, with a
+/// confirmed clear for each. These are Drawer's own derived stores; your task
+/// file, notes, and boards are never listed or touched here. The live history
+/// scrubber self-heals to the cleared state on its next capture.
+private struct StorageSection: View {
+    private struct Store: Identifiable {
+        let id: String
+        let name: String
+        let caption: String
+        let targets: [URL]  // the files or folders this store owns
+    }
+
+    private var stores: [Store] {
+        [
+            Store(id: "history", name: "History snapshots",
+                  caption: "The time-lapse of your task file. Clearing keeps your tasks.",
+                  targets: [AppPaths.historyDirectory]),
+            Store(id: "activity", name: "Activity log",
+                  caption: "Raw work-mode activity and the queue before it is summarized.",
+                  targets: [AppPaths.rawActivityFile, AppPaths.attributionQueueFile]),
+            Store(id: "summaries", name: "Day summaries and schedules",
+                  caption: "The AI day summaries and planned schedules work mode built.",
+                  targets: [AppPaths.daySummariesFile, AppPaths.daySchedulesFile]),
+        ]
+    }
+
+    @State private var sizes: [String: Int64] = [:]
+    @State private var confirming: Store?
+
+    var body: some View {
+        Section("Storage") {
+            ForEach(stores) { store in
+                HStack(alignment: .firstTextBaseline) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(store.name)
+                        SettingsCaption(store.caption)
+                    }
+                    Spacer(minLength: 12)
+                    Text(sizeLabel(sizes[store.id] ?? 0))
+                        .font(.caption).foregroundStyle(.secondary).monospacedDigit()
+                    Button("Clear") { confirming = store }
+                        .disabled((sizes[store.id] ?? 0) == 0)
+                }
+            }
+            SettingsCaption("Sizes on disk. Clearing a store cannot be undone.")
+        }
+        .onAppear(perform: refresh)
+        .alert(
+            "Clear \(confirming?.name.lowercased() ?? "this data")?",
+            isPresented: Binding(get: { confirming != nil }, set: { if !$0 { confirming = nil } }),
+            presenting: confirming
+        ) { store in
+            Button("Cancel", role: .cancel) {}
+            Button("Clear \(sizeLabel(sizes[store.id] ?? 0))", role: .destructive) { clear(store) }
+        } message: { _ in
+            Text("This deletes it for good. Your task file, notes, and boards are not touched.")
+        }
+    }
+
+    private func refresh() {
+        var out: [String: Int64] = [:]
+        for store in stores {
+            out[store.id] = store.targets.reduce(0) { $0 + Self.size(of: $1) }
+        }
+        sizes = out
+    }
+
+    private func clear(_ store: Store) {
+        for url in store.targets { try? FileManager.default.removeItem(at: url) }
+        confirming = nil
+        refresh()
+    }
+
+    private func sizeLabel(_ bytes: Int64) -> String {
+        bytes == 0 ? "Empty" : ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file)
+    }
+
+    /// Bytes on disk for a file, or the recursive total for a folder. Missing
+    /// paths are 0, so a never-created store just reads as Empty.
+    private static func size(of url: URL) -> Int64 {
+        let fm = FileManager.default
+        var isDir: ObjCBool = false
+        guard fm.fileExists(atPath: url.path, isDirectory: &isDir) else { return 0 }
+        if !isDir.boolValue {
+            return Int64((try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0)
+        }
+        guard let walker = fm.enumerator(at: url, includingPropertiesForKeys: [.fileSizeKey]) else { return 0 }
+        var total: Int64 = 0
+        for case let file as URL in walker {
+            total += Int64((try? file.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0)
+        }
+        return total
     }
 }
 
