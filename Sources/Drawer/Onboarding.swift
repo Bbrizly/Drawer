@@ -601,7 +601,6 @@ private struct AccessStep: View {
 // MARK: - Step 3, the shortcut
 
 private struct HotkeyStep: View {
-    @Environment(\.drawerTheme) private var theme
     @Binding var done: Bool
     /// Live, so granting Accessibility on the step before (or in the middle of
     /// this one) clears the warning without a click.
@@ -613,18 +612,6 @@ private struct HotkeyStep: View {
     @Binding var presses: Int
 
     @State private var binding = HotkeyBinding.saved
-    /// True while the whole shortcut is physically down, so the field lights up.
-    @State private var held = false
-    /// The modifiers down this instant, and whether the shortcut's own key is
-    /// down. Between them every cap knows when it is under a finger.
-    @State private var liveFlags: NSEvent.ModifierFlags = []
-    @State private var keyIsDown = false
-    @State private var recording = false
-    @State private var modifiers: NSEvent.ModifierFlags = []
-    @State private var rejected: String?
-    @State private var recorder = HotkeyRecorder()
-    @State private var monitor: Any?
-    @State private var tapDetector = ModifierTapDetector()
 
     var body: some View {
         StepFrame(
@@ -633,8 +620,16 @@ private struct HotkeyStep: View {
             underMark: true
         ) {
             VStack(spacing: 18) {
-                field
-                status
+                HotkeyRecorderField(
+                    binding: $binding,
+                    trusted: trusted,
+                    confirmed: done,
+                    liveHighlight: true,
+                    suppressMatchingPress: true,
+                    showStatus: true,
+                    onCommit: { set($0) },
+                    onGoodPress: { goodPress() }
+                )
                 Menu("Pick a ready-made one") {
                     if !appStoreBuild {
                         ForEach(HotkeyBinding.tapPresets) { preset in
@@ -658,232 +653,22 @@ private struct HotkeyStep: View {
             // Hold off the real shortcut while this step tests presses, so a
             // redo from Settings rattles the mark instead of opening the panel.
             Onboarding.suppressShortcut = true
-            watchKeys()
         }
-        .onDisappear {
-            Onboarding.suppressShortcut = false
-            stopEverything()
-        }
+        .onDisappear { Onboarding.suppressShortcut = false }
     }
 
-    /// Click it and it listens. Same shape either way, so the keys you press
-    /// land where the old ones were.
-    private var field: some View {
-        Button { recording ? stopRecording() : startRecording() } label: {
-            HStack(spacing: 8) {
-                ForEach(Array(caps.enumerated()), id: \.offset) { _, part in
-                    keyCap(part)
-                }
-                Spacer(minLength: 14)
-                Text(recording ? "Esc to keep the old one" : "Click to change")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 14)
-            .frame(width: 430)
-            .background(
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .fill(theme.primaryInk.opacity(recording ? 0.08 : 0.045))
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .strokeBorder(fieldEdge, lineWidth: recording || held ? 2 : 1)
-            )
-        }
-        .buttonStyle(.plain)
-        // No animation on the press. A key is down or it is not, and a fade in
-        // between reads as lag.
-        .animation(.easeOut(duration: 0.15), value: recording)
-    }
-
-    private var fieldEdge: Color {
-        if recording || held { return theme.accent }
-        return done ? .green : theme.primaryInk.opacity(0.12)
-    }
-
-    /// What the field shows: the live keys while recording, the saved shortcut
-    /// otherwise. A press still waiting for its key gets a placeholder cap.
-    private var caps: [String] {
-        guard recording else { return binding.parts }
-        return HotkeyBinding.modifierParts(modifiers) + ["?"]
-    }
-
-    private func keyCap(_ part: String) -> some View {
-        let down = isDown(part)
-        return Text(part)
-            .font(.system(size: 20, weight: .medium, design: .rounded))
-            .foregroundStyle(part == "?" ? .secondary : (down ? theme.accent : .primary))
-            .frame(minWidth: 52, minHeight: 52)
-            .padding(.horizontal, 10)
-            .background(
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .fill(down ? AnyShapeStyle(theme.accent.opacity(0.16)) : AnyShapeStyle(.background.secondary))
-                    .shadow(color: .black.opacity(down ? 0.05 : 0.18), radius: 3, y: down ? 0 : 2)
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .strokeBorder(
-                        down ? theme.accent : (self.done ? .green : Color.secondary.opacity(0.25)),
-                        lineWidth: 1.5)
-            )
-            // Pressed keys sit a hair lower, the way a real one does.
-            .offset(y: down ? 2 : 0)
-    }
-
-    /// One cap at a time: each lights under its own finger, the moment that key
-    /// goes down. While recording every cap on screen is a key being held.
-    private func isDown(_ part: String) -> Bool {
-        if recording { return part != "?" }
-        if binding.isModifierTap { return held }
-        if part == binding.parts.last { return keyIsDown }
-        return HotkeyBinding.modifierParts(liveFlags).contains(part)
-    }
-
-    @ViewBuilder
-    private var status: some View {
-        if let rejected {
-            Label(rejected, systemImage: "exclamationmark.triangle.fill")
-                .foregroundStyle(.orange)
-                .multilineTextAlignment(.center)
-                .frame(maxWidth: 420)
-        } else if recording {
-            Text(modifiers.isEmpty
-                 ? "Press any keys. One modifier alone works."
-                 : "Add a key, or let go to use \(HotkeyBinding.modifierParts(modifiers).joined()) alone.")
-                .foregroundStyle(.secondary)
-                .frame(maxWidth: 420)
-                .multilineTextAlignment(.center)
-        } else if done {
-            Label("That is it. It works.", systemImage: "checkmark.circle.fill")
-                .foregroundStyle(.green)
-        } else if binding.needsAccessibility, !trusted {
-            Label("Works here. Needs Accessibility for other apps.", systemImage: "exclamationmark.triangle.fill")
-                .foregroundStyle(.orange)
-                .multilineTextAlignment(.center)
-                .frame(maxWidth: 420)
-        } else {
-            Text(binding.isModifierTap ? "Tap it now to try it." : "Press it now to try it.")
-                .foregroundStyle(.secondary)
-        }
-    }
-
-    private func startRecording() {
-        stopWatching()
-        rejected = nil
-        modifiers = []
-        held = false
-        recording = true
-        recorder.start(held: { modifiers = $0 }, capture: captured)
-    }
-
-    /// Ends the listening state and leaves the shortcut as it was.
-    private func stopRecording() {
-        recorder.stop()
-        recording = false
-        modifiers = []
-        watchKeys()
-    }
-
-    private func captured(_ candidate: HotkeyBinding) {
-        // Esc backs out, the same way it does everywhere else on the Mac.
-        if candidate.isEscape {
-            rejected = nil
-            stopRecording()
-            return
-        }
-        // Keep listening on a bad one, so a stray key is not a dead end.
-        if let problem = candidate.problem {
-            rejected = problem
-            return
-        }
-        rejected = nil
-        stopRecording()
-        set(candidate)
-    }
-
+    /// Applies a picked shortcut and re-arms the try-it: a new one has not been
+    /// tried yet, so ask for it again with the drawer back the way it started.
     private func set(_ new: HotkeyBinding) {
         binding = new
         new.save()  // AppDelegate re-registers it off the defaults change
-        // A new shortcut has not been tried yet, so ask for it again, with the
-        // drawer back the way it started.
         done = false
         drawerOpen = false
-        held = false
-        rejected = nil
-        watchKeys()
-    }
-
-    /// Watches our own window for the shortcut, so the press can be confirmed
-    /// before macOS has been told to trust Drawer anywhere else.
-    private func watchKeys() {
-        stopWatching()
-        tapDetector = ModifierTapDetector()
-        monitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .keyUp, .flagsChanged]) { event in
-            handle(event)
-            // Swallow a matching press: the drawer it would open is not built
-            // yet on a first run.
-            return binding.matches(event) ? nil : event
-        }
-    }
-
-    private func handle(_ event: NSEvent) {
-        switch event.type {
-        case .flagsChanged:
-            let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask).subtracting(.capsLock)
-            liveFlags = flags
-            if binding.isModifierTap {
-                trackTap(event, flags: flags)
-            } else {
-                // The modifiers of a combination, all down and nothing extra.
-                held = !binding.eventFlags.isEmpty && flags == binding.eventFlags
-            }
-        case .keyDown:
-            tapDetector.otherActivity()
-            if binding.matches(event) {
-                keyIsDown = true
-                held = true
-                succeed()
-            }
-        case .keyUp:
-            if event.keyCode == UInt16(binding.keyCode) { keyIsDown = false }
-            held = false
-        default:
-            break
-        }
-    }
-
-    private func trackTap(_ event: NSEvent, flags: NSEvent.ModifierFlags) {
-        guard let flag = binding.tapFlag, event.keyCode == UInt16(binding.keyCode) else {
-            tapDetector.otherActivity()
-            held = false
-            return
-        }
-        if flags.contains(flag) {
-            held = true
-            tapDetector.down(at: event.timestamp)
-        } else {
-            held = false
-            if tapDetector.up(at: event.timestamp) { succeed() }
-        }
-    }
-
-    private func stopWatching() {
-        if let monitor { NSEvent.removeMonitor(monitor) }
-        monitor = nil
-        held = false
-        keyIsDown = false
-        liveFlags = []
-    }
-
-    private func stopEverything() {
-        stopWatching()
-        recorder.stop()
     }
 
     /// A good press. It slides the mark the other way every single time, the
     /// way the real shortcut will, and marks the step done the first time.
-    private func succeed() {
+    private func goodPress() {
         drawerOpen.toggle()
         presses += 1
         // The third channel. Pixels alone never feel like anything.
