@@ -319,6 +319,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         panelController.toggle()
     }
 
+    /// The shortcut path into the panel. Held off while the walkthrough is
+    /// testing a press, so a redo from Settings does not open the real drawer.
+    private func toggleFromShortcut() {
+        guard !Onboarding.suppressShortcut else { return }
+        panelController.toggle()
+    }
+
     /// Keep the attribution/planner menu items in sync with their feature flags
     /// and Foundation Models availability, which can both change after launch.
     func menuWillOpen(_ menu: NSMenu) {
@@ -343,7 +350,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 // the grant lands, and name it where the user will look.
                 let standby = HotkeyBinding.ctrlOptSpace
                 _ = hotkey.register(keyCode: standby.keyCode, modifiers: standby.modifiers) {
-                    [weak self] in self?.panelController.toggle()
+                    [weak self] in self?.toggleFromShortcut()
                 }
                 toggleMenuItem?.title =
                     "Toggle Drawer (\(standby.label), tap \(binding.label) needs Accessibility)"
@@ -352,14 +359,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             }
             hotkey.unregister()  // the old combination must stop working
             shortcutTap.start(key: UInt16(binding.keyCode), flag: flag) { [weak self] in
-                self?.panelController.toggle()
+                self?.toggleFromShortcut()
             }
             toggleMenuItem?.title = "Toggle Drawer (tap \(binding.label))"
             return true
         }
         shortcutTap.stop()
         let taken = hotkey.register(keyCode: binding.keyCode, modifiers: binding.modifiers) {
-            [weak self] in self?.panelController.toggle()
+            [weak self] in self?.toggleFromShortcut()
         }
         guard taken else { return false }
         toggleMenuItem?.title = "Toggle Drawer (\(binding.label))"
