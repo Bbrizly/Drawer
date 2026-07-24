@@ -676,7 +676,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 },
                 onLayoutChange: { [weak self] in
                     self?.panelController.refreshFrame()
-                }
+                },
+                isDrawerOpen: { [weak self] in self?.panelController.isShown ?? false }
             )
             #if canImport(DrawerBureau)
             view.bureauTuning = bureau?.tuning

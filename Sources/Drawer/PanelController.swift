@@ -5,6 +5,8 @@ import SwiftUI
 extension Notification.Name {
     /// Posted when the drawer panel slides into view (hotkey, tap, or menu).
     static let drawerDidOpen = Notification.Name("drawerDidOpen")
+    /// Posted when it slides back out, so the Settings mark can follow.
+    static let drawerDidClose = Notification.Name("drawerDidClose")
 }
 
 @MainActor
@@ -205,6 +207,7 @@ final class PanelController {
     func hide() {
         let hideGeneration = transitionState.beginHide()
         onVisibilityChange?(false)
+        NotificationCenter.default.post(name: .drawerDidClose, object: nil)
         var off = panel.frame
         off.origin = offScreenOrigin(for: panel.frame, hiding: true)
         NSAnimationContext.runAnimationGroup({ ctx in
