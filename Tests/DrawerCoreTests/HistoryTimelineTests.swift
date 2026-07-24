@@ -90,4 +90,24 @@ final class HistoryTimelineTests: XCTestCase {
         // Long: 0..200 (200s). Short: 100..200 (100s).
         XCTAssertEqual(timeline.lifecycles.map(\.identity), ["long", "short"])
     }
+
+    func testDailySummaryCountsStartedAndCompletedPerDay() {
+        // UTC so day boundaries are deterministic regardless of the test host.
+        var cal = Calendar(identifier: .gregorian)
+        cal.timeZone = TimeZone(identifier: "UTC")!
+        let day: TimeInterval = 86_400
+        let head = "## 2026-07-06\n"
+        let timeline = HistoryTimelineBuilder.build(snapshots: [
+            // Day 0: two tasks start, one gets done.
+            TimelineSnapshot(ts: t(0), markdown: head + "- [ ] A\n- [ ] B\n"),
+            TimelineSnapshot(ts: t(10), markdown: head + "- [x] A\n- [ ] B\n"),
+            // Day 1: a new task starts, B gets done.
+            TimelineSnapshot(ts: t(day), markdown: head + "- [x] A\n- [ ] B\n- [ ] C\n"),
+            TimelineSnapshot(ts: t(day + 10), markdown: head + "- [x] A\n- [x] B\n- [ ] C\n"),
+        ])
+        let summary = HistoryTimelineBuilder.dailySummary(timeline, calendar: cal)
+        XCTAssertEqual(summary.map(\.day), [cal.startOfDay(for: t(0)), cal.startOfDay(for: t(day))])
+        XCTAssertEqual(summary[0], DayTally(day: cal.startOfDay(for: t(0)), started: 2, completed: 1))
+        XCTAssertEqual(summary[1], DayTally(day: cal.startOfDay(for: t(day)), started: 1, completed: 1))
+    }
 }

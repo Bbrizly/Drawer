@@ -12,6 +12,7 @@ struct HistoryScrubberView: View {
     var inline: Bool = false
     @State private var position: Double = 0
     @State private var cache = ParseCache()
+    @State private var summary: [DayTally] = []
 
     private typealias DisplayBuckets = (
         today: [TodoItem], carried: [TodoItem],
@@ -36,6 +37,8 @@ struct HistoryScrubberView: View {
             if records.isEmpty {
                 emptyState
             } else {
+                dayBand
+                Divider()
                 snapshot(records[index]).frame(maxHeight: .infinity)
                 Divider()
                 controls
@@ -43,11 +46,67 @@ struct HistoryScrubberView: View {
         }
         .frame(width: inline ? nil : 400, height: inline ? nil : 540)
         .frame(maxWidth: inline ? .infinity : nil, maxHeight: inline ? .infinity : nil, alignment: .topLeading)
-        .onAppear { position = Double(max(0, records.count - 1)) }
+        .onAppear { position = Double(max(0, records.count - 1)); rebuildSummary() }
         // Jump to newest on any new capture. Observe the newest snapshot's
         // timestamp, not the count, which stays pinned at 500 once retention
         // fills (prune-one, append-one).
-        .onChange(of: records.last?.ts) { position = Double(max(0, records.count - 1)) }
+        .onChange(of: records.last?.ts) {
+            position = Double(max(0, records.count - 1))
+            rebuildSummary()
+        }
+    }
+
+    /// Reconstruct every retained snapshot, diff it, and roll the lifecycles up
+    /// per day. Done once on open and on each new capture (not per frame): the
+    /// blobs are small markdown files and retention caps the count at 500.
+    /// ponytail: if this ever janks on open, hop it to a detached Task.
+    private func rebuildSummary() {
+        let snaps: [TimelineSnapshot] = records.compactMap { record in
+            guard case let .available(bytes) = recorder.reconstruct(record),
+                  let text = String(data: bytes, encoding: .utf8) else { return nil }
+            return TimelineSnapshot(ts: record.ts, markdown: text)
+        }
+        summary = HistoryTimelineBuilder.dailySummary(HistoryTimelineBuilder.build(snapshots: snaps))
+    }
+
+    /// A left-to-right band of day cards (oldest first, matching the scrubber
+    /// below), each showing how many tasks started and got done that day.
+    @ViewBuilder
+    private var dayBand: some View {
+        if summary.contains(where: { $0.started > 0 || $0.completed > 0 }) {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    ForEach(summary, id: \.day) { dayCard($0) }
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+            }
+            .defaultScrollAnchor(.trailing)
+        }
+    }
+
+    private func dayCard(_ day: DayTally) -> some View {
+        VStack(spacing: 3) {
+            Text(day.day.formatted(.dateTime.weekday(.abbreviated)))
+                .font(.caption2).foregroundStyle(.secondary)
+            Text(day.day.formatted(.dateTime.day()))
+                .font(.callout.weight(.semibold))
+            HStack(spacing: 5) {
+                stat("plus", day.started, .secondary)
+                stat("checkmark", day.completed, .green)
+            }
+        }
+        .frame(width: 52)
+        .padding(.vertical, 6)
+        .background(RoundedRectangle(cornerRadius: 8).fill(.primary.opacity(0.05)))
+    }
+
+    private func stat(_ symbol: String, _ count: Int, _ color: Color) -> some View {
+        HStack(spacing: 1) {
+            Image(systemName: symbol).font(.system(size: 8, weight: .bold))
+            Text("\(count)").font(.caption2.weight(.medium))
+        }
+        .foregroundStyle(count == 0 ? AnyShapeStyle(.tertiary) : AnyShapeStyle(color))
     }
 
     private var emptyState: some View {
