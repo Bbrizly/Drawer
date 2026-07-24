@@ -417,8 +417,6 @@ private struct GeneralSettingsView: View {
     @AppStorage("startExpanded") private var startExpanded = true
     @State private var launchAtLogin = SMAppService.mainApp.status == .enabled
     @State private var showHotkeyError = false
-    @State private var isRecordingHotkey = false
-    @State private var hotkeyRecorder = HotkeyRecorder()
     @AppStorage("typeOnOpen") private var typeOnOpen = false
     @State private var axTrusted = AccessibilityPermission.isTrusted
 
@@ -457,19 +455,12 @@ private struct GeneralSettingsView: View {
                         markOpen = false
                         markKnocks += 1
                     }
-                HStack {
-                    Text("Toggle drawer")
-                    Spacer()
-                    Text(isRecordingHotkey ? "Press a key…" : hotkey.label)
-                        .foregroundStyle(.secondary)
-                    Button(isRecordingHotkey ? "Cancel" : "Record…") {
-                        if isRecordingHotkey {
-                            stopHotkeyRecording()
-                        } else {
-                            startHotkeyRecording()
-                        }
-                    }
-                }
+                HotkeyRecorderField(
+                    binding: $hotkey,
+                    trusted: axTrusted,
+                    onCommit: { pick($0) }
+                )
+                .frame(maxWidth: .infinity)
                 if hotkey.isTypingKey {
                     SettingsCaption("That key types text. F13 to F19 are safer, or remap Caps Lock to F13.")
                         .foregroundStyle(.orange)
@@ -591,11 +582,9 @@ private struct GeneralSettingsView: View {
                 try? await Task.sleep(nanoseconds: 1_000_000_000)
             }
         }
-        .onDisappear { stopHotkeyRecording() }
         // The walkthrough writes the shortcut straight to defaults, so follow
         // it instead of showing whatever was saved when this tab opened.
         .onReceive(NotificationCenter.default.publisher(for: UserDefaults.didChangeNotification)) { _ in
-            guard !isRecordingHotkey else { return }
             let live = HotkeyBinding.saved
             if live != hotkey { hotkey = live }
         }
@@ -620,28 +609,6 @@ private struct GeneralSettingsView: View {
         let previous = hotkey
         hotkey = binding
         applyHotkey(binding, revertingTo: previous)
-    }
-
-    private func startHotkeyRecording() {
-        isRecordingHotkey = true
-        hotkeyRecorder.start { candidate in
-            // Esc backs out, and a bare typing key keeps the recorder open
-            // rather than binding something that fires mid-sentence.
-            if candidate.isEscape {
-                stopHotkeyRecording()
-                return
-            }
-            guard candidate.problem == nil else { return }
-            stopHotkeyRecording()
-            let previous = hotkey
-            hotkey = candidate
-            applyHotkey(candidate, revertingTo: previous)
-        }
-    }
-
-    private func stopHotkeyRecording() {
-        isRecordingHotkey = false
-        hotkeyRecorder.stop()
     }
 
     private func applyHotkey(_ binding: HotkeyBinding, revertingTo previous: HotkeyBinding) {
