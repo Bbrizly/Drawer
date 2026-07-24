@@ -77,19 +77,48 @@ struct HistoryScrubberView: View {
     }
 
     /// A left-to-right band of day cards (oldest first, matching the scrubber
-    /// below), each showing how many tasks started and got done that day.
+    /// below), each showing how many tasks started and got done that day. The
+    /// chevrons step between days: swiping the band sideways is caught by the
+    /// board-swipe monitor, so the arrows are the reliable way across.
     @ViewBuilder
     private var dayBand: some View {
         if summary.contains(where: { !$0.started.isEmpty || !$0.completed.isEmpty }) {
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 8) {
-                    ForEach(summary, id: \.day) { dayCard($0) }
+            ScrollViewReader { proxy in
+                HStack(spacing: 2) {
+                    dayStepButton("chevron.left") { stepDay(-1, proxy) }
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 8) {
+                            ForEach(summary, id: \.day) { dayCard($0).id($0.day) }
+                        }
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 8)
+                    }
+                    .defaultScrollAnchor(.trailing)
+                    dayStepButton("chevron.right") { stepDay(1, proxy) }
                 }
-                .padding(.horizontal, 12)
-                .padding(.vertical, 8)
+                .padding(.horizontal, 6)
             }
-            .defaultScrollAnchor(.trailing)
         }
+    }
+
+    private func dayStepButton(_ symbol: String, _ action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: symbol).font(.callout.weight(.semibold))
+                .frame(width: 22, height: 30)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(.secondary)
+    }
+
+    /// Move the picked day by `delta` (clamped), or start at the newest day when
+    /// nothing is picked yet, and scroll the band so the new card is in view.
+    private func stepDay(_ delta: Int, _ proxy: ScrollViewProxy) {
+        guard !summary.isEmpty else { return }
+        let current = selectedDay.flatMap { day in summary.firstIndex { $0.day == day } }
+        let next = current.map { min(max($0 + delta, 0), summary.count - 1) } ?? summary.count - 1
+        selectedDay = summary[next].day
+        withAnimation { proxy.scrollTo(summary[next].day, anchor: .center) }
     }
 
     private func dayCard(_ day: DayTally) -> some View {
