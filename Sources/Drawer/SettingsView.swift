@@ -150,8 +150,8 @@ private struct BureauSettingsView: View {
             BureauTuningControls(tuning: tuning)
             Divider()
             SettingsCaption(
-                "These are the Bureau feel and layout controls. A long press on the "
-                + "tray button in the drawer header opens the same panel as a floating window."
+                "Bureau feel and layout. Long press the tray button in the drawer "
+                + "header to open this as a window."
             )
             .padding(10)
         }
@@ -174,8 +174,8 @@ private struct BoardSettingsView: View {
                 }
                 .pickerStyle(.segmented)
                 SettingsCaption(
-                    "Dark is a solid board. Transparent shows your desktop through the canvas. "
-                    + "Paper adds ruled lines. The Notebook theme always uses paper."
+                    "Dark is solid. Transparent shows your desktop. Paper adds ruled "
+                    + "lines. Notebook always uses paper."
                 )
             }
             Section("Gestures") {
@@ -186,8 +186,8 @@ private struct BoardSettingsView: View {
                         .font(.caption).foregroundStyle(.secondary).frame(width: 36, alignment: .trailing)
                 }
                 SettingsCaption(
-                    "How far you swipe the task list to reveal the idea board. "
-                    + "Lower numbers mean a shorter swipe covers more of the screen."
+                    "How far to swipe the task list to reach the board. "
+                    + "Lower means a shorter swipe."
                 )
                 HStack {
                     Text("Zoom step")
@@ -225,8 +225,8 @@ private struct AppearanceSettingsView: View {
                 }
                 .padding(.vertical, 4)
                 SettingsCaption(
-                    "Each theme changes the panel surface, type, and accent. "
-                    + "Art-directed themes also reshape the chrome."
+                    "Each theme changes the surface, type, and accent. "
+                    + "Some also reshape the chrome."
                 )
             }
             Section("Text") {
@@ -252,8 +252,8 @@ private struct AppearanceSettingsView: View {
                 }
                 .disabled(appFontDesign == "theme" && taskFontSize == 13.0)
                 SettingsCaption(
-                    "Font restyles the whole drawer. Theme default keeps each theme's own face "
-                    + "(Medieval serif, Pixel bitmap). Size drives task titles; notes sit two points under."
+                    "Font restyles the whole drawer. Theme default keeps each theme's own face. "
+                    + "Size sets task titles. Notes sit two points smaller."
                 )
             }
         }
@@ -302,8 +302,7 @@ private struct TimersSettingsView: View {
                     palette: palette
                 )
                 SettingsCaption(
-                    "Choose which timer pills appear at the top. Stopwatch is the task time "
-                    + "tracker formerly shown as Work Mode."
+                    "Pick which timer pills show at the top. Stopwatch tracks time per task."
                 )
                 Divider()
                 HStack {
@@ -320,8 +319,8 @@ private struct TimersSettingsView: View {
                         }
                 }
                 SettingsCaption(
-                    "Pre-fills the focus timer when you tap play. A task can override this "
-                    + "with a duration like (15m) in the markdown file."
+                    "Fills the focus timer when you tap play. A task can set its own "
+                    + "time with (15m) in the file."
                 )
             }
             Section("Pomodoro") {
@@ -334,8 +333,7 @@ private struct TimersSettingsView: View {
                     applyPreset: applyPomodoroPreset
                 )
                 SettingsCaption(
-                    "The tuned default is 25 minutes of focus, 5 minutes off, and a "
-                    + "15-minute reset after four focus rounds."
+                    "Default is 25 minutes on, 5 off, and a 15 minute break after four rounds."
                 )
             }
             Section("Sounds") {
@@ -355,11 +353,11 @@ private struct TimersSettingsView: View {
                 .disabled(!focusSoundEnabled)
                 SettingsCaption(
                     "The speaker button in the header plays this. Pink masks chatter, "
-                    + "brown is deeper, ocean swells like surf."
+                    + "brown is deeper, ocean sounds like surf."
                 )
                 Divider()
                 Toggle("Sound when timer ends", isOn: $timerEndSoundEnabled)
-                SettingsCaption("A chime and notification when a focus or Pomodoro session finishes.")
+                SettingsCaption("A chime and notice when a session ends.")
             }
         }
         .formStyle(.grouped)
@@ -440,9 +438,9 @@ private struct GeneralSettingsView: View {
                     Button("Choose…") { chooseFile() }
                 }
                 SettingsCaption(
-                    "A markdown file with dated ## headings and - [ ] checkboxes. "
+                    "A markdown file with dated ## headings and checkboxes. "
                     + "Drawer reads it live, so edits in Obsidian or iCloud show up here. "
-                    + "See the Help tab for the full format."
+                    + "See Help for the format."
                 )
             }
             Section("Shortcut") {
@@ -473,7 +471,7 @@ private struct GeneralSettingsView: View {
                     }
                 }
                 if hotkey.isTypingKey {
-                    SettingsCaption("That key is used while typing. F13–F19 are safer, or remap Caps Lock to F13.")
+                    SettingsCaption("That key types text. F13 to F19 are safer, or remap Caps Lock to F13.")
                         .foregroundStyle(.orange)
                 }
                 if hotkey.needsAccessibility, !axTrusted {
@@ -487,17 +485,15 @@ private struct GeneralSettingsView: View {
                             .controlSize(.small)
                     }
                     SettingsCaption(
-                        "A single modifier is caught by watching the keyboard, so Drawer needs "
-                        + "Accessibility before this one works outside its own windows. Turn Drawer "
-                        + "on under Privacy & Security, then Accessibility. If Drawer is already "
-                        + "listed but off, or shows after an update, remove it with the minus button "
-                        + "and add it again."
+                        "A one modifier shortcut needs Accessibility to work outside Drawer. "
+                        + "Turn Drawer on in Privacy & Security, then Accessibility. Already listed "
+                        + "but off, or stale after an update? Remove it with the minus button and add it again."
                     )
                     .foregroundStyle(.orange)
                 }
                 SettingsCaption(
-                    "Shows or hides the drawer from anywhere. Record any combination, or a single "
-                    + "modifier tapped on its own. One plain key works best on F13–F19."
+                    "Shows or hides the drawer from anywhere. Record any combination, or tap "
+                    + "one modifier alone. A plain key works best on F13 to F19."
                 )
                 HStack(spacing: 6) {
                     ForEach(HotkeyBinding.singleKeyPresets) { binding in
@@ -528,7 +524,7 @@ private struct GeneralSettingsView: View {
                 }
                 Divider()
                 Toggle("Start typing a new task on open", isOn: $typeOnOpen)
-                SettingsCaption("Opening the drawer drops the cursor into a new task, ready to type.")
+                SettingsCaption("Opening the drawer starts a new task, ready to type.")
             }
             Section("Panel") {
                 HStack {
@@ -548,8 +544,8 @@ private struct GeneralSettingsView: View {
                         .frame(width: 32, alignment: .trailing)
                 }
                 SettingsCaption(
-                    "Compact height is the default slide-out size. The expand arrows in the header, "
-                    + "and the toggle below, grow it to full screen height."
+                    "Compact is the default size. The header arrows, and the toggle below, "
+                    + "grow it to full height."
                 )
                 HStack {
                     Text("Slide speed")
@@ -560,15 +556,15 @@ private struct GeneralSettingsView: View {
                         .frame(width: 40, alignment: .trailing)
                 }
                 SettingsCaption(
-                    "How long the drawer takes to slide in and out. Lower is snappier; 0 is instant."
+                    "How long the drawer takes to slide. Lower is snappier. 0 is instant."
                 )
                 Divider()
                 Toggle("Open at full height", isOn: $startExpanded)
-                SettingsCaption("Start the drawer expanded to full screen height instead of the compact size.")
+                SettingsCaption("Open the drawer at full height instead of compact.")
             }
             Section {
                 Button("Redo onboarding") { Onboarding.run() }
-                SettingsCaption("Walks the setup again: look, shortcut, files, features.")
+                SettingsCaption("Walks the setup again: shortcut, files, features.")
                 Toggle("Launch at login", isOn: $launchAtLogin)
                     .onChange(of: launchAtLogin) { _, enabled in
                         if enabled {
@@ -608,7 +604,7 @@ private struct GeneralSettingsView: View {
         .alert("Shortcut unavailable", isPresented: $showHotkeyError) {
             Button("OK", role: .cancel) {}
         } message: {
-            Text("That shortcut could not be registered. The previous shortcut is still active.")
+            Text("That shortcut could not be set. The old one still works.")
         }
     }
 
@@ -1095,9 +1091,8 @@ private struct FeatureSettingsView: View {
         Form {
             Section {
                 SettingsCaption(
-                    "Turn features on or off without touching code. Minimal keeps only today's "
-                    + "tasks and carried-over work. Recommended is what the app ships with. "
-                    + "Everything turns the full drawer back on."
+                    "Turn features on or off. Minimal keeps only today and carried-over "
+                    + "tasks. Recommended is the default. Everything turns it all on."
                 )
                 HStack {
                     Button("Minimal") { model.applyMinimal() }
@@ -1130,7 +1125,7 @@ private struct FeatureSettingsView: View {
                         Divider()
                         Toggle("Expand Backlog on open", isOn: $backlogExpanded)
                         Toggle("Expand Archive on open", isOn: $archiveExpanded)
-                        SettingsCaption("Whether these sections start expanded. Headers still collapse them live.")
+                        SettingsCaption("Start these sections open. Headers still collapse them live.")
                     }
                 }
             }
@@ -1230,7 +1225,7 @@ private struct AdvancedSettingsView: View {
         Form {
             Section {
                 SettingsCaption(
-                    "Niche options and file locations. Changing a data path takes effect "
+                    "Niche options and file paths. A path change takes effect "
                     + "after you quit and reopen Drawer."
                 )
             }
@@ -1266,7 +1261,7 @@ private struct AdvancedSettingsView: View {
                 )
                 SettingsPathRow(
                     title: "Work session log",
-                    caption: "Raw JSONL log of work-mode time segments. The summary card reads this.",
+                    caption: "JSONL log of work-mode time. The summary card reads this.",
                     storedPath: $workLogFilePath,
                     defaultPath: AppPaths.defaultWorkLogFile,
                     settingKey: AppPaths.workLogFilePathKey,
@@ -1276,8 +1271,8 @@ private struct AdvancedSettingsView: View {
                 if exportWorkLogMarkdown {
                     SettingsPathRow(
                         title: "Work log markdown",
-                        caption: "Regenerated when work mode ends or you edit a day summary. "
-                            + "Handy beside your other notes.",
+                        caption: "Rewritten when work mode ends or you edit a summary. "
+                            + "Handy beside your notes.",
                         storedPath: $workLogMarkdownPath,
                         defaultPath: AppPaths.defaultWorkLogMarkdownFile,
                         settingKey: AppPaths.workLogMarkdownFilePathKey
@@ -1294,8 +1289,8 @@ private struct AdvancedSettingsView: View {
                 if parkingLotEnabled {
                     SettingsPathRow(
                         title: "Parking lot",
-                        caption: "The idea file behind the parking lot board. Sits next to your "
-                            + "task file unless you point it somewhere else.",
+                        caption: "The file behind the parking lot board. Sits next to your "
+                            + "task file unless you move it.",
                         storedPath: $parkingLotPath,
                         defaultPath: AppPaths.defaultParkingLotFile,
                         settingKey: AppPaths.parkingLotFilePathKey
@@ -1346,7 +1341,7 @@ private struct AdvancedSettingsView: View {
                         .foregroundStyle(.secondary)
                         .frame(width: 32, alignment: .trailing)
                 }
-                SettingsCaption("How tall the notes pane opens inside the drawer. You can still drag to resize.")
+                SettingsCaption("How tall the notes pane opens. You can still drag to resize.")
             }
             Section {
                 Button("Reset advanced settings…", role: .destructive) {
@@ -1357,7 +1352,7 @@ private struct AdvancedSettingsView: View {
             Section {
                 Toggle("Developer tools", isOn: $devToolsEnabled)
                     .onChange(of: devToolsEnabled) { _, _ in DevTuningStore.shared.refresh() }
-                SettingsCaption("Shows the tuning sliders below. They move the numbers behind how the app feels, not real settings.")
+                SettingsCaption("Shows the tuning sliders below. They tweak how the app feels, not real settings.")
             }
             if devToolsEnabled { DeveloperSettings() }
         }
@@ -1366,7 +1361,7 @@ private struct AdvancedSettingsView: View {
             Button("Cancel", role: .cancel) {}
             Button("Reset", role: .destructive) { resetAdvanced() }
         } message: {
-            Text("Custom file paths and teleprompter tuning go back to built-in values. Quit and reopen Drawer if you changed a file path.")
+            Text("File paths and teleprompter tuning go back to defaults. Quit and reopen if you changed a path.")
         }
     }
 
@@ -1408,9 +1403,9 @@ private struct HelpView: View {
                 helpBlock(
                     "How it works",
                     "Drawer shows one markdown file as your day list. "
-                    + "Edit the file anywhere (Obsidian, a text editor, another device "
-                    + "via iCloud) and the drawer updates within a second. "
-                    + "Checking a task in the drawer writes it back to the file."
+                    + "Edit it anywhere (Obsidian, a text editor, iCloud on another device) "
+                    + "and the drawer updates in a second. "
+                    + "Checking a task writes back to the file."
                 )
 
                 VStack(alignment: .leading, spacing: 6) {
@@ -1424,12 +1419,10 @@ private struct HelpView: View {
                     .padding(10)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 6))
-                    Text("A \"##\" heading containing a date starts a day. "
-                         + "Weekday prefixes like \"Mon\" are fine. Tasks under it "
-                         + "belong to that day. \"## Backlog\" and \"## Archive\" "
-                         + "collect non-day tasks, shown collapsed at the bottom. "
-                         + "Other headings without a date (like \"## Someday\") are "
-                         + "kept in the file but not shown.")
+                    Text("A ## heading with a date starts a day. A weekday like Mon is fine. "
+                         + "Tasks under it belong to that day. ## Backlog and ## Archive hold "
+                         + "non-day tasks, collapsed at the bottom. Other dateless headings "
+                         + "stay in the file but do not show.")
                         .font(.callout)
                         .foregroundStyle(.secondary)
                 }
@@ -1447,9 +1440,8 @@ private struct HelpView: View {
                     .padding(10)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 6))
-                    Text("Inside Backlog or Archive, \"###\" subheadings become "
-                         + "group labels in the expanded list. Prose lines between "
-                         + "tasks are ignored.")
+                    Text("Inside Backlog or Archive, ### subheadings become group labels. "
+                         + "Prose between tasks is ignored.")
                         .font(.callout)
                         .foregroundStyle(.secondary)
                 }
@@ -1457,24 +1449,23 @@ private struct HelpView: View {
                 helpBlock(
                     "What the drawer shows",
                     "Today: today's tasks. "
-                    + "Carried over: unchecked tasks from the most recent earlier day. "
-                    + "Tomorrow: the next planned day, so evening planning works. "
-                    + "Backlog: someday tasks, collapsed at the bottom. Move a line "
-                    + "under a day heading when you commit to it. "
-                    + "Archive: parked explorations and ideas, collapsed below Backlog."
+                    + "Carried over: unchecked tasks from the last day. "
+                    + "Tomorrow: the next planned day, for evening planning. "
+                    + "Backlog: someday tasks, collapsed at the bottom. "
+                    + "Archive: parked ideas, collapsed below Backlog."
                 )
 
                 helpBlock(
                     "Work mode",
-                    "Tap the briefcase to start tracking real hours. Tap a task to clock time "
-                    + "on it. End work mode for a day summary you can edit. Hours are logged to "
-                    + "a JSONL file; optionally exported as markdown under Advanced."
+                    "Tap the briefcase to track real hours. Tap a task to clock time on it. "
+                    + "End work mode for a summary you can edit. Hours log to JSONL, and to "
+                    + "markdown if you turn that on in Advanced."
                 )
 
                 helpBlock(
                     "Idea board",
                     "Swipe the task list sideways to open the canvas. Drop text cards and images, "
-                    + "zoom with + / −, and switch boards from the title menu. Board settings live "
+                    + "zoom with + or −, switch boards from the title menu. Settings live "
                     + "under the Board tab."
                 )
 
@@ -1486,7 +1477,7 @@ private struct HelpView: View {
                     + "Features: turn parts of the app on or off. "
                     + "Board: canvas background, swipe and zoom. "
                     + "Advanced: file paths and teleprompter. "
-                    + "Most changes apply immediately; file path changes need a restart."
+                    + "Most changes apply right away. File path changes need a restart."
                 )
 
                 VStack(alignment: .leading, spacing: 6) {
