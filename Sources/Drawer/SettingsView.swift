@@ -11,6 +11,9 @@ struct SettingsView: View {
     var onChooseFile: (URL) -> Void
     var onHotkeyChange: (HotkeyBinding) -> Bool
     var onLayoutChange: () -> Void
+    /// The drawer's open state right now, read once when the shortcut mark
+    /// appears so it starts matching the real panel instead of guessing shut.
+    var isDrawerOpen: () -> Bool = { false }
     #if canImport(DrawerBureau)
     /// The Bureau tuning object, passed in when the feature is wired so the
     /// Settings window can embed its slider controls. Nil leaves the tab out.
@@ -95,7 +98,8 @@ struct SettingsView: View {
                 GeneralSettingsView(
                     onChooseFile: onChooseFile,
                     onHotkeyChange: onHotkeyChange,
-                    onLayoutChange: onLayoutChange
+                    onLayoutChange: onLayoutChange,
+                    isDrawerOpen: isDrawerOpen
                 )
             case .appearance:
                 AppearanceSettingsView()
@@ -397,6 +401,15 @@ private struct GeneralSettingsView: View {
     var onChooseFile: (URL) -> Void
     var onHotkeyChange: (HotkeyBinding) -> Bool
     var onLayoutChange: () -> Void
+    var isDrawerOpen: () -> Bool = { false }
+
+    /// The little mark under the Shortcut headline, mirroring the real drawer.
+    /// Seeded from `isDrawerOpen()` on appear so pressing the shortcut with the
+    /// drawer already open swaps it shut, never the wrong way round.
+    @State private var markOpen = false
+    /// Bumped on every open or close so the mark knocks the way it does in the
+    /// walkthrough.
+    @State private var markKnocks = 0
 
     @AppStorage("drawerFilePath") private var filePath = AppPaths.defaultDrawerFile
     @State private var hotkey = HotkeyBinding.saved
@@ -433,6 +446,19 @@ private struct GeneralSettingsView: View {
                 )
             }
             Section("Shortcut") {
+                DrawerMark(open: markOpen, shakes: markKnocks)
+                    .scaleEffect(0.66)
+                    .frame(height: 128)
+                    .frame(maxWidth: .infinity)
+                    .onAppear { markOpen = isDrawerOpen() }
+                    .onReceive(NotificationCenter.default.publisher(for: .drawerDidOpen)) { _ in
+                        markOpen = true
+                        markKnocks += 1
+                    }
+                    .onReceive(NotificationCenter.default.publisher(for: .drawerDidClose)) { _ in
+                        markOpen = false
+                        markKnocks += 1
+                    }
                 HStack {
                     Text("Toggle drawer")
                     Spacer()
