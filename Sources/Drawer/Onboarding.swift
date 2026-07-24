@@ -340,11 +340,7 @@ struct DrawerMark: View {
     var body: some View {
         art(open ? Self.openArt : Self.shutArt)
             .frame(width: open ? now.openSize : now.size, height: open ? now.openSize : now.size)
-            // Only the open drawing gets nudged, to line its cube up with the
-            // shut one.
-            .offset(x: open ? now.openDX : 0, y: open ? now.openDY : 0)
-            // The swap is a cut, never a fade, and the size and nudge cut with
-            // it. Picture, frame, and offset all change on `open`. In the
+            // The swap is a cut, never a fade, and the size cuts with it. In the
             // walkthrough the step change runs its own animation, and a plain
             // .animation(nil,) does not beat that: the drawer would crossfade
             // and slide between the two sizes. Clearing the transaction outright
@@ -354,6 +350,13 @@ struct DrawerMark: View {
             // Ease out, so the first swing is the fast one. Try .linear here to
             // hear the raw sine, or a spring to let it overshoot on the way in.
             .animation(.easeOut(duration: now.duration), value: shakes)
+            // The open drawing is nudged to line its cube up with the shut one.
+            // This has to sit outside the knock's ease-out: a press flips `open`
+            // and bumps `shakes` on the same beat, so inside, the ease meant for
+            // the knock would slide the nudge into place instead of cutting it.
+            // Out here it snaps, and its own transaction blocks the step change.
+            .offset(x: open ? now.openDX : 0, y: open ? now.openDY : 0)
+            .transaction(value: open) { $0.animation = nil }
             .offset(y: adrift ? -now.driftBy : now.driftBy)
             .animation(
                 .easeInOut(duration: now.driftSeconds).repeatForever(autoreverses: true),
