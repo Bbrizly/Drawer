@@ -519,7 +519,7 @@ private struct AccessStep: View {
     var body: some View {
         StepFrame(
             title: "Use any shortcut you like",
-            subtitle: "Turn on one macOS switch and any key can open Drawer anywhere.",
+            subtitle: "Turn on and any key can open Drawer anywhere.",
             underMark: true
         ) {
             VStack(spacing: 16) {
@@ -548,7 +548,7 @@ private struct AccessStep: View {
                     if stalled {
                         stale
                     } else {
-                        Text("Privacy & Security, then Accessibility. This window notices on its own.")
+                        Text("Privacy & Security, then Accessibility.")
                             .font(.callout)
                             .foregroundStyle(.secondary)
                             .multilineTextAlignment(.center)
@@ -893,7 +893,7 @@ private struct FilesStep: View {
     var body: some View {
         StepFrame(
             title: "Your tasks are markdown files",
-            subtitle: "Put it in your Obsidian vault, and let AI add tasks if you like."
+            subtitle: "You can put it in your Obsidian vault, and let AI add tasks if you like."
         ) {
             VStack(spacing: 16) {
                 VStack(alignment: .leading, spacing: 12) {
@@ -1019,18 +1019,6 @@ private struct FeaturesStep: View {
                     .padding(.bottom, 8)
                 }
                 .frame(maxHeight: .infinity)
-                // The list runs past the fold, so fade the last rows rather
-                // than cutting a group in half on a hard edge.
-                .mask(
-                    LinearGradient(
-                        stops: [
-                            .init(color: .black, location: 0),
-                            .init(color: .black, location: 0.9),
-                            .init(color: .clear, location: 1),
-                        ],
-                        startPoint: .top, endPoint: .bottom
-                    )
-                )
             }
         }
     }
