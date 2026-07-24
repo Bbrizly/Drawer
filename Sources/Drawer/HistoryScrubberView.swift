@@ -13,6 +13,9 @@ struct HistoryScrubberView: View {
     @State private var position: Double = 0
     @State private var cache = ParseCache()
     @State private var summary: [DayTally] = []
+    /// A tapped day, showing its completed/started task titles below the band.
+    /// nil = the live snapshot scrubber instead.
+    @State private var selectedDay: Date?
 
     private typealias DisplayBuckets = (
         today: [TodoItem], carried: [TodoItem],
@@ -39,9 +42,13 @@ struct HistoryScrubberView: View {
             } else {
                 dayBand
                 Divider()
-                snapshot(records[index]).frame(maxHeight: .infinity)
-                Divider()
-                controls
+                if let selectedDay, let tally = summary.first(where: { $0.day == selectedDay }) {
+                    dayDetail(tally).frame(maxHeight: .infinity)
+                } else {
+                    snapshot(records[index]).frame(maxHeight: .infinity)
+                    Divider()
+                    controls
+                }
             }
         }
         .frame(width: inline ? nil : 400, height: inline ? nil : 540)
@@ -73,7 +80,7 @@ struct HistoryScrubberView: View {
     /// below), each showing how many tasks started and got done that day.
     @ViewBuilder
     private var dayBand: some View {
-        if summary.contains(where: { $0.started > 0 || $0.completed > 0 }) {
+        if summary.contains(where: { !$0.started.isEmpty || !$0.completed.isEmpty }) {
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 8) {
                     ForEach(summary, id: \.day) { dayCard($0) }
@@ -86,19 +93,26 @@ struct HistoryScrubberView: View {
     }
 
     private func dayCard(_ day: DayTally) -> some View {
-        VStack(spacing: 3) {
+        let selected = selectedDay == day.day
+        return VStack(spacing: 3) {
             Text(day.day.formatted(.dateTime.weekday(.abbreviated)))
                 .font(.caption2).foregroundStyle(.secondary)
             Text(day.day.formatted(.dateTime.day()))
                 .font(.callout.weight(.semibold))
             HStack(spacing: 5) {
-                stat("plus", day.started, .secondary)
-                stat("checkmark", day.completed, .green)
+                stat("plus", day.started.count, .secondary)
+                stat("checkmark", day.completed.count, .green)
             }
         }
         .frame(width: 52)
         .padding(.vertical, 6)
-        .background(RoundedRectangle(cornerRadius: 8).fill(.primary.opacity(0.05)))
+        .background(RoundedRectangle(cornerRadius: 8)
+            .fill(.primary.opacity(selected ? 0.14 : 0.05)))
+        .overlay(RoundedRectangle(cornerRadius: 8)
+            .stroke(.primary.opacity(selected ? 0.25 : 0), lineWidth: 1))
+        .contentShape(Rectangle())
+        // Tap a day to read its tasks; tap the open one again to go back.
+        .onTapGesture { selectedDay = selected ? nil : day.day }
     }
 
     private func stat(_ symbol: String, _ count: Int, _ color: Color) -> some View {
@@ -107,6 +121,40 @@ struct HistoryScrubberView: View {
             Text("\(count)").font(.caption2.weight(.medium))
         }
         .foregroundStyle(count == 0 ? AnyShapeStyle(.tertiary) : AnyShapeStyle(color))
+    }
+
+    /// The picked day's tasks by name: what got checked off, then what started.
+    private func dayDetail(_ tally: DayTally) -> some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 12) {
+                Text(tally.day.formatted(.dateTime.weekday(.wide).month().day()))
+                    .font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                detailSection("Completed", tally.completed, "checkmark.circle.fill", .green, strike: true)
+                detailSection("Started", tally.started, "circle", .secondary, strike: false)
+                if tally.completed.isEmpty && tally.started.isEmpty {
+                    Text("Nothing tracked this day.").foregroundStyle(.secondary)
+                }
+            }
+            .padding(12)
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
+    @ViewBuilder
+    private func detailSection(_ title: String, _ titles: [String], _ symbol: String, _ color: Color, strike: Bool) -> some View {
+        if !titles.isEmpty {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("\(title) (\(titles.count))")
+                    .font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                ForEach(Array(titles.enumerated()), id: \.offset) { _, name in
+                    HStack(spacing: 8) {
+                        Image(systemName: symbol).foregroundStyle(color)
+                        Text(name).strikethrough(strike).foregroundStyle(strike ? .secondary : .primary)
+                        Spacer(minLength: 0)
+                    }
+                }
+            }
+        }
     }
 
     private var emptyState: some View {
