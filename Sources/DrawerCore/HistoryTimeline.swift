@@ -59,6 +59,19 @@ public struct HistoryTimeline: Equatable, Sendable {
     }
 }
 
+/// One calendar day's tallies: how many tasks first showed up and how many got
+/// checked off that day. `day` is the local start-of-day the counts belong to.
+public struct DayTally: Equatable, Sendable {
+    public var day: Date
+    public var started: Int
+    public var completed: Int
+    public init(day: Date, started: Int, completed: Int) {
+        self.day = day
+        self.started = started
+        self.completed = completed
+    }
+}
+
 /// Diffs a series of drawer snapshots into per-task lifecycle events. Pure and
 /// single-pass over the snapshots; identity ignores the checkbox marker and the
 /// `(Nm)` hint (both stripped by `TodoParser`/`TitleSimilarity.normalize`), so
@@ -120,5 +133,27 @@ public enum HistoryTimelineBuilder {
         let lifecycles = life.values
             .sorted { $0.survival != $1.survival ? $0.survival > $1.survival : $0.identity < $1.identity }
         return HistoryTimeline(events: events, lifecycles: lifecycles)
+    }
+
+    /// Per-day counts of tasks started (first seen) and completed (first checked
+    /// off), oldest day first. Counts distinct lifecycles, not raw events, so a
+    /// task removed and re-added is not counted as started twice, and a task
+    /// re-opened and re-checked is completed once (on its first check-off day).
+    ///
+    /// ponytail: whatever was already in the file at the first snapshot counts as
+    /// "started" on that first day, because history has no view before it began.
+    /// It reads as a baseline, not a spike; live enough that no fix is worth it.
+    public static func dailySummary(_ timeline: HistoryTimeline, calendar: Calendar = .current) -> [DayTally] {
+        var started: [Date: Int] = [:]
+        var completed: [Date: Int] = [:]
+        for life in timeline.lifecycles {
+            started[calendar.startOfDay(for: life.firstSeen), default: 0] += 1
+            if let done = life.completedAt {
+                completed[calendar.startOfDay(for: done), default: 0] += 1
+            }
+        }
+        return Set(started.keys).union(completed.keys)
+            .map { DayTally(day: $0, started: started[$0] ?? 0, completed: completed[$0] ?? 0) }
+            .sorted { $0.day < $1.day }
     }
 }
