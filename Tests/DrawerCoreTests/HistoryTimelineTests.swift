@@ -107,7 +107,9 @@ final class HistoryTimelineTests: XCTestCase {
         ])
         let summary = HistoryTimelineBuilder.dailySummary(timeline, calendar: cal)
         XCTAssertEqual(summary.map(\.day), [cal.startOfDay(for: t(0)), cal.startOfDay(for: t(day))])
-        XCTAssertEqual(summary[0], DayTally(day: cal.startOfDay(for: t(0)), started: 2, completed: 1))
-        XCTAssertEqual(summary[1], DayTally(day: cal.startOfDay(for: t(day)), started: 1, completed: 1))
+        XCTAssertEqual(Set(summary[0].started), ["A", "B"])  // both at t(0), order not fixed
+        XCTAssertEqual(summary[0].completed, ["A"])
+        XCTAssertEqual(summary[1].started, ["C"])
+        XCTAssertEqual(summary[1].completed, ["B"])
     }
 }

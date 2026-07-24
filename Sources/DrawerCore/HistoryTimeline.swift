@@ -59,13 +59,14 @@ public struct HistoryTimeline: Equatable, Sendable {
     }
 }
 
-/// One calendar day's tallies: how many tasks first showed up and how many got
-/// checked off that day. `day` is the local start-of-day the counts belong to.
+/// One calendar day's tasks: the titles that first showed up and the titles that
+/// got checked off that day, each in the order it happened. `day` is the local
+/// start-of-day they belong to. Counts are just the array sizes.
 public struct DayTally: Equatable, Sendable {
     public var day: Date
-    public var started: Int
-    public var completed: Int
-    public init(day: Date, started: Int, completed: Int) {
+    public var started: [String]
+    public var completed: [String]
+    public init(day: Date, started: [String], completed: [String]) {
         self.day = day
         self.started = started
         self.completed = completed
@@ -144,16 +145,20 @@ public enum HistoryTimelineBuilder {
     /// "started" on that first day, because history has no view before it began.
     /// It reads as a baseline, not a spike; live enough that no fix is worth it.
     public static func dailySummary(_ timeline: HistoryTimeline, calendar: Calendar = .current) -> [DayTally] {
-        var started: [Date: Int] = [:]
-        var completed: [Date: Int] = [:]
+        // Collect (when, title) so titles come out in the order they happened.
+        var started: [Date: [(Date, String)]] = [:]
+        var completed: [Date: [(Date, String)]] = [:]
         for life in timeline.lifecycles {
-            started[calendar.startOfDay(for: life.firstSeen), default: 0] += 1
+            started[calendar.startOfDay(for: life.firstSeen), default: []].append((life.firstSeen, life.title))
             if let done = life.completedAt {
-                completed[calendar.startOfDay(for: done), default: 0] += 1
+                completed[calendar.startOfDay(for: done), default: []].append((done, life.title))
             }
         }
+        func titles(_ entries: [(Date, String)]) -> [String] {
+            entries.sorted { $0.0 < $1.0 }.map(\.1)
+        }
         return Set(started.keys).union(completed.keys)
-            .map { DayTally(day: $0, started: started[$0] ?? 0, completed: completed[$0] ?? 0) }
+            .map { DayTally(day: $0, started: titles(started[$0] ?? []), completed: titles(completed[$0] ?? [])) }
             .sorted { $0.day < $1.day }
     }
 }
