@@ -64,6 +64,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var lastAttributionActivation: AttributionActivation? = .endSession
     /// Repeats the time's-up chime while the finished timer waits for dismissal.
     private var alarmTimer: Timer?
+    #if !APPSTORE
+    /// Dumps a stack sample if the main thread ever freezes. Dev builds only.
+    private let hangWatchdog = HangWatchdog()
+    #endif
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         FontLoader.registerBundledFonts() // the Pixel theme's typeface
@@ -223,6 +227,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         setupStatusItem()
         setupEditMenu()
         requestNotificationAuth()
+        #if !APPSTORE
+        hangWatchdog.start()  // catch a main-thread freeze in the act
+        #endif
     }
 
     /// This is a menu-bar app with no menu of its own, so the standard editing
