@@ -253,26 +253,32 @@ struct HotkeyBinding: Equatable, Hashable, Identifiable {
         case UInt32(kVK_RightArrow): return "→"
         case UInt32(kVK_UpArrow): return "↑"
         case UInt32(kVK_DownArrow): return "↓"
-        default:
-            if let chars = character(for: keyCode) { return chars }
-            return "Key \(keyCode)"
+        default: return printableKeys[keyCode] ?? "Key \(keyCode)"
         }
     }
 
-    private static func character(for keyCode: UInt32) -> String? {
-        guard let event = NSEvent.keyEvent(
-            with: .keyDown,
-            location: .zero,
-            modifierFlags: [],
-            timestamp: 0,
-            windowNumber: 0,
-            context: nil,
-            characters: "",
-            charactersIgnoringModifiers: "",
-            isARepeat: false,
-            keyCode: UInt16(keyCode)
-        ) else { return nil }
-        let chars = event.charactersIgnoringModifiers ?? ""
-        return chars.isEmpty ? nil : chars.uppercased()
-    }
+    /// The keys that type something, named for a US layout. Another layout puts
+    /// other letters on these codes, so someone on AZERTY sees the US name. Read
+    /// the live layout with UCKeyTranslate if that ever matters.
+    private static let printableKeys: [UInt32: String] = [
+        UInt32(kVK_ANSI_A): "A", UInt32(kVK_ANSI_B): "B", UInt32(kVK_ANSI_C): "C",
+        UInt32(kVK_ANSI_D): "D", UInt32(kVK_ANSI_E): "E", UInt32(kVK_ANSI_F): "F",
+        UInt32(kVK_ANSI_G): "G", UInt32(kVK_ANSI_H): "H", UInt32(kVK_ANSI_I): "I",
+        UInt32(kVK_ANSI_J): "J", UInt32(kVK_ANSI_K): "K", UInt32(kVK_ANSI_L): "L",
+        UInt32(kVK_ANSI_M): "M", UInt32(kVK_ANSI_N): "N", UInt32(kVK_ANSI_O): "O",
+        UInt32(kVK_ANSI_P): "P", UInt32(kVK_ANSI_Q): "Q", UInt32(kVK_ANSI_R): "R",
+        UInt32(kVK_ANSI_S): "S", UInt32(kVK_ANSI_T): "T", UInt32(kVK_ANSI_U): "U",
+        UInt32(kVK_ANSI_V): "V", UInt32(kVK_ANSI_W): "W", UInt32(kVK_ANSI_X): "X",
+        UInt32(kVK_ANSI_Y): "Y", UInt32(kVK_ANSI_Z): "Z",
+        UInt32(kVK_ANSI_0): "0", UInt32(kVK_ANSI_1): "1", UInt32(kVK_ANSI_2): "2",
+        UInt32(kVK_ANSI_3): "3", UInt32(kVK_ANSI_4): "4", UInt32(kVK_ANSI_5): "5",
+        UInt32(kVK_ANSI_6): "6", UInt32(kVK_ANSI_7): "7", UInt32(kVK_ANSI_8): "8",
+        UInt32(kVK_ANSI_9): "9",
+        UInt32(kVK_ANSI_Minus): "-", UInt32(kVK_ANSI_Equal): "=",
+        UInt32(kVK_ANSI_LeftBracket): "[", UInt32(kVK_ANSI_RightBracket): "]",
+        UInt32(kVK_ANSI_Backslash): "\\", UInt32(kVK_ANSI_Semicolon): ";",
+        UInt32(kVK_ANSI_Quote): "'", UInt32(kVK_ANSI_Comma): ",",
+        UInt32(kVK_ANSI_Period): ".", UInt32(kVK_ANSI_Slash): "/",
+        UInt32(kVK_ANSI_Grave): "`",
+    ]
 }

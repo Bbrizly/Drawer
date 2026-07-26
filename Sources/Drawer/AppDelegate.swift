@@ -208,6 +208,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         NotificationCenter.default.addObserver(
             self, selector: #selector(syncHotkey),
             name: UserDefaults.didChangeNotification, object: nil)
+        NotificationCenter.default.addObserver(
+            self, selector: #selector(syncShortcutSuppression),
+            name: .shortcutSuppressionChanged, object: nil)
 
         escMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             guard let self else { return event }
@@ -348,6 +351,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// instead, and only once Drawer is trusted for Accessibility.
     private func applyHotkey(_ binding: HotkeyBinding) -> Bool {
         requestedHotkey = binding
+        // The walkthrough tests presses on its own window monitor. A registered
+        // Carbon hotkey swallows the press first, so the try-it looked dead for
+        // every normal shortcut. Hold the shortcut off until the step is done.
+        guard !Onboarding.suppressShortcut else {
+            hotkey.unregister()
+            shortcutTap.stop()
+            return false
+        }
         if let flag = binding.tapFlag, binding.isModifierTap {
             guard AccessibilityPermission.isTrusted else {
                 shortcutTap.stop()
@@ -405,6 +416,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let saved = HotkeyBinding.saved
         guard saved != requestedHotkey else { return }
         _ = applyHotkey(saved)
+    }
+
+    /// The shortcut step went up or came down. Drop the shortcut or register it
+    /// again, whichever the step now needs.
+    @objc private func syncShortcutSuppression() {
+        requestedHotkey = nil  // force the re-apply, the shortcut itself is unchanged
+        _ = applyHotkey(HotkeyBinding.saved)
     }
 
     // MARK: - History scrubber (spec 04)

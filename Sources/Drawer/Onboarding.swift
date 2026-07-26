@@ -1,6 +1,12 @@
 import AppKit
 import SwiftUI
 
+extension Notification.Name {
+    /// Posted when the walkthrough starts or stops testing shortcut presses, so
+    /// the app can pull the real shortcut out of the way and put it back.
+    static let shortcutSuppressionChanged = Notification.Name("shortcutSuppressionChanged")
+}
+
 /// The first-run walkthrough: hello, the permission behind a one-key shortcut,
 /// the shortcut, where your files live, then the features you want. On first
 /// run the rest of launch waits for it, because every store built afterwards
@@ -11,9 +17,15 @@ enum Onboarding {
 
     /// True while the shortcut step is on screen and testing a press. Redoing
     /// the walkthrough from Settings runs against a live app, so a real press
-    /// would slide the actual drawer open behind the window. The shortcut
-    /// handlers check this so the test only rattles the mark, not the panel.
-    static var suppressShortcut = false
+    /// would slide the actual drawer open behind the window. While it is on the
+    /// shortcut is not registered at all: a Carbon hotkey eats the press before
+    /// the step's own monitor can see it, so the test would look dead.
+    static var suppressShortcut = false {
+        didSet {
+            guard suppressShortcut != oldValue else { return }
+            NotificationCenter.default.post(name: .shortcutSuppressionChanged, object: nil)
+        }
+    }
 
     /// Held while the window is up, so it is not deallocated and a second call
     /// brings the same one forward.
@@ -657,7 +669,7 @@ private struct HotkeyStep: View {
     /// tried yet, so ask for it again with the drawer back the way it started.
     private func set(_ new: HotkeyBinding) {
         binding = new
-        new.save()  // AppDelegate re-registers it off the defaults change
+        new.save()  // AppDelegate registers it once this step is done
         done = false
         drawerOpen = false
     }

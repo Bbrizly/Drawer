@@ -145,9 +145,7 @@ struct HotkeyRecorderField: View {
                 .multilineTextAlignment(.center)
                 .frame(maxWidth: 420)
         } else if recording {
-            Text(modifiers.isEmpty
-                 ? "Press any keys. One modifier alone works."
-                 : "Add a key, or let go to use \(HotkeyBinding.modifierParts(modifiers).joined()) alone.")
+            Text(Self.recordingHint(modifiers))
                 .foregroundStyle(.secondary)
                 .frame(maxWidth: 420)
                 .multilineTextAlignment(.center)
@@ -164,6 +162,17 @@ struct HotkeyRecorderField: View {
                 Text(binding.isModifierTap ? "Tap it now to try it." : "Press it now to try it.")
                     .foregroundStyle(.secondary)
             }
+        }
+    }
+
+    /// The line under the field while it listens. Only a single modifier can be
+    /// a shortcut on its own, so two or more must be told to finish with a key.
+    static func recordingHint(_ modifiers: NSEvent.ModifierFlags) -> String {
+        let caps = HotkeyBinding.modifierParts(modifiers)
+        switch caps.count {
+        case 0: return "Press any keys. One modifier alone works."
+        case 1: return "Add a key, or let go to use \(caps[0]) alone."
+        default: return "Now press a key to finish the shortcut."
         }
     }
 

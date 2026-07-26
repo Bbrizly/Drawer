@@ -67,6 +67,28 @@ final class HotkeyBindingTests: XCTestCase {
         XCTAssertEqual(HotkeyBinding.ctrlOptSpace.label, "⌃⌥Space")
     }
 
+    /// Letter and number keys used to fall through to their raw code, so ⌘K
+    /// read as "⌘Key 40" in the field.
+    func testTypingKeyLabels() {
+        XCTAssertEqual(
+            HotkeyBinding(keyCode: UInt32(kVK_ANSI_K), modifiers: UInt32(cmdKey)).label, "⌘K")
+        XCTAssertEqual(HotkeyBinding(keyCode: UInt32(kVK_ANSI_7), modifiers: 0).label, "7")
+        XCTAssertEqual(HotkeyBinding(keyCode: UInt32(kVK_ANSI_Slash), modifiers: 0).label, "/")
+    }
+
+    /// Two modifiers cannot be a shortcut on their own, so the field must stop
+    /// promising that letting go of them works.
+    func testRecordingHint() {
+        XCTAssertEqual(
+            HotkeyRecorderField.recordingHint([.control]),
+            "Add a key, or let go to use ⌃ alone.")
+        XCTAssertEqual(
+            HotkeyRecorderField.recordingHint([.control, .option]),
+            "Now press a key to finish the shortcut.")
+        XCTAssertEqual(
+            HotkeyRecorderField.recordingHint([]), "Press any keys. One modifier alone works.")
+    }
+
     func testTappedModifierIsOneCap() {
         let binding = HotkeyBinding.tap(UInt32(kVK_RightCommand))
         XCTAssertEqual(binding.parts, ["right ⌘"])
