@@ -48,10 +48,6 @@ app:
 # longer matches, so macOS keeps showing Drawer as "granted" while
 # AXIsProcessTrusted() stays false. Resetting clears that stale entry.
 run: install
-	-osascript -e 'quit app "Drawer"' 2>/dev/null
-	sleep 1
-	-pkill -f "Drawer.app/Contents/MacOS/Drawer" 2>/dev/null
-	sleep 1
 	@echo "--- reset accessibility grant for Drawer ---"
 	-tccutil reset Accessibility com.bbrizly.drawer 2>&1
 	@echo "--- relaunch installed copy ---"
@@ -121,8 +117,14 @@ clean:
 	rm -rf .build $(APP)
 
 install: app
+	-osascript -e 'quit app "Drawer"' 2>/dev/null
+	-pkill -f "/Applications/Drawer.app/Contents/MacOS/Drawer" 2>/dev/null
 	rm -rf /Applications/Drawer.app
 	cp -R Drawer.app /Applications/Drawer.app
+	-/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister \
+		-u "$(CURDIR)/Drawer.app" 2>/dev/null
+	/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister \
+		-f /Applications/Drawer.app
 
 release:
 	@test -n "$(RELEASE_TAG)" || (echo "Usage: make release RELEASE_TAG=v1.0.0" && exit 1)
