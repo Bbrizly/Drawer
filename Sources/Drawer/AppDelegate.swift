@@ -672,6 +672,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     @objc private func openSettings() {
         if settingsWindow == nil {
             var view = SettingsView(
+                boardStore: boardStore,
                 onChooseFile: { [weak self] url in
                     self?.store.updateFileURL(url)
                     self?.historyRecorder.repoint(to: url)  // follow the new drawer file

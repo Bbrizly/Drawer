@@ -157,6 +157,29 @@ public final class BoardStore: ObservableObject {
         )
     }
 
+    /// Media files no board or current undo/redo step still references.
+    public var unreferencedMedia: [URL] {
+        let documents = [document] + undoStack + redoStack
+        let referenced = Set(documents.flatMap {
+            $0.boards.flatMap { $0.items.compactMap(\.file) }
+        })
+        let files = try? FileManager.default.contentsOfDirectory(
+            at: mediaDirectory,
+            includingPropertiesForKeys: [.isRegularFileKey],
+            options: [.skipsHiddenFiles]
+        )
+        return (files ?? []).filter { file in
+            let isFile = try? file.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile
+            return isFile == true && !referenced.contains("media/" + file.lastPathComponent)
+        }.sorted { $0.lastPathComponent < $1.lastPathComponent }
+    }
+
+    public func removeUnreferencedMedia() throws {
+        for file in unreferencedMedia {
+            try FileManager.default.removeItem(at: file)
+        }
+    }
+
     @discardableResult
     public func addText(
         title: String, body: String, at point: CGPoint? = nil, color: String? = nil

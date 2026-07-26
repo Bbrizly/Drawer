@@ -346,6 +346,8 @@ final class DrawerVisualRenderTests: XCTestCase {
     ) throws {
         let host = NSHostingView(rootView:
             SettingsView(
+                boardStore: BoardStore(directory: FileManager.default.temporaryDirectory
+                    .appendingPathComponent(UUID().uuidString)),
                 onChooseFile: { _ in },
                 onHotkeyChange: { _ in true },
                 onLayoutChange: {},
@@ -395,6 +397,8 @@ final class DrawerVisualRenderTests: XCTestCase {
     ) throws -> NSBitmapImageRep {
         let host = NSHostingView(rootView:
             SettingsView(
+                boardStore: BoardStore(directory: FileManager.default.temporaryDirectory
+                    .appendingPathComponent(UUID().uuidString)),
                 onChooseFile: { _ in },
                 onHotkeyChange: { _ in true },
                 onLayoutChange: {},

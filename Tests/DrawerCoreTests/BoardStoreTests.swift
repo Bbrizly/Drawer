@@ -324,4 +324,32 @@ final class BoardStoreTests: XCTestCase {
         makeStore().load()
         XCTAssertTrue(FileManager.default.fileExists(atPath: file.path))
     }
+
+    func testManualCleanupKeepsBoardAndUndoMedia() throws {
+        let store = makeStore()
+        let firstBoardFile = try makeMedia(store, "first.png")
+        let secondBoardFile = try makeMedia(store, "second.png")
+        let undoFile = try makeMedia(store, "undo.png")
+        let orphan = try makeMedia(store, "orphan.png")
+
+        store.addImage(
+            file: "media/first.png", naturalSize: .init(width: 10, height: 10),
+            displaySize: .init(width: 10, height: 10), at: .zero)
+        store.addBoard()
+        store.addImage(
+            file: "media/second.png", naturalSize: .init(width: 10, height: 10),
+            displaySize: .init(width: 10, height: 10), at: .zero)
+        let undoItem = store.addImage(
+            file: "media/undo.png", naturalSize: .init(width: 10, height: 10),
+            displaySize: .init(width: 10, height: 10), at: .zero)
+        store.remove(undoItem.id)
+
+        XCTAssertEqual(store.unreferencedMedia.map(\.lastPathComponent), ["orphan.png"])
+        try store.removeUnreferencedMedia()
+
+        XCTAssertTrue(FileManager.default.fileExists(atPath: firstBoardFile.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: secondBoardFile.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: undoFile.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: orphan.path))
+    }
 }

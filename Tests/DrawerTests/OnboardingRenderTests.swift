@@ -1,5 +1,6 @@
 import AppKit
 @testable import Drawer
+import DrawerCore
 import SwiftUI
 import XCTest
 
@@ -31,6 +32,8 @@ final class OnboardingRenderTests: XCTestCase {
             }
             try render(
                 SettingsView(
+                    boardStore: BoardStore(directory: FileManager.default.temporaryDirectory
+                        .appendingPathComponent(UUID().uuidString)),
                     onChooseFile: { _ in },
                     onHotkeyChange: { _ in true },
                     onLayoutChange: {},

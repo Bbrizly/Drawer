@@ -8,6 +8,7 @@ import DrawerBureau
 #endif
 
 struct SettingsView: View {
+    @ObservedObject var boardStore: BoardStore
     var onChooseFile: (URL) -> Void
     var onHotkeyChange: (HotkeyBinding) -> Bool
     var onLayoutChange: () -> Void
@@ -112,7 +113,7 @@ struct SettingsView: View {
             case .bureau:
                 bureauTab
             case .advanced:
-                AdvancedSettingsView()
+                AdvancedSettingsView(boardStore: boardStore)
             case .help:
                 HelpView()
             }
@@ -1167,6 +1168,7 @@ private struct FeatureSettingsView: View {
 }
 
 private struct AdvancedSettingsView: View {
+    @ObservedObject var boardStore: BoardStore
     @AppStorage(AppPaths.dataFolderPathKey) private var dataFolderPath = ""
     @AppStorage(AppPaths.notesFilePathKey) private var notesFilePath = ""
     @AppStorage(AppPaths.workLogFilePathKey) private var workLogFilePath = ""
@@ -1312,7 +1314,7 @@ private struct AdvancedSettingsView: View {
                 }
                 SettingsCaption("Clears custom paths and advanced toggles. Themes, sounds, and your task file stay as they are.")
             }
-            StorageSection()
+            StorageSection(boardStore: boardStore)
             Section {
                 Toggle("Developer tools", isOn: $devToolsEnabled)
                     .onChange(of: devToolsEnabled) { _, _ in DevTuningStore.shared.refresh() }
@@ -1347,6 +1349,8 @@ private struct AdvancedSettingsView: View {
 /// file, notes, and boards are never listed or touched here. The live history
 /// scrubber self-heals to the cleared state on its next capture.
 private struct StorageSection: View {
+    @ObservedObject var boardStore: BoardStore
+
     private struct Store: Identifiable {
         let id: String
         let name: String
@@ -1370,6 +1374,7 @@ private struct StorageSection: View {
 
     @State private var sizes: [String: Int64] = [:]
     @State private var confirming: Store?
+    @State private var confirmingMediaCleanup = false
 
     var body: some View {
         Section("Storage") {
@@ -1386,9 +1391,27 @@ private struct StorageSection: View {
                         .disabled((sizes[store.id] ?? 0) == 0)
                 }
             }
+            HStack(alignment: .firstTextBaseline) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Unreferenced images")
+                    SettingsCaption("Pasted images no board or undo step still uses.")
+                }
+                Spacer(minLength: 12)
+                Text(sizeLabel(sizes["unreferencedMedia"] ?? 0))
+                    .font(.caption).foregroundStyle(.secondary).monospacedDigit()
+                Button("Remove") { confirmingMediaCleanup = true }
+                    .disabled((sizes["unreferencedMedia"] ?? 0) == 0)
+            }
+            .alert("Remove unreferenced images?", isPresented: $confirmingMediaCleanup) {
+                Button("Cancel", role: .cancel) {}
+                Button("Remove", role: .destructive) { removeUnreferencedMedia() }
+            } message: {
+                Text("This deletes them for good. Images used by a board or its current undo history are kept.")
+            }
             SettingsCaption("Sizes on disk. Clearing a store cannot be undone.")
         }
         .onAppear(perform: refresh)
+        .onChange(of: boardStore.document) { _, _ in refresh() }
         .alert(
             "Clear \(confirming?.name.lowercased() ?? "this data")?",
             isPresented: Binding(get: { confirming != nil }, set: { if !$0 { confirming = nil } }),
@@ -1406,12 +1429,20 @@ private struct StorageSection: View {
         for store in stores {
             out[store.id] = store.targets.reduce(0) { $0 + Self.size(of: $1) }
         }
+        out["unreferencedMedia"] = boardStore.unreferencedMedia.reduce(0) {
+            $0 + Self.size(of: $1)
+        }
         sizes = out
     }
 
     private func clear(_ store: Store) {
         for url in store.targets { try? FileManager.default.removeItem(at: url) }
         confirming = nil
+        refresh()
+    }
+
+    private func removeUnreferencedMedia() {
+        try? boardStore.removeUnreferencedMedia()
         refresh()
     }
 
