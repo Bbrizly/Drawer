@@ -509,7 +509,7 @@ private struct WelcomeStep: View {
 
 /// macOS will not let any app watch the keyboard until you say so, and a
 /// shortcut that is one modifier key on its own can only be caught that way.
-/// Direct download only: the sandbox denies the whole API.
+/// Works in both builds once the user grants Accessibility.
 private struct AccessStep: View {
     @Environment(\.drawerTheme) private var theme
     /// Watched for the whole walkthrough by OnboardingView, so this only reads.
