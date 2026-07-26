@@ -14,15 +14,19 @@ on:
 permissions:
   contents: write
 
-# Needs these repo secrets (Settings > Secrets and variables > Actions):
+# Notarizing is optional. With no secrets set the release still goes out, just
+# ad-hoc signed, and people have to right click Open the first time. Set these
+# repo secrets (Settings > Secrets and variables > Actions) to notarize:
 #   MACOS_CERT_P12       base64 of the exported "Developer ID Application" .p12
 #   MACOS_CERT_PASSWORD  the password you set when exporting that .p12
 #   APPLE_ID             your Apple ID email
-#   APPLE_TEAM_ID        8S2SR5UZ54
+#   APPLE_TEAM_ID        69NPZWZB47, the team on the Developer ID cert
 #   APPLE_APP_PASSWORD   an app-specific password from appleid.apple.com
 jobs:
   release:
     runs-on: macos-26
+    env:
+      SIGNED: ${{ secrets.MACOS_CERT_P12 != '' }}
     steps:
       - uses: actions/checkout@v4
 
@@ -41,6 +45,7 @@ jobs:
           make app
 
       - name: Import signing certificate
+        if: env.SIGNED == 'true'
         env:
           MACOS_CERT_P12: ${{ secrets.MACOS_CERT_P12 }}
           MACOS_CERT_PASSWORD: ${{ secrets.MACOS_CERT_PASSWORD }}
@@ -56,6 +61,7 @@ jobs:
           security list-keychains -d user -s "$KEYCHAIN" login.keychain-db
 
       - name: Sign, notarize, and staple
+        if: env.SIGNED == 'true'
         env:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
@@ -83,6 +89,7 @@ jobs:
 
             1. Download **Drawer-macOS.zip** below.
             2. Double-click the zip to unpack **Drawer.app**.
-            3. Drag **Drawer.app** into **Applications** and open it.
+            3. Drag **Drawer.app** into **Applications**.
+            4. ${{ env.SIGNED == 'true' && 'Open it.' || 'Right click it, pick **Open**, then click **Open** again. macOS asks once because this build is not notarized yet.' }}
 
             Requires macOS 26 or later.
