@@ -16,7 +16,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/Bbrizly/Drawer/releases/latest"><img src="https://img.shields.io/github/v/release/Bbrizly/Drawer?style=flat-square&color=111111&label=download" alt="Download latest release"></a>
+  <a href="https://apps.apple.com/us/app/drawer/id6791025906?mt=12"><img src="https://img.shields.io/badge/Mac%20App%20Store-download-111111?style=flat-square" alt="Download on the Mac App Store"></a>
   <img src="https://img.shields.io/badge/macOS-26%2B-111111?style=flat-square" alt="macOS 26 or later">
   <img src="https://img.shields.io/badge/Swift-6.2-111111?style=flat-square" alt="Swift 6.2">
   <img src="https://img.shields.io/badge/themes-8-111111?style=flat-square" alt="Eight themes">
@@ -89,12 +89,13 @@ If you keep your file in a vault where you use an AI, copy `.claude/skills/drawe
 
 ## Download and install
 
-Get the latest build from [Releases](https://github.com/Bbrizly/Drawer/releases/latest).
+Drawer is free on the [Mac App Store](https://apps.apple.com/us/app/drawer/id6791025906?mt=12). That is the easiest way to get it, and it updates itself.
+
+If you would rather have the app outside the sandbox, there is a signed and notarized build in [Releases](https://github.com/Bbrizly/Drawer/releases/latest).
 
 1. Download **Drawer-macOS.zip**.
 2. Unzip it to get **Drawer.app**.
 3. Drag **Drawer.app** into **Applications**.
-4. The first time, right-click the app and choose **Open**. macOS blocks unsigned apps until you do that once.
 
 ## Controls
 
