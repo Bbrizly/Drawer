@@ -1345,8 +1345,8 @@ private struct AdvancedSettingsView: View {
 }
 
 /// Advanced > storage. What Drawer keeps on disk and how big it is, with a
-/// confirmed clear for each. These are Drawer's own derived stores; your task
-/// file, notes, and boards are never listed or touched here. The live history
+/// confirmed clear for each. Derived stores and the idea board folder live
+/// here; your task file and notes are never listed or touched. The live history
 /// scrubber self-heals to the cleared state on its next capture.
 private struct StorageSection: View {
     @ObservedObject var boardStore: BoardStore
@@ -1356,6 +1356,10 @@ private struct StorageSection: View {
         let name: String
         let caption: String
         let targets: [URL]  // the files or folders this store owns
+        /// Shown to the left of the size. Nil keeps the row compact.
+        var location: String? = nil
+        /// Extra detail in the clear confirmation. Nil uses the generic line.
+        var clearNote: String? = nil
     }
 
     private var stores: [Store] {
@@ -1369,6 +1373,14 @@ private struct StorageSection: View {
             Store(id: "summaries", name: "Day summaries and schedules",
                   caption: "The AI day summaries and planned schedules work mode built.",
                   targets: [AppPaths.daySummariesFile, AppPaths.daySchedulesFile]),
+            Store(id: "ideas", name: "Idea board",
+                  caption: "board.json and pasted images in your idea board folder.",
+                  targets: [
+                      AppPaths.ideasDirectory.appendingPathComponent("board.json"),
+                      AppPaths.ideasDirectory.appendingPathComponent("media", isDirectory: true),
+                  ],
+                  location: AppPaths.ideasDirectory.path,
+                  clearNote: "Every board and pasted image is erased. This cannot be undone."),
         ]
     }
 
@@ -1385,6 +1397,15 @@ private struct StorageSection: View {
                         SettingsCaption(store.caption)
                     }
                     Spacer(minLength: 12)
+                    if let location = store.location {
+                        Text(location)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .truncationMode(.middle)
+                            .lineLimit(1)
+                            .frame(maxWidth: 200, alignment: .trailing)
+                            .help(location)
+                    }
                     Text(sizeLabel(sizes[store.id] ?? 0))
                         .font(.caption).foregroundStyle(.secondary).monospacedDigit()
                     Button("Clear") { confirming = store }
@@ -1419,8 +1440,12 @@ private struct StorageSection: View {
         ) { store in
             Button("Cancel", role: .cancel) {}
             Button("Clear \(sizeLabel(sizes[store.id] ?? 0))", role: .destructive) { clear(store) }
-        } message: { _ in
-            Text("This deletes it for good. Your task file, notes, and boards are not touched.")
+        } message: { store in
+            if let note = store.clearNote {
+                Text("This deletes it for good. \(note) Your task file and notes are not touched.")
+            } else {
+                Text("This deletes it for good. Your task file and notes are not touched.")
+            }
         }
     }
 
@@ -1436,7 +1461,11 @@ private struct StorageSection: View {
     }
 
     private func clear(_ store: Store) {
-        for url in store.targets { try? FileManager.default.removeItem(at: url) }
+        if store.id == "ideas" {
+            try? boardStore.clear()
+        } else {
+            for url in store.targets { try? FileManager.default.removeItem(at: url) }
+        }
         confirming = nil
         refresh()
     }

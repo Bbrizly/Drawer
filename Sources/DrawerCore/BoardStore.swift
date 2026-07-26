@@ -180,6 +180,24 @@ public final class BoardStore: ObservableObject {
         }
     }
 
+    /// Replace every board with a fresh empty document and remove its media.
+    /// Other files beside board.json in a user-chosen folder are left alone.
+    public func clear() throws {
+        let empty = BoardDocument()
+        let data = try Self.encoder.encode(empty)
+        try writeData(data, boardFile)
+
+        saveTask?.cancel()
+        saveTask = nil
+        document = empty
+        undoStack.removeAll()
+        redoStack.removeAll()
+
+        if FileManager.default.fileExists(atPath: mediaDirectory.path) {
+            try FileManager.default.removeItem(at: mediaDirectory)
+        }
+    }
+
     @discardableResult
     public func addText(
         title: String, body: String, at point: CGPoint? = nil, color: String? = nil

@@ -352,4 +352,27 @@ final class BoardStoreTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: undoFile.path))
         XCTAssertFalse(FileManager.default.fileExists(atPath: orphan.path))
     }
+
+    func testClearResetsBoardAndKeepsOtherFolderFiles() throws {
+        let store = makeStore()
+        let image = try makeMedia(store, "image.png")
+        let other = dir.appendingPathComponent("keep-me.txt")
+        try Data("mine".utf8).write(to: other)
+        store.addImage(
+            file: "media/image.png", naturalSize: .init(width: 10, height: 10),
+            displaySize: .init(width: 10, height: 10), at: .zero)
+        store.addBoard()
+
+        try store.clear()
+
+        XCTAssertEqual(store.document.boards.count, 1)
+        XCTAssertTrue(store.document.items.isEmpty)
+        XCTAssertFalse(store.canUndo)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: image.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: other.path))
+
+        let reloaded = makeStore()
+        reloaded.load()
+        XCTAssertTrue(reloaded.document.items.isEmpty)
+    }
 }
