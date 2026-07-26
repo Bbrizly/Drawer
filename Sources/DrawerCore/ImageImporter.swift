@@ -18,7 +18,7 @@ public enum ImageImporter {
 
     /// Persist raw image bytes into `mediaDirectory`, keeping the source format.
     /// Returns the relative path and the image's natural pixel size.
-    public static func persist(_ data: Data, into mediaDirectory: URL, now: Date) throws -> Imported {
+    public static func persist(_ data: Data, into mediaDirectory: URL) throws -> Imported {
         try FileManager.default.createDirectory(at: mediaDirectory, withIntermediateDirectories: true)
         guard let src = CGImageSourceCreateWithData(data as CFData, nil),
               let props = CGImageSourceCopyPropertiesAtIndex(src, 0, nil) as? [CFString: Any]
@@ -29,10 +29,11 @@ public enum ImageImporter {
         guard w > 0, h > 0 else { throw ImportError.undecodable }
 
         let ext = fileExtension(for: src)
-        // timestamp + short uuid, collisions are basicaly impossible
-        let name = timestamp(now) + "-" + String(UUID().uuidString.prefix(6)) + "." + ext
+        let name = SnapshotStore.sha256Hex(data) + "." + ext
         let url = mediaDirectory.appendingPathComponent(name)
-        try data.write(to: url, options: .atomic)
+        if !FileManager.default.fileExists(atPath: url.path) {
+            try data.write(to: url, options: .atomic)
+        }
         return Imported(relativeFile: "media/" + name, naturalWidth: w, naturalHeight: h)
     }
 
@@ -58,12 +59,5 @@ public enum ImageImporter {
             return ext
         }
         return "png"
-    }
-
-    private static func timestamp(_ date: Date) -> String {
-        let f = DateFormatter()
-        f.dateFormat = "yyyyMMdd-HHmmss"
-        f.timeZone = .current
-        return f.string(from: date)
     }
 }

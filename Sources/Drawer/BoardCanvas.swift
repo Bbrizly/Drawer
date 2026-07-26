@@ -93,7 +93,7 @@ struct BoardCanvas: NSViewRepresentable {
             // Persist + decode off the main thread, then hop back to the main
             // actor to mutate the store.
             DispatchQueue.global(qos: .userInitiated).async {
-                guard let imported = try? ImageImporter.persist(data, into: mediaDir, now: Date()) else { return }
+                guard let imported = try? ImageImporter.persist(data, into: mediaDir) else { return }
                 let natural = CGSize(width: imported.naturalWidth, height: imported.naturalHeight)
                 let display = Coordinator.displaySize(for: natural, maxEdge: 360)
                 Task { @MainActor in

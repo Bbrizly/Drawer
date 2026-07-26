@@ -38,7 +38,7 @@ final class ImageImporterTests: XCTestCase {
     func testPersistWritesFileAndReturnsNaturalSize() throws {
         let mediaDir = dir.appendingPathComponent("media", isDirectory: true)
         let data = pngData(width: 200, height: 120)
-        let imported = try ImageImporter.persist(data, into: mediaDir, now: Date(timeIntervalSince1970: 0))
+        let imported = try ImageImporter.persist(data, into: mediaDir)
 
         XCTAssertEqual(imported.naturalWidth, 200, accuracy: 0.001)
         XCTAssertEqual(imported.naturalHeight, 120, accuracy: 0.001)
@@ -51,7 +51,7 @@ final class ImageImporterTests: XCTestCase {
     func testDownsampleClampsLongestEdge() throws {
         let mediaDir = dir.appendingPathComponent("media", isDirectory: true)
         let data = pngData(width: 1000, height: 500)
-        let imported = try ImageImporter.persist(data, into: mediaDir, now: Date())
+        let imported = try ImageImporter.persist(data, into: mediaDir)
         let url = dir.appendingPathComponent(imported.relativeFile)
 
         let thumb = ImageImporter.downsample(fileURL: url, maxPixelSize: 100)
@@ -62,6 +62,17 @@ final class ImageImporterTests: XCTestCase {
     func testPersistRejectsGarbage() {
         let mediaDir = dir.appendingPathComponent("media", isDirectory: true)
         let junk = Data([0, 1, 2, 3, 4, 5])
-        XCTAssertThrowsError(try ImageImporter.persist(junk, into: mediaDir, now: Date()))
+        XCTAssertThrowsError(try ImageImporter.persist(junk, into: mediaDir))
+    }
+
+    func testPersistReusesFileForIdenticalBytes() throws {
+        let mediaDir = dir.appendingPathComponent("media", isDirectory: true)
+        let data = pngData(width: 200, height: 120)
+
+        let first = try ImageImporter.persist(data, into: mediaDir)
+        let second = try ImageImporter.persist(data, into: mediaDir)
+
+        XCTAssertEqual(first, second)
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: mediaDir.path).count, 1)
     }
 }
