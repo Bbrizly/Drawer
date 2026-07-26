@@ -312,20 +312,29 @@ private struct StampHeadView: View {
     }
 
     private var die: some View {
-        RoundedRectangle(cornerRadius: 6)
+        // The press: drop down, swell then flatten, shadow grows. Worked out
+        // here rather than inline, because the whole view was too much for the
+        // type checker to solve in one go.
+        let squashX: CGFloat = 1 + depth * 0.06
+        let squashY: CGFloat = 1 - depth * 0.12
+        let drop: CGFloat = depth * size * 0.18
+        let shadowRadius: CGFloat = 2 + depth * 8
+        let shadowDrop: CGFloat = 1 + depth * 3
+        return RoundedRectangle(cornerRadius: 6)
             .fill(Color(nsColor: kind.color))
             .frame(width: size, height: size)
-            .overlay(
-                // The handle boss: a lighter inset knob you grip from above.
-                Circle()
-                    .fill(Color.white.opacity(0.18))
-                    .overlay(Circle().strokeBorder(Color.black.opacity(0.18), lineWidth: 1))
-                    .frame(width: size * 0.5, height: size * 0.5)
-            )
-            // The press: drop down, swell then flatten, shadow grows.
-            .scaleEffect(x: 1 + depth * 0.06, y: 1 - depth * 0.12)
-            .offset(y: depth * (size * 0.18))
-            .shadow(color: .black.opacity(0.35), radius: 2 + depth * 8, y: 1 + depth * 3)
+            .overlay(boss)
+            .scaleEffect(x: squashX, y: squashY)
+            .offset(y: drop)
+            .shadow(color: .black.opacity(0.35), radius: shadowRadius, y: shadowDrop)
+    }
+
+    /// The handle boss: a lighter inset knob you grip from above.
+    private var boss: some View {
+        Circle()
+            .fill(Color.white.opacity(0.18))
+            .overlay(Circle().strokeBorder(Color.black.opacity(0.18), lineWidth: 1))
+            .frame(width: size * 0.5, height: size * 0.5)
     }
 
     /// The word on a small plate below the stamp, like the label plate on a PP

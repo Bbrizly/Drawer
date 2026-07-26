@@ -90,7 +90,7 @@ final class BureauSounds {
         }
         case .ding: return buffer(duration: 0.4) { t, _ in
             // A small terminal bell: a bright pair a fifth apart, rung once.
-            (sin(2 * .pi * 1244.5 * t) + 0.5 * sin(2 * .pi * 1864.7 * t))
+            (sin(2 * Double.pi * 1244.5 * t) + 0.5 * sin(2 * Double.pi * 1864.7 * t))
                 * exp(-t * 9) * min(1, t * 400)
         }
         case .thunk: return buffer(duration: 0.24) { t, rng in
@@ -123,8 +123,11 @@ final class BureauSounds {
             // Shredder teeth: a low grind that sweeps down slowly as the slip is
             // pulled under. Two incommensurate sines give an irregular amplitude
             // wobble, like the paper catching and slipping.
-            let grind = sin(2 * .pi * (140 - 180 * t) * t)
-            let wobble = 0.6 + 0.4 * sin(2 * .pi * 11 * t) * sin(2 * .pi * 7 * t)
+            // Double.pi spelled out: left to infer, the sweep took the type
+            // checker seconds to solve and CI gave up on it.
+            let sweep: Double = 140 - 180 * t
+            let grind = sin(2 * Double.pi * sweep * t)
+            let wobble: Double = 0.6 + 0.4 * sin(2 * Double.pi * 11 * t) * sin(2 * Double.pi * 7 * t)
             return (rng() * 0.6 + grind * 0.4) * wobble * exp(-t * 3)
         }
         case .slide: return buffer(duration: 0.12) { t, rng in
