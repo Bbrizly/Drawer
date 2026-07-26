@@ -491,12 +491,9 @@ private struct GeneralSettingsView: View {
                         presetButton(binding, label: binding.label)
                     }
                 }
-                // Tapped modifiers ride Accessibility, which the sandbox denies.
-                if !appStoreBuild {
-                    HStack(spacing: 6) {
-                        ForEach(HotkeyBinding.tapPresets) { binding in
-                            presetButton(binding, label: "Tap \(binding.label)")
-                        }
+                HStack(spacing: 6) {
+                    ForEach(HotkeyBinding.tapPresets) { binding in
+                        presetButton(binding, label: "Tap \(binding.label)")
                     }
                 }
                 DisclosureGroup("Shortcuts with modifiers") {
@@ -575,8 +572,7 @@ private struct GeneralSettingsView: View {
         }
         .task {
             // Keep the status fresh so it flips right after the user grants
-            // access. The App Store build shows no accessibility UI; skip.
-            guard !appStoreBuild else { return }
+            // access.
             while !Task.isCancelled {
                 axTrusted = AccessibilityPermission.isTrusted
                 try? await Task.sleep(nanoseconds: 1_000_000_000)

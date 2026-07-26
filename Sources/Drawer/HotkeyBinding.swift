@@ -84,10 +84,6 @@ struct HotkeyBinding: Equatable, Hashable, Identifiable {
     /// Why this cannot be the shortcut, or nil when it can.
     var problem: String? {
         if isModifierTap {
-            guard !appStoreBuild else {
-                return "A single modifier needs Accessibility, which this version cannot ask for. "
-                    + "Hold it with another key instead."
-            }
             return tapFlag == nil ? "That is not a modifier key." : nil
         }
         // A bare typing key would fire in the middle of a sentence.

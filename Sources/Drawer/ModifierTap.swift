@@ -42,13 +42,10 @@ struct ModifierTapDetector {
 /// Thin wrapper on macOS accessibility trust, the permission a global key
 /// monitor needs.
 enum AccessibilityPermission {
-    // The App Store build never touches the AX API: the sandbox denies it and
-    // every accessibility-dependent feature is unreachable there.
-    static var isTrusted: Bool { !appStoreBuild && AXIsProcessTrusted() }
+    static var isTrusted: Bool { AXIsProcessTrusted() }
 
     /// Opens the system prompt that sends the user to grant access.
     static func prompt() {
-        guard !appStoreBuild else { return }
         let key = kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String
         _ = AXIsProcessTrustedWithOptions([key: true] as CFDictionary)
     }

@@ -72,10 +72,9 @@ dist: app
 	ditto -c -k --keepParent $(APP) Drawer.zip
 	@echo "Notarized Drawer.zip is ready to ship."
 
-# Mac App Store flavor for local inspection: -DAPPSTORE removes the
-# Accessibility surface (attribution sampling and the right-Command tap) and
-# switches defaults to sandbox-safe paths. Ad-hoc signed, still bundles
-# drawer-mcp for dev convenience; `masdist` builds the real store artifact.
+# Mac App Store flavor for local inspection: -DAPPSTORE drops attribution
+# sampling and switches defaults to sandbox-safe paths. Ad-hoc signed, still
+# bundles drawer-mcp for dev convenience; `masdist` builds the real artifact.
 appstore: SWIFT_FLAGS = -Xswiftc -DAPPSTORE
 appstore: app
 

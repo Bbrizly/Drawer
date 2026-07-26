@@ -1,9 +1,9 @@
 import SwiftUI
 
 /// True in the Mac App Store flavor (`make appstore`, i.e. -DAPPSTORE). The
-/// sandbox denies the Accessibility API, so the AX-dependent surface
-/// (attribution sampling, the right-Command tap) is unreachable in that build:
-/// no toggle, no prompt, no monitor.
+/// sandbox changes where files live and keeps attribution sampling out, but
+/// Accessibility still works: the user grants it like any other app, so the
+/// single modifier tap runs in both builds.
 #if APPSTORE
     let appStoreBuild = true
 #else

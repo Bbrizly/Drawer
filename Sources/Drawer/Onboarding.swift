@@ -103,13 +103,7 @@ struct OnboardingView: View {
         case welcome, access, shortcut, files, features
     }
 
-    /// The App Store build has no permission step: the sandbox denies the
-    /// Accessibility API outright, so there is nothing to grant.
-    static var order: [Step] {
-        appStoreBuild
-            ? [.welcome, .shortcut, .files, .features]
-            : [.welcome, .access, .shortcut, .files, .features]
-    }
+    static var order: [Step] { [.welcome, .access, .shortcut, .files, .features] }
 
     private var lastStep: Int { Self.order.count - 1 }
     private var current: Step { Self.order[min(step, lastStep)] }
@@ -153,7 +147,6 @@ struct OnboardingView: View {
         .task {
             // One watcher for every step: the grant lands in another process,
             // and the user can flip it while looking at any of these screens.
-            guard !appStoreBuild else { return }
             while !Task.isCancelled {
                 trusted = AccessibilityPermission.isTrusted
                 try? await Task.sleep(nanoseconds: 400_000_000)
@@ -631,12 +624,10 @@ private struct HotkeyStep: View {
                     onGoodPress: { goodPress() }
                 )
                 Menu("Pick a ready-made one") {
-                    if !appStoreBuild {
-                        ForEach(HotkeyBinding.tapPresets) { preset in
-                            Button("Tap \(preset.label)") { set(preset) }
-                        }
-                        Divider()
+                    ForEach(HotkeyBinding.tapPresets) { preset in
+                        Button("Tap \(preset.label)") { set(preset) }
                     }
+                    Divider()
                     ForEach(HotkeyBinding.modifierPresets) { preset in
                         Button(preset.label) { set(preset) }
                     }
