@@ -98,6 +98,9 @@ struct DrawerView: View {
     @State private var swipe = SwipeCoordinator()
     @StateObject private var scrollMonitor = ScrollSwipeMonitor()
     @StateObject private var sound = FocusSoundPlayer()
+    // Lives out here so the lot keeps its zoom across visits. The board page
+    // itself is torn down when you leave it, and its state goes with it.
+    @State private var lotZoom: CGFloat = 1
 
     private var theme: DrawerTheme { DrawerTheme(rawValue: themeRaw) ?? .default }
     private var notebookWritingInset: CGFloat {
@@ -267,11 +270,16 @@ struct DrawerView: View {
 
             ConfettiLayer(center: celebration)
 
-            if ideasEnabled, let ideas {
-                IdeaBoardPage(store: ideas, theme: theme, lot: lot) {
+            // Built only while it is on screen. Parking it off to the left with
+            // an offset still left it in the layout, so every panel open paid
+            // for the whole board, and a big parking lot froze the open for the
+            // best part of a second.
+            if ideasEnabled, let ideas, swipe.showingBoard {
+                IdeaBoardPage(store: ideas, theme: theme, lot: lot, lotZoom: $lotZoom) {
                     swipe.showingBoard = false
                 }
-                .offset(x: swipe.showingBoard ? 0 : -3000)
+                .transition(.move(edge: .leading))
+                .zIndex(1)
             }
         }
         .coordinateSpace(.named("panel"))

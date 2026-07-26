@@ -10,11 +10,13 @@ struct IdeaBoardPage: View {
     @ObservedObject var store: BoardStore
     var theme: DrawerTheme
     var lot: ParkingLotStore? = nil
+    // Held by DrawerView: this page is torn down when you leave it, so a zoom
+    // kept in here would reset every time.
+    @Binding var lotZoom: CGFloat
     var onBack: () -> Void
 
     @Environment(SwipeCoordinator.self) private var swipe
     @State private var recenterRequests = 0
-    @State private var lotZoom: CGFloat = 1
     @State private var lotJumpToBay: Int?
     @State private var showingBoardSelector = false
     // Board settings (see the Board tab in Settings).
