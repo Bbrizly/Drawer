@@ -60,7 +60,7 @@ final class AttributionSidecarTests: XCTestCase {
         let headingIdx = lines.firstIndex { $0.hasPrefix("## 2026-07-05") }!
         // The narrative sits directly under the day heading, above the rows.
         XCTAssertEqual(lines[headingIdx + 1], "A focused day shipping.")
-        XCTAssertTrue(md.contains("- Ship —"))
+        XCTAssertTrue(md.contains("- Ship ("))
     }
 
     func testWorkLogWithoutSummaryUnchanged() {

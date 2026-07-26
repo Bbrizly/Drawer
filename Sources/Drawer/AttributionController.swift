@@ -4,7 +4,7 @@ import Foundation
 
 /// Live driver for attribution: owns the sampler, folds its stream through the
 /// pure DrawerCore engine, and lands proposals in the review queue. Nothing is
-/// written to the work log here — only the review card's approve does that.
+/// written to the work log here. Only the review card's approve does that.
 ///
 /// The fold heuristics are all in DrawerCore (unit-tested); this class is the
 /// thin AppKit-facing orchestration. Runtime behavior needs device dogfooding.
@@ -180,8 +180,8 @@ final class AttributionController: ObservableObject {
     }
 
     /// Fold buffered samples into blocks and queue proposals. flush fires only on
-    /// session-ending events (idle/sleep/lock/stop), so every block is complete —
-    /// queue them all. The snapshot is taken and the buffer reset synchronously
+    /// session-ending events (idle/sleep/lock/stop), so every block is complete and
+    /// they can all be queued. The snapshot is taken and the buffer reset synchronously
     /// so samples arriving during the async classify accumulate for the next
     /// flush instead of being lost or double-queued.
     private func flush(streamEnd: Date) {

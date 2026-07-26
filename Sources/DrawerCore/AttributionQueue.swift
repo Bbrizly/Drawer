@@ -102,7 +102,7 @@ public struct AttributionService: Sendable {
             throw AttributionError.entryNotFound
         }
         // Idempotent: if a prior approve wrote the session but failed to clear the
-        // queue entry, don't write it twice — just finish removing the entry.
+        // queue entry, don't write it twice, just finish removing the entry.
         if let existing = log.all().first(where: { $0.attributionID == entry.id }) {
             try remove(id)
             return existing

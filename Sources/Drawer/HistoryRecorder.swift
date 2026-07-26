@@ -5,7 +5,7 @@ import Foundation
 /// Captures a debounced history of Drawer.md while the app runs. Driven by the
 /// existing FileWatcher: a launch capture anchors "now", then each change arms a
 /// quiet-period debounce so one logical edit yields one clean snapshot. Never
-/// blocks a write — capture is always after the fact, off the write path.
+/// blocks a write. Capture is always after the fact, off the write path.
 @MainActor
 final class HistoryRecorder: ObservableObject {
     @Published private(set) var records: [SnapshotRecord] = []

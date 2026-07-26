@@ -18,8 +18,8 @@ final class WorkLogMarkdownTests: XCTestCase {
             longest: nil
         )
         let markdown = renderWorkLogMarkdown([summary])
-        XCTAssertTrue(markdown.contains("## 2026-07-01 — 1h 10m"))
-        XCTAssertTrue(markdown.contains("- B — 1h 00m"))
-        XCTAssertTrue(markdown.contains("- A — 0h 10m"))
+        XCTAssertTrue(markdown.contains("## 2026-07-01 (1h 10m)"))
+        XCTAssertTrue(markdown.contains("- B (1h 00m)"))
+        XCTAssertTrue(markdown.contains("- A (0h 10m)"))
     }
 }

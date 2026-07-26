@@ -39,7 +39,7 @@ struct PlannerPanel: View {
 
 /// The plan preview: draft entries with editable minutes, per-row remove, and
 /// drag-to-reorder. Nothing is written until Accept. It is the clamp on the
-/// model's durations — every minute value is visible and editable first.
+/// model's durations. Every minute value is visible and editable first.
 struct PlanPreviewCard: View {
     let date: String
     @State var entries: [PlanDraftEntry]

@@ -26,7 +26,7 @@ public struct SessionizerConfig: Sendable {
 /// changes (app switch or title change), not heartbeats: a block runs from its
 /// opening sample until the next different-state sample, an explicit boundary
 /// (idle, sleep, lock), or the stream end. Idle is never inferred from a sample
-/// gap — the live sampler's timer emits it as a boundary — because staying on
+/// gap (the live sampler's timer emits it as a boundary) because staying on
 /// one document for an hour is one active block, not idle. Pure: all timing is
 /// sample timestamps and boundaries, so it is fully testable with no AppKit.
 ///

@@ -22,9 +22,9 @@ public final class FileWatcher {
     public var onChange: (() -> Void)?
 
     /// `pollFile` is the file the caller actually cares about inside
-    /// `directory`. When the directory itself can't be opened — the sandboxed
+    /// `directory`. When the directory itself can't be opened (the sandboxed
     /// App Store build's user-selected grant covers the picked file but not
-    /// its parent — changes to that file are detected by polling its
+    /// its parent) changes to that file are detected by polling its
     /// modification date instead of vnode events.
     public init(directory: URL, retryInterval: TimeInterval = 5, pollFile: URL? = nil) {
         self.dirURL = directory

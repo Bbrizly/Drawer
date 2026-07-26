@@ -3,7 +3,7 @@ import Foundation
 import MCP
 
 // drawer-mcp: the Model Context Protocol server for Drawer. A thin stdio adapter
-// over DrawerCore.DrawerToolService — it owns the MCP tool schemas, argument
+// over DrawerCore.DrawerToolService. It owns the MCP tool schemas, argument
 // decoding, result/error formatting, and the server lifecycle, and nothing else.
 // All drawer logic (parsing, byte-safe writeback, plan validation) lives in
 // DrawerCore, never reimplemented here. Pure Foundation, no AppKit.

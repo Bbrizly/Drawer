@@ -4,7 +4,7 @@ import SwiftUI
 
 /// Drives the one-button day planner: builds the deterministic context, calls
 /// the on-device model, and holds the editable draft for the preview card. The
-/// preview is the clamp — the model's minutes are trusted only because you see
+/// preview is the clamp. The model's minutes are trusted only because you see
 /// and can edit every one before Accept, which commits through PlanWriter.
 @MainActor
 final class PlannerController: ObservableObject {

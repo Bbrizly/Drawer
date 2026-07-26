@@ -70,13 +70,13 @@ public enum ActivityBlockCloseReason: String, Codable, Sendable {
     case idle, sleep, lock, appSwitch, endOfStream
 }
 
-/// How a match was produced. Never implies a write — it only labels the source.
+/// How a match was produced. Never implies a write, it only labels the source.
 public enum MatchVia: String, Codable, Sendable {
     case rule, model, none
 }
 
 /// A proposed (never auto-written) task match for one block. `taskID`/`taskTitle`
-/// are nil for a genuinely unattributed block — no fake "Unattributed" title.
+/// are nil for a genuinely unattributed block, no fake "Unattributed" title.
 public struct ProposedMatch: Codable, Equatable, Sendable {
     public var taskID: String?
     public var taskTitle: String?
@@ -127,7 +127,7 @@ public struct AttributionRule: Codable, Equatable, Sendable, Identifiable {
     }
 }
 
-/// How a match presents in the review queue. Presentation only — it never
+/// How a match presents in the review queue. Presentation only, it never
 /// decides whether a session is written; approval does.
 public enum QueueDisposition: String, Codable, Sendable {
     case preChecked   // >= 0.85: pre-checked for fast approve-all
@@ -184,7 +184,7 @@ public struct ActivityBlock: Codable, Equatable, Sendable, Identifiable {
     }
 
     /// This block with `spans` removed: the residual blocks covering the time
-    /// NOT claimed by those spans. This is the stopwatch-overlap invariant —
+    /// NOT claimed by those spans. This is the stopwatch-overlap invariant:
     /// attribution proposes only for the gaps a manual session didn't cover, so
     /// a block partly overlapping the stopwatch still contributes its unattended
     /// portion, and never a competing match for the stopwatch's own time.

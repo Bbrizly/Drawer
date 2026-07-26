@@ -119,7 +119,7 @@ final class SnapshotStoreTests: XCTestCase {
         XCTAssertEqual(mem.blobs.count, 2) // 3 unreferenced blobs GC'd
     }
 
-    // MARK: GC-by-reachability — the silent-corruption guard
+    // MARK: GC-by-reachability, the silent-corruption guard
 
     func testPruneKeepsBlobStillReferencedByASurvivingLine() throws {
         // Two index lines share hash A; only one is pruned. Blob A must survive.

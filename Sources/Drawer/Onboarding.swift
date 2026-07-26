@@ -112,10 +112,6 @@ struct OnboardingView: View {
 
     private var canContinue: Bool {
         switch current {
-        // Granting is the point of the step, so it holds. Once the user has
-        // been sent to System Settings they can move on either way: a
-        // permission that sometimes wants a relaunch must not strand a launch.
-        case .access: return trusted || askedForAccess
         // The sandbox cannot write to a folder it was never handed, so the
         // store build waits for the pick. The direct build has a default.
         case .files: return !appStoreBuild || !dataFolderPath.isEmpty
@@ -224,7 +220,7 @@ struct OnboardingView: View {
             }
             .animation(.easeInOut(duration: 0.2), value: step)
             Spacer()
-            Button(step == lastStep ? "Start using Drawer" : "Continue") {
+            Button(continueLabel) {
                 if step == lastStep { onFinish() } else { go(to: step + 1) }
             }
             .buttonStyle(.borderedProminent)
@@ -239,6 +235,14 @@ struct OnboardingView: View {
         .background(theme.primaryInk.opacity(0.05))
         .background(theme.chromeSurface)
         .overlay(alignment: .top) { Divider() }
+    }
+
+    /// Access is the one optional step. Nothing else needs the permission, so
+    /// walking past it is a real choice and the button should say so.
+    private var continueLabel: String {
+        if step == lastStep { return "Start using Drawer" }
+        if current == .access, !trusted { return "Skip for now" }
+        return "Continue"
     }
 
     private func go(to next: Int) {
@@ -547,7 +551,8 @@ private struct AccessStep: View {
                     if stalled {
                         stale
                     } else {
-                        Text("Privacy & Security, then Accessibility.")
+                        Text("Privacy & Security, then Accessibility. Skip it and you keep "
+                            + "every shortcut but a lone modifier tapped on its own.")
                             .font(.callout)
                             .foregroundStyle(.secondary)
                             .multilineTextAlignment(.center)

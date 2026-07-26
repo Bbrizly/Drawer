@@ -561,7 +561,7 @@ final class BoardCanvasView: NSView, NSTextViewDelegate {
                 h = w / aspect // images keep their shape; width drives height
             }
             // Text: the grip resizes the box freely and the text wraps to fit.
-            // Font size is unchanged here — set it from the right-click menu.
+            // Font size is unchanged here. Set it from the right-click menu.
             let y = resizeTop - h
             CATransaction.begin()
             CATransaction.setDisableActions(true)

@@ -5,7 +5,7 @@ import Foundation
 /// The `drawer-mcp` executable is a thin adapter over this: it owns the MCP
 /// schemas, argument decoding, and stdio lifecycle, and calls straight through
 /// here. Every mutating call reads fresh bytes, edits through DrawerCore's
-/// byte-safe writeback, and writes atomically — never caching a parse across
+/// byte-safe writeback, and writes atomically, never caching a parse across
 /// calls, so a concurrent Obsidian edit can't be clobbered by stale state.
 public struct DrawerToolService: Sendable {
     private let read: @Sendable () throws -> Data
@@ -46,7 +46,7 @@ public struct DrawerToolService: Sendable {
     ) throws -> TaskDTO {
         let entry = PlanEntry(title: title, minutes: minutes, note: note)
         // Same content guard on every path (the backlog insert doesn't go
-        // through PlanWriter, so validate here too — no newline/checkbox
+        // through PlanWriter, so validate here too, no newline/checkbox
         // injection reaches the shared file).
         try PlanWriter.checkEntryContent(entry)
 

@@ -185,7 +185,7 @@ public struct SnapshotStore: Sendable {
 
     /// Keeps the last `limit` index lines and deletes every blob no surviving
     /// line references. GC is by reachability over the SURVIVORS, never by which
-    /// lines were removed — a blob shared by a surviving duplicate must stay, or
+    /// lines were removed. A blob shared by a surviving duplicate must stay, or
     /// every earlier snapshot sharing it corrupts silently.
     @discardableResult
     public func prune(keepLast limit: Int) throws -> PruneResult {
