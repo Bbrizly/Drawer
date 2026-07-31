@@ -13,8 +13,10 @@ struct TeleprompterView: View {
     @AppStorage("teleprompterFontSize") private var fontSize = 34.0
     @State private var isPlaying = true
     @State private var scroll = TeleprompterScroll(speed: 45)
-    @State private var rawContentHeight: Double = 0
-    @State private var viewportHeight: Double = 0
+    /// Measured during layout, read only when the scroll advances. Boxes, not
+    /// `@State`: see Box.swift for why measuring into state wedges the app.
+    @State private var rawContentHeight = Box(0.0)
+    @State private var viewportHeight = Box(0.0)
     @State private var lastTick: Date?
     @State private var hostWindow: NSWindow?
     @State private var resizeBase: NSRect?
@@ -140,8 +142,8 @@ struct TeleprompterView: View {
                     )
                     .frame(maxWidth: .infinity, alignment: .topLeading)
                     .offset(y: 24 - scroll.offset)
-                    .onAppear { viewportHeight = geo.size.height }
-                    .onChange(of: geo.size.height) { _, h in viewportHeight = h }
+                    .onAppear { viewportHeight.value = geo.size.height }
+                    .onChange(of: geo.size.height) { _, h in viewportHeight.value = h }
                     .onChange(of: timeline.date) { _, now in advance(to: now) }
             }
             .clipped()
@@ -156,7 +158,7 @@ struct TeleprompterView: View {
             // whether auto-play is running or paused.
             .overlay(ScrollCatcher(onScroll: manualScroll))
         }
-        .onPreferenceChange(ContentHeightKey.self) { rawContentHeight = $0 }
+        .onPreferenceChange(ContentHeightKey.self) { rawContentHeight.value = $0 }
     }
 
     // MARK: Actions
@@ -175,9 +177,9 @@ struct TeleprompterView: View {
     /// the auto-scroll end, then moves by the gesture delta. Natural scrolling:
     /// a swipe up (negative deltaY) reads forward, so the sign is inverted.
     private func manualScroll(_ deltaY: Double) {
-        guard rawContentHeight > 0 else { return }
-        scroll.viewportHeight = viewportHeight
-        scroll.contentHeight = rawContentHeight + viewportHeight
+        guard rawContentHeight.value > 0 else { return }
+        scroll.viewportHeight = viewportHeight.value
+        scroll.contentHeight = rawContentHeight.value + viewportHeight.value
         scroll.scroll(by: -deltaY)
         lastTick = nil // if auto-play is on, continue from here without a jump
     }
@@ -189,9 +191,9 @@ struct TeleprompterView: View {
         let dt = now.timeIntervalSince(last)
         guard dt > 0, dt < 1 else { return } // skip first frame and long stalls
         scroll.speed = speed
-        scroll.viewportHeight = viewportHeight
+        scroll.viewportHeight = viewportHeight.value
         // Trailing slack equal to a viewport so the last line can reach the top.
-        scroll.contentHeight = rawContentHeight + viewportHeight
+        scroll.contentHeight = rawContentHeight.value + viewportHeight.value
         scroll.tick(dt)
     }
 

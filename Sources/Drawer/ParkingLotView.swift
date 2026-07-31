@@ -19,7 +19,9 @@ struct ParkingLotView: View {
     @State private var gestureZoom: CGFloat = 1
     @State private var offset: CGSize = .zero
     @GestureState private var dragOffset: CGSize = .zero
-    @State private var lotFrame: CGRect = .zero
+    /// Measured during layout, read only by the scroll monitor. A `Box`, not
+    /// `@State`: see Box.swift for why measuring into state wedges the app.
+    @State private var lotFrame = Box(CGRect.zero)
     @State private var scrollMonitor: Any?
     @State private var selected: IdeaRef?
     @State private var renamingBay: Int?
@@ -127,11 +129,11 @@ struct ParkingLotView: View {
                 jumpToBay = nil
             }
             .onAppear {
-                lotFrame = geo.frame(in: .global)
+                lotFrame.value = geo.frame(in: .global)
                 installScrollMonitor()
             }
             .onChange(of: geo.frame(in: .global)) { _, frame in
-                lotFrame = frame
+                lotFrame.value = frame
             }
             // An outside edit renumbers the bays and ideas under us. An open
             // card still points at the old position, so one more keystroke
@@ -186,7 +188,7 @@ struct ParkingLotView: View {
             let point = CGPoint(
                 x: event.locationInWindow.x,
                 y: content.bounds.height - event.locationInWindow.y)
-            guard lotFrame.contains(point) else { return event }
+            guard lotFrame.value.contains(point) else { return event }
             var dx = event.scrollingDeltaX
             var dy = event.scrollingDeltaY
             if !event.hasPreciseScrollingDeltas {

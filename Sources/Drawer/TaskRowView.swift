@@ -39,10 +39,9 @@ struct TaskRowView: View, Equatable {
     @Environment(WorkClock.self) private var workClock
     @State private var isCheckboxHovering = false
     @State private var isRowHovering = false
-    // ponytail: a box, not @State. The frame is only read when you tap, so
-    // storing it must not redraw the row. As @State every layout pass wrote it
-    // back and asked for another pass, and in a long list that never settled.
-    @State private var checkboxFrame = FrameBox()
+    /// Where the checkbox sits, for aiming the confetti. A `Box`, not `@State`:
+    /// see Box.swift for why measuring into state wedges the app.
+    @State private var checkboxFrame = Box(CGRect.zero)
     @State private var isExpanded = false
     @State private var isEditingNote = false
     @State private var draftNote = ""
@@ -341,8 +340,8 @@ struct TaskRowView: View, Equatable {
             if taskCelebration && willComplete {
                 Celebration.fire(sound: taskCelebrationSound)
                 if !reduceMotion {
-                    let box = checkboxFrame.rect
-                    celebration.fire(at: CGPoint(x: box.midX, y: box.midY))
+                    let at = checkboxFrame.value
+                    celebration.fire(at: CGPoint(x: at.midX, y: at.midY))
                 }
             }
         } label: {
@@ -370,7 +369,7 @@ struct TaskRowView: View, Equatable {
         .contentShape(theme.usesXPChrome ? AnyShape(Rectangle()) : AnyShape(Circle()))
         .padding(theme.usesXPChrome ? -4 : -6)
         .onGeometryChange(for: CGRect.self) { $0.frame(in: .named("panel")) }
-            action: { checkboxFrame.rect = $0 }
+            action: { checkboxFrame.value = $0 }
         .accessibilityLabel(item.isDone ? "Mark task incomplete" : "Complete task")
         .accessibilityValue(item.title)
         .accessibilityHint("Update this task in the markdown file.")
@@ -565,12 +564,3 @@ private struct BureauRowMenu: ViewModifier {
     func body(content: Content) -> some View { content }
 }
 #endif
-
-/// A frame we want to remember without redrawing anything. The confetti needs
-/// to know where the checkbox is, but only once, at the moment of the tap.
-/// Holding that in `@State` made every layout pass write it back and ask for
-/// another pass, so a long list could spin the main thread until you force
-/// quit. A plain reference is invisible to SwiftUI, which is the point.
-final class FrameBox {
-    var rect: CGRect = .zero
-}
