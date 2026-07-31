@@ -673,10 +673,19 @@ struct DrawerView: View {
                         if let wmMsg = workClock.statusMessage {
                             statusView(wmMsg)
                         }
-                        let today = arranged(store.todayItems)
-                        let carried = carriedSectionEnabled ? arranged(store.carriedItems) : []
+                        // Swipe a task right and it leaves its heading behind:
+                        // in-progress rows ride at the very top of the list, above
+                        // Today, so what you are working on is the first thing you
+                        // see no matter which section it was filed under.
+                        let pinned = pinnedItems
+                        ForEach(pinned) { item in
+                            taskRow(item)
+                        }
+                        let today = arranged(unpinned(store.todayItems))
+                        let carried = carriedSectionEnabled ? arranged(unpinned(store.carriedItems)) : []
                         if !today.isEmpty {
                             sectionHeader("Today", count: today.count, isPrimary: true)
+                                .padding(.top, pinned.isEmpty ? 0 : 8)
                             ForEach(today) { item in
                                 taskRow(item)
                             }
@@ -688,7 +697,7 @@ struct DrawerView: View {
                                 taskRow(item)
                             }
                         }
-                        let upcoming = showTomorrow ? arranged(store.upcomingItems) : []
+                        let upcoming = showTomorrow ? arranged(unpinned(store.upcomingItems)) : []
                         if !upcoming.isEmpty {
                             sectionHeader(store.upcomingLabel, count: upcoming.count)
                                 .padding(.top, 8)
@@ -699,7 +708,7 @@ struct DrawerView: View {
                         if backlogSectionEnabled {
                             collapsibleSection(
                                 title: "BACKLOG",
-                                items: store.backlogItems,
+                                items: unpinned(store.backlogItems),
                                 isExpanded: $backlogExpanded,
                                 helpText: "Tasks under \"## Backlog\" in the file"
                             )
@@ -707,12 +716,12 @@ struct DrawerView: View {
                         if archiveSectionEnabled {
                             collapsibleSection(
                                 title: "ARCHIVE",
-                                items: store.archiveItems,
+                                items: unpinned(store.archiveItems),
                                 isExpanded: $archiveExpanded,
                                 helpText: "Tasks under \"## Archive\" in the file"
                             )
                         }
-                        if today.isEmpty && carried.isEmpty && upcoming.isEmpty
+                        if pinned.isEmpty && today.isEmpty && carried.isEmpty && upcoming.isEmpty
                             && store.statusMessage == nil {
                             emptyState
                         }
@@ -1013,21 +1022,28 @@ struct DrawerView: View {
                 }
                 .map(\.element)
         }
-        // In-progress tasks always float to the very top of their section, so
-        // what you are actively working on stays in view. Stable otherwise.
-        // Skip the sort entirely when nothing is in progress, the common case,
-        // so a plain list does not pay for a sort on every body evaluation.
-        if out.contains(where: \.isInProgress) {
-            out = out.enumerated()
-                .sorted { a, b in
-                    if a.element.isInProgress != b.element.isInProgress {
-                        return a.element.isInProgress
-                    }
-                    return a.offset < b.offset
-                }
-                .map(\.element)
-        }
         return out
+    }
+
+    /// Every in-progress task, in the order its section would have shown it.
+    /// These are lifted out of their headings and drawn at the very top of the
+    /// list, so a right swipe promotes a task above everything else rather than
+    /// only to the top of the section it happens to live in.
+    private var pinnedItems: [TodoItem] {
+        var out = store.todayItems.filter(\.isInProgress)
+        out += store.carriedItems.filter(\.isInProgress)
+        out += store.upcomingItems.filter(\.isInProgress)
+        out += store.backlogItems.filter(\.isInProgress)
+        out += store.archiveItems.filter(\.isInProgress)
+        if hideCompleted { out = out.filter { !$0.isDone } }
+        return out
+    }
+
+    /// What a section shows once its pinned rows have been lifted to the top.
+    /// Returns the array untouched when nothing is pinned, the common case, so
+    /// a plain list allocates nothing on a body evaluation.
+    private func unpinned(_ items: [TodoItem]) -> [TodoItem] {
+        items.contains(where: \.isInProgress) ? items.filter { !$0.isInProgress } : items
     }
 }
 
