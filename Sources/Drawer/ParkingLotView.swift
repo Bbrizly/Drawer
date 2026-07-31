@@ -30,7 +30,6 @@ struct ParkingLotView: View {
     /// The idea a tap on an empty space just created. Closing without typing
     /// hands the space back; nothing else is ever deleted by closing.
     @State private var blankIdea: IdeaRef?
-    @State private var hovered: IdeaRef?
     @FocusState private var bayFieldFocused: Bool
     @Namespace private var carSpace
 
@@ -431,48 +430,25 @@ struct ParkingLotView: View {
     private func stall(bay: Int, idea: Int) -> some View {
         let ref = IdeaRef(bay: bay, idea: idea)
         let parked = lot.document.bays[bay].ideas[idea]
-        let out = selected == ref
-        let lit = hovered == ref
-        return VStack(spacing: 9) {
-            Group {
-                if out {
-                    // The car is out in the lane; keep its footprint.
-                    Color.clear
-                } else {
-                    CarSprite(color: Palette.card(parked.color).color)
-                        .frame(width: carLength, height: carWidth)
-                        .rotationEffect(.degrees(-90))
-                        .matchedGeometryEffect(id: ref, in: carSpace)
-                        .draggable(ref.payload) {
-                            CarSprite(color: Palette.card(parked.color).color)
-                                .frame(width: carLength, height: carWidth)
-                        }
-                }
-            }
-            // Fixed footprint, so every car sits at the same y in its stall
-            // and the drive out is dead straight.
-            .frame(width: carWidth, height: carLength)
-            Text(parked.title.isEmpty ? "UNTITLED" : parked.title)
-                .font(.system(size: 10, weight: .bold, design: .monospaced))
-                .foregroundStyle(stencilInk.opacity(out ? 0.5 : 1))
-                .lineLimit(2)
-                .minimumScaleFactor(0.8)
-                .multilineTextAlignment(.center)
-                .frame(width: stallWidth - 14, height: 28, alignment: .top)
-        }
-        .padding(.top, 14)
-        .frame(width: stallWidth, height: stallHeight, alignment: .top)
-        // Hover lifts the whole space, not just the car, so the stencil reads
-        // as part of the same target.
-        .background(Color.white.opacity(lit && !out ? 0.05 : 0))
-        .scaleEffect(lit && !out ? 1.03 : 1)
-        .animation(.easeOut(duration: 0.14), value: lit)
-        // The whole stall is the target, stencil included, not just the car.
-        .contentShape(Rectangle())
-        .onHover { hovered = $0 ? ref : (hovered == ref ? nil : hovered) }
-        .onTapGesture { toggle(ref) }
-        .overlay(StallLines(paint: paint, curb: curb))
-        .help(parked.title.isEmpty ? "Untitled idea" : parked.title)
+        return Stall(
+            ref: ref,
+            title: parked.title,
+            color: Palette.card(parked.color).color,
+            out: selected == ref,
+            carSpace: carSpace,
+            style: style,
+            onTap: { toggle(ref) }
+        )
+    }
+
+    /// The fixed sizes and paint colours a stall needs, bundled so the stall
+    /// can be its own view rather than a method on the board.
+    private var style: LotStyle {
+        LotStyle(
+            stallWidth: stallWidth, stallHeight: stallHeight,
+            carLength: carLength, carWidth: carWidth,
+            paint: paint, curb: curb, stencilInk: stencilInk
+        )
     }
 
     // MARK: - Actions
@@ -808,5 +784,79 @@ private struct IdeaPanel: View {
             .menuIndicator(.hidden)
             .fixedSize()
         }
+    }
+}
+
+/// The lot's fixed dimensions and paint, handed to a stall in one value.
+struct LotStyle {
+    let stallWidth: CGFloat
+    let stallHeight: CGFloat
+    let carLength: CGFloat
+    let carWidth: CGFloat
+    let paint: Color
+    let curb: Color
+    let stencilInk: Color
+}
+
+/// One parked car and its stencilled title.
+///
+/// This is a view, not a method on the board, for one reason: hover. Every car
+/// is a `Canvas`, which redraws whenever its view is invalidated. While the
+/// hover lived on the board, moving the pointer one stall over rebuilt the
+/// board, and every car on it repainted. Keeping the hover in here means a
+/// hover repaints one car.
+private struct Stall: View {
+    let ref: ParkingLotView.IdeaRef
+    let title: String
+    let color: Color
+    let out: Bool
+    let carSpace: Namespace.ID
+    let style: LotStyle
+    let onTap: () -> Void
+    @State private var hovered = false
+
+    private var lit: Bool { hovered && !out }
+
+    var body: some View {
+        VStack(spacing: 9) {
+            Group {
+                if out {
+                    // The car is out in the lane; keep its footprint.
+                    Color.clear
+                } else {
+                    CarSprite(color: color)
+                        .frame(width: style.carLength, height: style.carWidth)
+                        .rotationEffect(.degrees(-90))
+                        .matchedGeometryEffect(id: ref, in: carSpace)
+                        .draggable(ref.payload) {
+                            CarSprite(color: color)
+                                .frame(width: style.carLength, height: style.carWidth)
+                        }
+                }
+            }
+            // Fixed footprint, so every car sits at the same y in its stall
+            // and the drive out is dead straight.
+            .frame(width: style.carWidth, height: style.carLength)
+            Text(title.isEmpty ? "UNTITLED" : title)
+                .font(.system(size: 10, weight: .bold, design: .monospaced))
+                .foregroundStyle(style.stencilInk.opacity(out ? 0.5 : 1))
+                .lineLimit(2)
+                .minimumScaleFactor(0.8)
+                .multilineTextAlignment(.center)
+                .frame(width: style.stallWidth - 14, height: 28, alignment: .top)
+        }
+        .padding(.top, 14)
+        .frame(width: style.stallWidth, height: style.stallHeight, alignment: .top)
+        // Hover lifts the whole space, not just the car, so the stencil reads
+        // as part of the same target.
+        .background(Color.white.opacity(lit ? 0.05 : 0))
+        .scaleEffect(lit ? 1.03 : 1)
+        .animation(.easeOut(duration: 0.14), value: lit)
+        // The whole stall is the target, stencil included, not just the car.
+        .contentShape(Rectangle())
+        .onHover { hovered = $0 }
+        .onTapGesture(perform: onTap)
+        .overlay(StallLines(paint: style.paint, curb: style.curb))
+        .help(title.isEmpty ? "Untitled idea" : title)
     }
 }
