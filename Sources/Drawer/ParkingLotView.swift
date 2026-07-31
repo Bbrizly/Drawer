@@ -1,43 +1,39 @@
-import AppKit
 import DrawerCore
 import SwiftUI
 
-/// The lot: bays from the markdown as rows of painted stalls, one car per
-/// stall in file order. Bays stack down the page the way they sit in the
-/// file, and a bay's cars fill left to right and wrap at the window edge, so
-/// the lot is only ever as wide as the window and you read it top to bottom.
-/// Every row paints its full width of lines, so the lot looks like a lot even
-/// where no car is parked; tapping an empty stall parks a fresh idea there.
-/// Pressing a car reverses it out into the lane below and opens its markdown.
+/// The lot: every idea in the file as a card, bays as headings that stick to
+/// the top while you scroll past them, so you always know which category you
+/// are reading. It scrolls, it does not pan. Only the bays on screen are ever
+/// built, and a card is a filled rectangle with a line of text on it, so the
+/// whole board costs about what a list costs.
+///
+/// It used to be a drawn car park: painted stalls, a car sprite per idea, pan
+/// and zoom over a canvas bigger than the window. It looked good and it was
+/// slow, and two ideas per row meant you could never see the lot you were
+/// meant to be surveying. The metaphor stays in the name, the file, and the
+/// little car you drag between bays.
 struct ParkingLotView: View {
     @ObservedObject var lot: ParkingLotStore
+    /// Card size. Zoom out to survey everything, zoom in to read it.
     @Binding var zoom: CGFloat
+    /// Bumped by the header's reset button: back to the top at normal size.
     var resetRequests: Int
-    /// Set by the header's bay menu. The lot pans to that bay and clears it.
+    /// Set by the header's bay menu. The lot scrolls to that bay and clears it.
     @Binding var jumpToBay: Int?
 
-    @State private var gestureZoom: CGFloat = 1
-    @State private var offset: CGSize = .zero
-    @GestureState private var dragOffset: CGSize = .zero
-    /// Measured during layout, read only by the scroll monitor. A `Box`, not
-    /// `@State`: see Box.swift for why measuring into state wedges the app.
-    @State private var lotFrame = Box(CGRect.zero)
-    @State private var scrollMonitor: Any?
     @State private var selected: IdeaRef?
     @State private var renamingBay: Int?
     @State private var bayDraft = ""
-    @State private var dropTargetBay: Int?
-    /// The idea a tap on an empty space just created. Closing without typing
-    /// hands the space back; nothing else is ever deleted by closing.
+    /// The idea a tap on the + just created. Closing without typing hands the
+    /// space back; nothing else is ever deleted by closing.
     @State private var blankIdea: IdeaRef?
     @FocusState private var bayFieldFocused: Bool
-    @Namespace private var carSpace
 
     struct IdeaRef: Hashable {
         var bay: Int
         var idea: Int
 
-        /// What a dragged car carries. A plain string keeps the drag on
+        /// What a dragged card carries. A plain string keeps the drag on
         /// SwiftUI's own Transferable path with no custom UTType to register.
         var payload: String { "\(bay):\(idea)" }
 
@@ -53,266 +49,116 @@ struct ParkingLotView: View {
         }
     }
 
-    // A stall is taller than it is wide, the way a real space is: the car
-    // noses in from the lane below and the stencil reads underneath it.
-    private let stallWidth: CGFloat = 132
-    private let stallHeight: CGFloat = 140
-    /// The bay sign strip above each row block.
-    private let signHeight: CGFloat = 36
-    /// The lane between one bay and the next.
-    private let laneHeight: CGFloat = 18
-    private let edgePad: CGFloat = 22
-    private var carLength: CGFloat { stallWidth - 54 }
-    private var carWidth: CGFloat { carLength * 128 / 300 }
-    private let panelWidth: CGFloat = 400
+    /// Card size at zoom 1. Narrow enough that a 400pt panel holds three.
+    private let baseCardWidth: CGFloat = 112
+    private let baseCardHeight: CGFloat = 62
+    private let gutter: CGFloat = 7
+    private let edgePad: CGFloat = 14
+    private let signHeight: CGFloat = 34
 
     private let asphalt = Color(red: 0.153, green: 0.153, blue: 0.168)
-    private let paint = Color.white.opacity(0.14)
-    private let curb = Color.white.opacity(0.26)
-    private let stencilInk = Color.white.opacity(0.62)
+    private let curb = Color.white.opacity(0.22)
+
+    private var cardWidth: CGFloat { baseCardWidth * zoom }
+    private var cardHeight: CGFloat { baseCardHeight * zoom }
 
     var body: some View {
-        GeometryReader { geo in
-            let perRow = perRow(for: geo.size.width)
-            ZStack(alignment: .topLeading) {
-                lotBody(perRow: perRow)
-                    .padding(edgePad)
-            }
-            .frame(width: geo.size.width, height: geo.size.height, alignment: .topLeading)
-            // Zoom about the middle of the viewport, the way the idea board
-            // does. Scaling from the corner and then shifting by half the
-            // viewport times (1 - zoom) puts the centre point back where it
-            // was, on both axes. Panning sits outside the scale, so a drag
-            // moves the lot one screen point per pointer point at any zoom.
-            .scaleEffect(zoom * gestureZoom, anchor: .topLeading)
-            .offset(
-                x: offset.width + dragOffset.width
-                    + geo.size.width / 2 * (1 - zoom * gestureZoom),
-                y: offset.height + dragOffset.height
-                    + geo.size.height / 2 * (1 - zoom * gestureZoom))
-            .frame(width: geo.size.width, height: geo.size.height, alignment: .topLeading)
-            .background(asphalt)
-            .clipped()
-            .contentShape(Rectangle())
-            .gesture(
-                DragGesture(minimumDistance: 2)
-                    .updating($dragOffset) { value, state, _ in
-                        state = value.translation
+        ScrollViewReader { proxy in
+            ScrollView {
+                // Lazy: a file with forty bays only builds the two you can see.
+                LazyVStack(
+                    alignment: .leading, spacing: 0, pinnedViews: [.sectionHeaders]
+                ) {
+                    if lot.document.bays.isEmpty {
+                        emptyLot
+                    } else {
+                        ForEach(Array(lot.document.bays.enumerated()), id: \.offset) { b, bay in
+                            Section {
+                                BayGrid(
+                                    bay: b,
+                                    bayName: bay.name,
+                                    ideas: bay.ideas,
+                                    cardWidth: cardWidth,
+                                    cardHeight: cardHeight,
+                                    gutter: gutter,
+                                    zoom: zoom,
+                                    onTap: { toggle($0) },
+                                    onDrop: { ref in drop(ref, toBay: bay.name) }
+                                )
+                                .padding(.horizontal, edgePad)
+                                .padding(.bottom, 18)
+                            } header: {
+                                baySign(b)
+                                    .id(b)
+                            }
+                        }
                     }
-                    .onEnded { value in
-                        offset.width += value.translation.width
-                        offset.height += value.translation.height
-                    }
-            )
-            .gesture(
-                MagnifyGesture()
-                    .onChanged { gestureZoom = $0.magnification }
-                    .onEnded { _ in
-                        zoom = min(2.5, max(0.5, zoom * gestureZoom))
-                        gestureZoom = 1
-                    }
-            )
-            .onChange(of: resetRequests) { _, _ in
-                withAnimation(.easeOut(duration: 0.25)) {
-                    zoom = 1
-                    offset = .zero
                 }
+                .padding(.bottom, 40)
+            }
+            .background(asphalt)
+            .onChange(of: resetRequests) { _, _ in
+                zoom = 1
+                withAnimation(.easeOut(duration: 0.25)) { proxy.scrollTo(0, anchor: .top) }
             }
             .onChange(of: jumpToBay) { _, target in
                 guard let target else { return }
-                withAnimation(.easeOut(duration: 0.35)) {
-                    offset = CGSize(
-                        width: 0,
-                        height: topOffset(forBay: target, perRow: perRow, viewport: geo.size))
-                }
+                withAnimation(.easeOut(duration: 0.3)) { proxy.scrollTo(target, anchor: .top) }
                 jumpToBay = nil
             }
-            .onAppear {
-                lotFrame.value = geo.frame(in: .global)
-                installScrollMonitor()
-            }
-            .onChange(of: geo.frame(in: .global)) { _, frame in
-                lotFrame.value = frame
-            }
-            // An outside edit renumbers the bays and ideas under us. An open
-            // card still points at the old position, so one more keystroke
-            // would splice its text over whatever moved into that slot. Let go
-            // instead. Nothing is lost: a reload only happens when no save is
-            // pending, so everything typed so far is already on disk.
-            .onChange(of: lot.reloads) { _, _ in
-                selected = nil
-                blankIdea = nil
-                renamingBay = nil
-            }
-            .onDisappear { removeScrollMonitor() }
         }
-    }
-
-    // MARK: - Layout maths
-
-    private func perRow(for width: CGFloat) -> Int {
-        max(1, Int((width - edgePad * 2) / stallWidth))
-    }
-
-    private func bayHeight(_ ideas: Int, perRow: Int) -> CGFloat {
-        let rows = ParkingLotLayout.rows(ideas: ideas, perRow: perRow)
-        return signHeight + CGFloat(rows) * stallHeight + laneHeight
-    }
-
-    /// The pan offset that puts a bay's sign just under the top edge. Inverts
-    /// the same transform the body applies: a point at content y lands on
-    /// screen at y * zoom + offset + viewport/2 * (1 - zoom).
-    private func topOffset(forBay bay: Int, perRow: Int, viewport: CGSize) -> CGFloat {
-        var y = edgePad
-        for (i, b) in lot.document.bays.enumerated() {
-            if i == bay { break }
-            y += bayHeight(b.ideas.count, perRow: perRow)
+        // An outside edit renumbers the bays and ideas under us. An open card
+        // still points at the old position, so one more keystroke would splice
+        // its text over whatever moved into that slot. Let go instead. Nothing
+        // is lost: a reload only happens when no save is pending, so everything
+        // typed so far is already on disk.
+        .onChange(of: lot.reloads) { _, _ in
+            selected = nil
+            blankIdea = nil
+            renamingBay = nil
         }
-        return edgePad - y * zoom - viewport.height / 2 * (1 - zoom)
+        .overlay { editor }
     }
 
-    // MARK: - Panning
+    // MARK: - The open idea
 
-    /// Two-finger scroll pans the lot, the same way it scrolls anything else.
-    /// The panel's text editor sits in its own scroll view, so events over it
-    /// pass through and scroll the text instead.
-    private func installScrollMonitor() {
-        guard scrollMonitor == nil else { return }
-        scrollMonitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { event in
-            guard let content = event.window?.contentView else { return event }
-            if let hit = content.hitTest(event.locationInWindow),
-               hit.enclosingScrollView != nil {
-                return event
-            }
-            let point = CGPoint(
-                x: event.locationInWindow.x,
-                y: content.bounds.height - event.locationInWindow.y)
-            guard lotFrame.value.contains(point) else { return event }
-            var dx = event.scrollingDeltaX
-            var dy = event.scrollingDeltaY
-            if !event.hasPreciseScrollingDeltas {
-                dx *= 8
-                dy *= 8
-            }
-            offset.width += dx
-            offset.height += dy
-            return nil
-        }
-    }
-
-    private func removeScrollMonitor() {
-        if let scrollMonitor { NSEvent.removeMonitor(scrollMonitor) }
-        scrollMonitor = nil
-    }
-
-    // MARK: - The lot
-
+    /// The idea you clicked, over a scrim. It used to reverse out into a lane
+    /// below its stall, which meant the board reflowed around it every time.
+    /// Floating it costs the board nothing.
     @ViewBuilder
-    private func lotBody(perRow: Int) -> some View {
-        VStack(alignment: .leading, spacing: 0) {
-            if lot.document.bays.isEmpty {
-                emptyLot(perRow: perRow)
-            } else {
-                ForEach(Array(lot.document.bays.enumerated()), id: \.offset) { b, bay in
-                    bayBlock(bay: b, ideas: bay.ideas.count, perRow: perRow)
-                }
-            }
-        }
-        .animation(.easeOut(duration: 0.28), value: selected)
-    }
-
-    private func emptyLot(perRow: Int) -> some View {
-        VStack(alignment: .leading, spacing: 0) {
-            baySign(nil, width: CGFloat(perRow) * stallWidth)
-            HStack(spacing: 0) {
-                ForEach(0..<perRow, id: \.self) { _ in
-                    EmptyStall(width: stallWidth, height: stallHeight, paint: paint, curb: curb) {
-                        addIdea(toBay: "Unsorted")
-                    }
-                }
-            }
-        }
-    }
-
-    /// One bay: its sign, then its cars flowing left to right and wrapping,
-    /// then the open panel if the selected car lives in this bay.
-    private func bayBlock(bay b: Int, ideas: Int, perRow: Int) -> some View {
-        let rows = ParkingLotLayout.rows(ideas: ideas, perRow: perRow)
-        let width = CGFloat(perRow) * stallWidth
-        let bayName = lot.document.bays[b].name
-        return VStack(alignment: .leading, spacing: 0) {
-            baySign(b, width: width)
-            ForEach(0..<rows, id: \.self) { row in
-                let start = row * perRow
-                let end = min(start + perRow, ideas)
-                HStack(spacing: 0) {
-                    if start < end {
-                        ForEach(start..<end, id: \.self) { i in
-                            stall(bay: b, idea: i)
-                        }
-                    }
-                    // The painted lines exist before the cars do: pad the row
-                    // out with empty spaces, each one a tap target.
-                    ForEach(0..<(perRow - max(0, end - start)), id: \.self) { _ in
-                        EmptyStall(
-                            width: stallWidth, height: stallHeight,
-                            paint: paint, curb: curb
-                        ) {
-                            addIdea(toBay: bayName)
-                        }
-                    }
-                }
-                if let sel = selected, sel.bay == b,
-                   sel.idea >= start, sel.idea < end {
-                    openPanel(sel, column: sel.idea - start, width: width)
-                }
-            }
-            Color.clear.frame(height: laneHeight)
-        }
-        .frame(width: width, alignment: .leading)
-        // Drop a dragged car anywhere on the bay to re-park it here.
-        .background(dropTargetBay == b ? Color.white.opacity(0.05) : .clear)
-        .dropDestination(for: String.self) { items, _ in
-            guard let ref = IdeaRef(payload: items.first ?? "") else { return false }
-            drop(ref, toBay: bayName)
-            return true
-        } isTargeted: { targeted in
-            if targeted {
-                dropTargetBay = b
-            } else if dropTargetBay == b {
-                // Only clear our own highlight; the next bay may have already
-                // claimed it as the pointer crossed over.
-                dropTargetBay = nil
-            }
-        }
-    }
-
-    /// The car out in the lane with its markdown under it. Sits at the column
-    /// the car came from, nudged left only as far as it must to stay on the
-    /// lot, so the drive out reads as a straight line down.
-    private func openPanel(_ sel: IdeaRef, column: Int, width: CGFloat) -> some View {
-        let carX = CGFloat(column) * stallWidth
-        let panelX = min(carX, max(0, width - panelWidth))
-        return VStack(alignment: .leading, spacing: 10) {
-            if let parked = idea(sel) {
-                CarSprite(color: Palette.card(parked.color).color)
-                    .frame(width: carLength, height: carWidth)
-                    .rotationEffect(.degrees(-90))
-                    .frame(width: carWidth, height: carLength)
-                    .matchedGeometryEffect(id: sel, in: carSpace)
-                    .padding(.leading, carX + (stallWidth - carWidth) / 2)
+    private var editor: some View {
+        if let sel = selected, idea(sel) != nil {
+            ZStack {
+                Color.black.opacity(0.45)
+                    .contentShape(Rectangle())
                     .onTapGesture { close() }
                 IdeaPanel(
                     lot: lot, bay: sel.bay, idea: sel.idea,
-                    onMoveToBay: { target in moveSelected(toBay: target) },
+                    onMoveToBay: { moveSelected(toBay: $0) },
                     onClose: { close() })
                     .id(sel)
-                    .frame(width: min(panelWidth, width))
-                    .padding(.leading, panelX)
+                    .frame(maxWidth: 360)
+                    .padding(20)
             }
+            .transition(.opacity)
         }
-        .padding(.top, 14)
-        .padding(.bottom, 6)
+    }
+
+    private var emptyLot: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Nothing parked yet")
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(.white.opacity(0.5))
+            Button("Park an idea") { addIdea(toBay: "Unsorted") }
+                .buttonStyle(.plain)
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(.white.opacity(0.8))
+                .padding(.horizontal, 12)
+                .padding(.vertical, 7)
+                .background(Capsule().fill(Color.white.opacity(0.1)))
+        }
+        .padding(edgePad)
+        .padding(.top, 30)
     }
 
     // MARK: - Bay signs
@@ -345,15 +191,15 @@ struct ParkingLotView: View {
 
     /// The sign over a bay: name on the left, count on the right, a painted
     /// rule under both. Double-click the name to rename the bay, which
-    /// rewrites the `## ` heading in the file.
+    /// rewrites the `## ` heading in the file. It is opaque because it sticks
+    /// to the top of the scroll and cards pass underneath it.
     @ViewBuilder
-    private func baySign(_ bayIndex: Int?, width: CGFloat) -> some View {
-        VStack(alignment: .leading, spacing: 0) {
-            HStack(alignment: .firstTextBaseline, spacing: 8) {
-                if let b = bayIndex, lot.document.bays.indices.contains(b) {
-                    let bay = lot.document.bays[b]
-                    let sign = Self.baySign(bay.name)
-
+    private func baySign(_ b: Int) -> some View {
+        if lot.document.bays.indices.contains(b) {
+            let bay = lot.document.bays[b]
+            let sign = Self.baySign(bay.name)
+            VStack(alignment: .leading, spacing: 0) {
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
                     if renamingBay == b {
                         TextField("Name", text: $bayDraft)
                             .textFieldStyle(.plain)
@@ -386,20 +232,16 @@ struct ParkingLotView: View {
                         .monospacedDigit()
                         .foregroundStyle(.white.opacity(0.4))
                     SignParkButton { addIdea(toBay: bay.name) }
-                } else {
-                    Text("UNSORTED")
-                        .font(.system(size: 13, weight: .bold))
-                        .kerning(0.6)
-                        .foregroundStyle(.white.opacity(0.9))
-                    Spacer(minLength: 8)
                 }
+                .padding(.horizontal, edgePad)
+                .frame(height: signHeight - 6, alignment: .bottom)
+                Rectangle()
+                    .fill(curb)
+                    .frame(height: 1.5)
             }
-            .frame(height: signHeight - 8, alignment: .bottom)
-            Rectangle()
-                .fill(curb)
-                .frame(height: 1.5)
+            .padding(.top, 8)
+            .background(asphalt)
         }
-        .frame(width: width, height: signHeight, alignment: .bottomLeading)
     }
 
     /// Renaming edits the category only. The date prefix is the file's, not
@@ -425,44 +267,17 @@ struct ParkingLotView: View {
         }
     }
 
-    // MARK: - Stalls
-
-    private func stall(bay: Int, idea: Int) -> some View {
-        let ref = IdeaRef(bay: bay, idea: idea)
-        let parked = lot.document.bays[bay].ideas[idea]
-        return Stall(
-            ref: ref,
-            title: parked.title,
-            color: Palette.card(parked.color).color,
-            out: selected == ref,
-            carSpace: carSpace,
-            style: style,
-            onTap: { toggle(ref) }
-        )
-    }
-
-    /// The fixed sizes and paint colours a stall needs, bundled so the stall
-    /// can be its own view rather than a method on the board.
-    private var style: LotStyle {
-        LotStyle(
-            stallWidth: stallWidth, stallHeight: stallHeight,
-            carLength: carLength, carWidth: carWidth,
-            paint: paint, curb: curb, stencilInk: stencilInk
-        )
-    }
-
     // MARK: - Actions
 
-    /// Re-parks a dragged car. Moving inside its own bay is a no-op: a lot has
+    /// Re-parks a dragged card. Moving inside its own bay is a no-op: a lot has
     /// no order worth preserving, so there is nothing to reorder into.
     // ponytail: bay-level moves only, add within-bay ordering if a lot ever gets one.
     private func drop(_ ref: IdeaRef, toBay name: String) {
-        dropTargetBay = nil
         guard let dragged = idea(ref),
               lot.document.bays[ref.bay].name != name else { return }
         // Closing can delete a blank idea, which renumbers the rest of its bay
-        // and leaves the dragged car's index pointing at its neighbour. Find
-        // the car again by what it holds instead of trusting the old index.
+        // and leaves the dragged card's index pointing at its neighbour. Find
+        // the idea again by what it holds instead of trusting the old index.
         if selected != nil { close() }
         guard let now = locate(dragged) else { return }
         lot.move(bayIndex: now.bay, ideaIndex: now.idea, toBay: name)
@@ -508,9 +323,9 @@ struct ParkingLotView: View {
         }
     }
 
-    /// Reverses the car back in. A space you parked in and then typed nothing
-    /// into is given back, no confirmation. An idea that already had a title
-    /// stays even if you clear the field, since there is no undo to lean on.
+    /// Closes the open idea. A card you made and then typed nothing into is
+    /// given back, no confirmation. An idea that already had a title stays even
+    /// if you clear the field, since there is no undo to lean on.
     private func close() {
         guard let sel = selected else { return }
         if sel == blankIdea, let parked = idea(sel),
@@ -534,37 +349,123 @@ struct ParkingLotView: View {
     }
 }
 
-/// Painted stall lines: the dividers down each side and the curb across the
-/// head of the space. The foot stays open, facing the lane the car noses out
-/// into.
-private struct StallLines: View {
-    let paint: Color
-    let curb: Color
+/// One bay's cards, wrapping to fill the width.
+///
+/// Its own view for two reasons. The drop highlight lives in here, so dragging
+/// a card across the board redraws one bay instead of the board. And an
+/// adaptive grid fills whatever width it is given, so the cards are as dense as
+/// the panel allows at any zoom, with no leftover strip down the side.
+private struct BayGrid: View {
+    let bay: Int
+    let bayName: String
+    let ideas: [ParkedIdea]
+    let cardWidth: CGFloat
+    let cardHeight: CGFloat
+    let gutter: CGFloat
+    let zoom: CGFloat
+    let onTap: (ParkingLotView.IdeaRef) -> Void
+    let onDrop: (ParkingLotView.IdeaRef) -> Void
+
+    @State private var targeted = false
 
     var body: some View {
-        GeometryReader { geo in
-            let w = geo.size.width
-            let h = geo.size.height
-            ZStack {
-                Path { p in
-                    p.move(to: .zero)
-                    p.addLine(to: CGPoint(x: 0, y: h))
-                    p.move(to: CGPoint(x: w, y: 0))
-                    p.addLine(to: CGPoint(x: w, y: h))
+        Group {
+            if ideas.isEmpty {
+                Text("Nothing parked here. Drop a card, or use the plus.")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.white.opacity(0.25))
+                    .frame(maxWidth: .infinity, minHeight: 40, alignment: .leading)
+            } else {
+                LazyVGrid(
+                    columns: [GridItem(.adaptive(minimum: cardWidth), spacing: gutter,
+                                       alignment: .topLeading)],
+                    alignment: .leading,
+                    spacing: gutter
+                ) {
+                    ForEach(ideas.indices, id: \.self) { i in
+                        IdeaCard(
+                            ref: ParkingLotView.IdeaRef(bay: bay, idea: i),
+                            title: ideas[i].title,
+                            details: ideas[i].details,
+                            color: Palette.card(ideas[i].color).color,
+                            height: cardHeight,
+                            zoom: zoom,
+                            onTap: onTap
+                        )
+                    }
                 }
-                .stroke(paint, lineWidth: 2)
-                Path { p in
-                    p.move(to: .zero)
-                    p.addLine(to: CGPoint(x: w, y: 0))
-                }
-                .stroke(curb, lineWidth: 2)
             }
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 8)
+                .fill(Color.white.opacity(targeted ? 0.07 : 0))
+                .padding(-6)
+        )
+        .dropDestination(for: String.self) { items, _ in
+            targeted = false
+            guard let ref = ParkingLotView.IdeaRef(payload: items.first ?? "") else { return false }
+            onDrop(ref)
+            return true
+        } isTargeted: { targeted = $0 }
+    }
+}
+
+/// One idea. A filled rectangle and a line of text, nothing drawn, nothing
+/// measured: the whole point of the rewrite is that a hundred of these cost
+/// less than a dozen of the old canvas-drawn cars.
+private struct IdeaCard: View {
+    let ref: ParkingLotView.IdeaRef
+    let title: String
+    let details: String
+    let color: Color
+    let height: CGFloat
+    let zoom: CGFloat
+    let onTap: (ParkingLotView.IdeaRef) -> Void
+
+    @State private var hovered = false
+
+    var body: some View {
+        Text(title.isEmpty ? "Untitled" : title)
+            .font(.system(size: 11.5 * zoom, weight: .semibold))
+            .lineLimit(3)
+            .minimumScaleFactor(0.75)
+            .multilineTextAlignment(.leading)
+            .foregroundStyle(Palette.cardInk.color)
+            .frame(maxWidth: .infinity, alignment: .topLeading)
+            .padding(7 * zoom)
+            .frame(height: height, alignment: .topLeading)
+            .background(RoundedRectangle(cornerRadius: 7, style: .continuous).fill(color))
+            // A dog-ear when there is more to read than the title.
+            .overlay(alignment: .bottomTrailing) {
+                if !details.isEmpty {
+                    Circle()
+                        .fill(Color.black.opacity(0.2))
+                        .frame(width: 4, height: 4)
+                        .padding(5)
+                }
+            }
+            .overlay(
+                RoundedRectangle(cornerRadius: 7, style: .continuous)
+                    .strokeBorder(Color.black.opacity(hovered ? 0.45 : 0.12), lineWidth: 1)
+            )
+            .scaleEffect(hovered ? 1.04 : 1)
+            .animation(.easeOut(duration: 0.12), value: hovered)
+            .contentShape(Rectangle())
+            .onHover { hovered = $0 }
+            .onTapGesture { onTap(ref) }
+            // The car survives as the thing you drag. It was the best part of
+            // the old lot and it costs one sprite, once, mid-drag.
+            .draggable(ref.payload) {
+                CarSprite(color: color).frame(width: 78, height: 34)
+            }
+            .help(details.isEmpty ? (title.isEmpty ? "Untitled idea" : title)
+                                  : "\(title)\n\n\(details)")
     }
 }
 
 /// The + on a bay sign. Always in the same place, so parking into a bay never
-/// depends on there happening to be a painted empty space in view.
+/// depends on there happening to be a free space in view.
 private struct SignParkButton: View {
     var onPark: () -> Void
 
@@ -583,32 +484,6 @@ private struct SignParkButton: View {
             .onTapGesture { onPark() }
             .animation(.easeOut(duration: 0.14), value: hovered)
             .help("Park a new idea in this bay")
-    }
-}
-
-/// A painted space with no car in it. Hover shows a faint plus; a tap parks a
-/// fresh idea there, and closing the panel without typing removes it again.
-private struct EmptyStall: View {
-    let width: CGFloat
-    let height: CGFloat
-    let paint: Color
-    let curb: Color
-    var onPark: () -> Void
-
-    @State private var hovered = false
-
-    var body: some View {
-        Image(systemName: "plus")
-            .font(.system(size: 15, weight: .bold))
-            .foregroundStyle(.white.opacity(hovered ? 0.4 : 0))
-            .frame(width: width, height: height)
-            .background(Color.white.opacity(hovered ? 0.04 : 0))
-            .contentShape(Rectangle())
-            .onHover { hovered = $0 }
-            .onTapGesture { onPark() }
-            .overlay(StallLines(paint: paint, curb: curb))
-            .animation(.easeOut(duration: 0.14), value: hovered)
-            .help("Park a new idea here")
     }
 }
 
@@ -651,8 +526,8 @@ private struct IdeaPanel: View {
             metaLine
 
             // The title is its own field, big, because it is the one line the
-            // stall stencil shows. It is still just the first line of the
-            // markdown bullet underneath.
+            // card shows. It is still just the first line of the markdown
+            // bullet underneath.
             TextField("Idea", text: $title)
                 .textFieldStyle(.plain)
                 .font(.system(size: 19, weight: .semibold))
@@ -784,79 +659,5 @@ private struct IdeaPanel: View {
             .menuIndicator(.hidden)
             .fixedSize()
         }
-    }
-}
-
-/// The lot's fixed dimensions and paint, handed to a stall in one value.
-struct LotStyle {
-    let stallWidth: CGFloat
-    let stallHeight: CGFloat
-    let carLength: CGFloat
-    let carWidth: CGFloat
-    let paint: Color
-    let curb: Color
-    let stencilInk: Color
-}
-
-/// One parked car and its stencilled title.
-///
-/// This is a view, not a method on the board, for one reason: hover. Every car
-/// is a `Canvas`, which redraws whenever its view is invalidated. While the
-/// hover lived on the board, moving the pointer one stall over rebuilt the
-/// board, and every car on it repainted. Keeping the hover in here means a
-/// hover repaints one car.
-private struct Stall: View {
-    let ref: ParkingLotView.IdeaRef
-    let title: String
-    let color: Color
-    let out: Bool
-    let carSpace: Namespace.ID
-    let style: LotStyle
-    let onTap: () -> Void
-    @State private var hovered = false
-
-    private var lit: Bool { hovered && !out }
-
-    var body: some View {
-        VStack(spacing: 9) {
-            Group {
-                if out {
-                    // The car is out in the lane; keep its footprint.
-                    Color.clear
-                } else {
-                    CarSprite(color: color)
-                        .frame(width: style.carLength, height: style.carWidth)
-                        .rotationEffect(.degrees(-90))
-                        .matchedGeometryEffect(id: ref, in: carSpace)
-                        .draggable(ref.payload) {
-                            CarSprite(color: color)
-                                .frame(width: style.carLength, height: style.carWidth)
-                        }
-                }
-            }
-            // Fixed footprint, so every car sits at the same y in its stall
-            // and the drive out is dead straight.
-            .frame(width: style.carWidth, height: style.carLength)
-            Text(title.isEmpty ? "UNTITLED" : title)
-                .font(.system(size: 10, weight: .bold, design: .monospaced))
-                .foregroundStyle(style.stencilInk.opacity(out ? 0.5 : 1))
-                .lineLimit(2)
-                .minimumScaleFactor(0.8)
-                .multilineTextAlignment(.center)
-                .frame(width: style.stallWidth - 14, height: 28, alignment: .top)
-        }
-        .padding(.top, 14)
-        .frame(width: style.stallWidth, height: style.stallHeight, alignment: .top)
-        // Hover lifts the whole space, not just the car, so the stencil reads
-        // as part of the same target.
-        .background(Color.white.opacity(lit ? 0.05 : 0))
-        .scaleEffect(lit ? 1.03 : 1)
-        .animation(.easeOut(duration: 0.14), value: lit)
-        // The whole stall is the target, stencil included, not just the car.
-        .contentShape(Rectangle())
-        .onHover { hovered = $0 }
-        .onTapGesture(perform: onTap)
-        .overlay(StallLines(paint: style.paint, curb: style.curb))
-        .help(title.isEmpty ? "Untitled idea" : title)
     }
 }
