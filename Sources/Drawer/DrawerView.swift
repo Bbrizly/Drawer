@@ -296,7 +296,14 @@ struct DrawerView: View {
         .animation(reduceMotion ? nil : .easeOut(duration: 0.18), value: showingAdd)
         .animation(reduceMotion ? nil : .easeOut(duration: 0.18), value: showingNotes)
         .animation(reduceMotion ? nil : .easeOut(duration: 0.18), value: showingCapture)
-        .animation(reduceMotion ? nil : .easeOut(duration: 0.5), value: swipe.showingBoard)
+        // Slow in, fast out. Opening is a reveal and reads well at half a
+        // second. Closing is not: the panel window snaps back from full screen
+        // in one frame (see PanelController.setBoardCoverage), so a long slide
+        // out is half a second of board animating inside a window that already
+        // shrank. Match the close to the snap instead.
+        .animation(
+            reduceMotion ? nil : .easeOut(duration: swipe.showingBoard ? 0.5 : 0.2),
+            value: swipe.showingBoard)
         .animation(reduceMotion ? nil : .easeOut(duration: 0.18), value: sound.isPlaying)
         .onAppear { configureSwipeCoordinator() }
         .onReceive(NotificationCenter.default.publisher(for: .drawerDidOpen)) { _ in
