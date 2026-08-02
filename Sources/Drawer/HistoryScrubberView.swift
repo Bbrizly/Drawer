@@ -66,14 +66,24 @@ struct HistoryScrubberView: View {
     /// Reconstruct every retained snapshot, diff it, and roll the lifecycles up
     /// per day. Done once on open and on each new capture (not per frame): the
     /// blobs are small markdown files and retention caps the count at 500.
-    /// ponytail: if this ever janks on open, hop it to a detached Task.
+    ///
+    /// It did jank, so the diff is off the main thread now. Five hundred
+    /// snapshots is five hundred full markdown parses, and running that inline
+    /// in `onAppear` stopped the whole drawer for about a second every time
+    /// this view came back on screen, which is what made leaving the idea
+    /// board feel broken.
     private func rebuildSummary() {
         let snaps: [TimelineSnapshot] = records.compactMap { record in
             guard case let .available(bytes) = recorder.reconstruct(record),
                   let text = String(data: bytes, encoding: .utf8) else { return nil }
             return TimelineSnapshot(ts: record.ts, markdown: text)
         }
-        summary = HistoryTimelineBuilder.dailySummary(HistoryTimelineBuilder.build(snapshots: snaps))
+        Task { @MainActor in summary = await Self.tally(snaps) }
+    }
+
+    /// Pure, and the snapshots are values, so it runs off the main thread.
+    private nonisolated static func tally(_ snaps: [TimelineSnapshot]) async -> [DayTally] {
+        HistoryTimelineBuilder.dailySummary(HistoryTimelineBuilder.build(snapshots: snaps))
     }
 
     /// A left-to-right band of day cards (oldest first, matching the scrubber
