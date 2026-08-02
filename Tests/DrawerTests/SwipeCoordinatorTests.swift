@@ -59,4 +59,13 @@ final class SwipeCoordinatorTests: XCTestCase {
         XCTAssertEqual(SwipeCoordinator.coverage(from: 0.9, dx: 300), 1.0, accuracy: 0.0001)
         XCTAssertEqual(SwipeCoordinator.coverage(from: 0.2, dx: -200), 0.0, accuracy: 0.0001)
     }
+
+    func testOneSwipeFromFullCoverageCloses() {
+        // 300 points shrinks a full-screen board back to the normal panel, and
+        // the next 50 take it past the end of the track, which is the close.
+        // The raw value is what the monitor tests, so a single gesture is
+        // enough. It used to need a second one starting at zero coverage.
+        XCTAssertGreaterThan(SwipeCoordinator.rawCoverage(from: 1, dx: -300), -50.0 / 300)
+        XCTAssertLessThanOrEqual(SwipeCoordinator.rawCoverage(from: 1, dx: -360), -50.0 / 300)
+    }
 }

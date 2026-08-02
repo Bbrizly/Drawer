@@ -62,7 +62,14 @@ final class SwipeCoordinator {
     /// Coverage for a live swipe: `start` (coverage when the swipe began) plus
     /// the swipe distance so far, clamped 0...1. Pure, testable without events.
     static func coverage(from start: CGFloat, dx: CGFloat) -> CGFloat {
-        max(0, min(1, start + dx / coverageSwipeScale))
+        max(0, min(1, rawCoverage(from: start, dx: dx)))
+    }
+
+    /// The same number before clamping. A value below 0 means the swipe kept
+    /// going after the panel was back to its normal size, which is how one
+    /// continuous swipe can both shrink the board and then leave it.
+    static func rawCoverage(from start: CGFloat, dx: CGFloat) -> CGFloat {
+        start + dx / coverageSwipeScale
     }
 
     func offset(for id: String) -> CGFloat { offsets[id] ?? 0 }
@@ -213,10 +220,14 @@ final class ScrollSwipeMonitor: ObservableObject {
         // finger live; on the task list a decisive right swipe opens the board.
         if pageMode {
             if coordinator.showingBoard {
-                coordinator.boardCoverage = SwipeCoordinator.coverage(from: coverageStart, dx: accumX)
+                let raw = SwipeCoordinator.rawCoverage(from: coverageStart, dx: accumX)
+                coordinator.boardCoverage = max(0, min(1, raw))
                 if event.phase == .ended {
-                    // At minimum coverage and still pushing left -> back to tasks.
-                    if coverageStart <= 0 && accumX <= -Self.pageSwipeThreshold {
+                    // Pushed past the left end of the coverage track -> back to
+                    // tasks. It used to need the gesture to *start* at zero, so
+                    // closing from a full-screen board took two separate swipes:
+                    // one to shrink, another to leave.
+                    if raw <= -Self.pageSwipeThreshold / SwipeCoordinator.coverageSwipeScale {
                         coordinator.showingBoard = false
                         coordinator.boardCoverage = 0
                     } else if coordinator.boardCoverage > 0.05 {
