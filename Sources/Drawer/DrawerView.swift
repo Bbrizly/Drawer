@@ -773,6 +773,13 @@ struct DrawerView: View {
                 swipe.lastBoardCoverage = swipe.boardCoverage
             }
             swipe.boardCoverage = 0
+            // Snap the panel back here instead of waiting for the coverage
+            // onChange to deliver it. Tearing the board down takes about a
+            // second, and that update pass is what the onChange is queued
+            // behind, so the window sat full screen the whole time and the
+            // close read as a freeze. Resizing first also means the teardown
+            // relayout happens at panel size, not at full screen.
+            onBoardCoverage(0)
         }
     }
 
