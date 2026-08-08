@@ -60,8 +60,8 @@ struct ParkingLotView: View {
 
     /// Card size at zoom 1. Wide enough that a full sentence of a title reads
     /// as a sentence, which is most of what a card is for.
-    private let baseCardWidth: CGFloat = 158
-    private let baseCardHeight: CGFloat = 76
+    private let baseCardWidth: CGFloat = 196
+    private let baseCardHeight: CGFloat = 88
     private let gutter: CGFloat = 8
     private let edgePad: CGFloat = 14
     private let signHeight: CGFloat = 34
@@ -86,83 +86,122 @@ struct ParkingLotView: View {
     }
 
     var body: some View {
-        VStack(spacing: 0) {
-            lotBar
-            ScrollViewReader { proxy in
-                ScrollView {
-                    // Lazy: a file with forty bays only builds the two you can see.
-                    LazyVStack(
-                        alignment: .leading, spacing: 0, pinnedViews: [.sectionHeaders]
-                    ) {
-                        if lot.document.bays.isEmpty {
-                            emptyLot
-                        } else {
-                            ForEach(Array(lot.document.bays.enumerated()), id: \.offset) { b, bay in
-                                Section {
-                                    if !collapsed.contains(bay.name) {
-                                        BayGrid(
-                                            bay: b,
-                                            bayColor: Palette.card(bay.color).color,
-                                            ideas: bay.ideas,
-                                            cardWidth: cardWidth,
-                                            cardHeight: cardHeight,
-                                            gutter: gutter,
-                                            zoom: zoom,
-                                            onTap: { toggle($0) },
-                                            onDelete: { delete($0) },
-                                            onDrop: { ref in drop(ref, toBay: bay.name) }
-                                        )
-                                        .padding(.horizontal, edgePad)
-                                        .padding(.bottom, 18)
+        // One reader around the whole lot. It measures the space the board page
+        // handed us, which never depends on what is in the lot, so nothing here
+        // can feed its own size back into the measurement. The width picks the
+        // column count; the height caps the open card.
+        GeometryReader { geo in
+            VStack(spacing: 0) {
+                lotBar
+                ScrollViewReader { proxy in
+                    ScrollView {
+                        // Lazy over bays only: a file with forty bays builds the
+                        // two you can see. The cards inside a bay are a plain
+                        // stack of rows, so a bay's height is settled by its own
+                        // content in one pass. A lazy grid in here instead asked
+                        // the scroll view which cards were visible in order to
+                        // work out the height that decides which cards are
+                        // visible, and that argument never ended: the app locked
+                        // up mid-scroll and had to be force quit.
+                        LazyVStack(
+                            alignment: .leading, spacing: 0, pinnedViews: [.sectionHeaders]
+                        ) {
+                            if lot.document.bays.isEmpty {
+                                emptyLot
+                            } else {
+                                ForEach(Array(lot.document.bays.enumerated()), id: \.offset) { b, bay in
+                                    Section {
+                                        if !collapsed.contains(bay.name) {
+                                            BayGrid(
+                                                bay: b,
+                                                bayColor: Palette.card(bay.color).color,
+                                                ideas: bay.ideas,
+                                                columns: columns(in: geo.size.width),
+                                                cardHeight: cardHeight,
+                                                gutter: gutter,
+                                                zoom: zoom,
+                                                onTap: { toggle($0) },
+                                                onDelete: { delete($0) },
+                                                onDrop: { ref in drop(ref, toBay: bay.name) }
+                                            )
+                                            .padding(.horizontal, edgePad)
+                                            .padding(.bottom, 18)
+                                        }
+                                    } header: {
+                                        baySign(b)
+                                            .id(b)
                                     }
-                                } header: {
-                                    baySign(b)
-                                        .id(b)
                                 }
                             }
                         }
+                        .padding(.bottom, 40)
                     }
-                    .padding(.bottom, 40)
-                }
-                .onChange(of: resetRequests) { _, _ in
-                    zoom = 1
-                    withAnimation(.easeOut(duration: 0.25)) { proxy.scrollTo(0, anchor: .top) }
-                }
-                .onChange(of: jumpToBay) { _, target in
-                    guard let target else { return }
-                    setCollapsed(target, false)
-                    withAnimation(.easeOut(duration: 0.3)) { proxy.scrollTo(target, anchor: .top) }
-                    jumpToBay = nil
+                    .onChange(of: resetRequests) { _, _ in
+                        zoom = 1
+                        withAnimation(.easeOut(duration: 0.25)) { proxy.scrollTo(0, anchor: .top) }
+                    }
+                    .onChange(of: jumpToBay) { _, target in
+                        guard let target else { return }
+                        setCollapsed(target, false)
+                        withAnimation(.easeOut(duration: 0.3)) { proxy.scrollTo(target, anchor: .top) }
+                        jumpToBay = nil
+                    }
                 }
             }
-        }
-        .background(asphalt)
-        // An outside edit renumbers the bays and ideas under us. An open card
-        // still points at the old position, so one more keystroke would splice
-        // its text over whatever moved into that slot. Let go instead. Nothing
-        // is lost: a reload only happens when no save is pending, so everything
-        // typed so far is already on disk.
-        .onChange(of: lot.reloads) { _, _ in
-            selected = nil
-            blankIdea = nil
-            renamingBay = nil
-        }
-        .overlay { editor }
-        .confirmationDialog(
-            deletingBay.map { bayName($0) }.map { "Delete \($0)?" } ?? "Delete this category?",
-            isPresented: Binding(
-                get: { deletingBay != nil },
-                set: { if !$0 { deletingBay = nil } }),
-            titleVisibility: .visible
-        ) {
-            Button("Delete category and its ideas", role: .destructive) {
-                if let b = deletingBay { lot.deleteBay(index: b) }
-                deletingBay = nil
+            .background(asphalt)
+            // An outside edit renumbers the bays and ideas under us. An open card
+            // still points at the old position, so one more keystroke would splice
+            // its text over whatever moved into that slot. Let go instead. Nothing
+            // is lost: a reload only happens when no save is pending, so everything
+            // typed so far is already on disk.
+            .onChange(of: lot.reloads) { _, _ in
+                selected = nil
+                blankIdea = nil
+                renamingBay = nil
             }
-            Button("Cancel", role: .cancel) { deletingBay = nil }
-        } message: {
-            Text("Every idea parked here goes with it. This edits your file and there is no undo.")
+            .overlay { editor(in: geo.size.height) }
+            .confirmationDialog(
+                deletingBay.map { bayName($0) }.map { "Delete \($0)?" } ?? "Delete this category?",
+                isPresented: Binding(
+                    get: { deletingBay != nil },
+                    set: { if !$0 { deletingBay = nil } }),
+                titleVisibility: .visible
+            ) {
+                Button("Delete category and its ideas", role: .destructive) {
+                    if let b = deletingBay { lot.deleteBay(index: b) }
+                    deletingBay = nil
+                }
+                Button("Cancel", role: .cancel) { deletingBay = nil }
+            } message: {
+                Text("Every idea parked here goes with it. This edits your file and there is no undo.")
+            }
         }
+    }
+
+    /// How many cards fit across. The lot lays its own rows out rather than
+    /// handing the job to an adaptive grid, so this is the one number the
+    /// layout needs and it comes from the panel, not from the cards. N cards
+    /// take N widths and N-1 gutters between them.
+    static func columns(
+        width: CGFloat, cardWidth: CGFloat, gutter: CGFloat, edgePad: CGFloat
+    ) -> Int {
+        let usable = width - edgePad * 2
+        guard usable > 0, cardWidth > 0 else { return 1 }
+        return max(1, Int((usable + gutter) / (cardWidth + gutter)))
+    }
+
+    /// Card slots chunked into rows. Indexes, not ideas, because a card needs
+    /// its slot in the bay to address itself back to the store.
+    static func rows(count: Int, columns: Int) -> [[Int]] {
+        let per = max(1, columns)
+        return stride(from: 0, to: max(0, count), by: per).map {
+            Array($0..<min($0 + per, count))
+        }
+    }
+
+    private func columns(in width: CGFloat) -> Int {
+        Self.columns(
+            width: width, cardWidth: cardWidth, gutter: gutter, edgePad: edgePad)
     }
 
     // MARK: - The bar over the lot
@@ -232,7 +271,7 @@ struct ParkingLotView: View {
     /// below its stall, which meant the board reflowed around it every time.
     /// Floating it costs the board nothing.
     @ViewBuilder
-    private var editor: some View {
+    private func editor(in height: CGFloat) -> some View {
         if let sel = selected, idea(sel) != nil {
             ZStack {
                 Color.black.opacity(0.45)
@@ -240,10 +279,14 @@ struct ParkingLotView: View {
                     .onTapGesture { close() }
                 IdeaPanel(
                     lot: lot, bay: sel.bay, idea: sel.idea,
+                    // Whatever the board page gave us, less the padding. The
+                    // panel spends it on the note so an idea reads as a block
+                    // instead of through a letterbox.
+                    available: max(220, height - 40),
                     onDelete: { deleteSelected() },
                     onClose: { close() })
                     .id(sel)
-                    .frame(maxWidth: 360)
+                    .frame(maxWidth: 520)
                     .padding(20)
             }
             .transition(.opacity)
@@ -551,14 +594,16 @@ struct ParkingLotView: View {
 /// One bay's cards, wrapping to fill the width.
 ///
 /// Its own view for two reasons. The drop highlight lives in here, so dragging
-/// a card across the board redraws one bay instead of the board. And an
-/// adaptive grid fills whatever width it is given, so the cards are as dense as
-/// the panel allows at any zoom, with no leftover strip down the side.
+/// a card across the board redraws one bay instead of the board. And the rows
+/// are chunked by hand from a column count the lot worked out from the panel
+/// width, so a bay's height is a plain sum of its rows. An adaptive grid would
+/// work the count out for itself, from the space the enclosing scroll view has
+/// left, which is the thing this height is supposed to be telling it.
 private struct BayGrid: View {
     let bay: Int
     let bayColor: Color
     let ideas: [ParkedIdea]
-    let cardWidth: CGFloat
+    let columns: Int
     let cardHeight: CGFloat
     let gutter: CGFloat
     let zoom: CGFloat
@@ -568,6 +613,10 @@ private struct BayGrid: View {
 
     @State private var targeted = false
 
+    private var rows: [[Int]] {
+        ParkingLotView.rows(count: ideas.count, columns: columns)
+    }
+
     var body: some View {
         Group {
             if ideas.isEmpty {
@@ -576,28 +625,33 @@ private struct BayGrid: View {
                     .foregroundStyle(.white.opacity(0.25))
                     .frame(maxWidth: .infinity, minHeight: 40, alignment: .leading)
             } else {
-                LazyVGrid(
-                    columns: [GridItem(.adaptive(minimum: cardWidth), spacing: gutter,
-                                       alignment: .topLeading)],
-                    alignment: .leading,
-                    spacing: gutter
-                ) {
-                    // Keyed on the idea's line in the file, not its slot in the
-                    // bay: a delete above it must not hand this card's identity
+                VStack(alignment: .leading, spacing: gutter) {
+                    // Keyed on the first card's line in the file, not on the row
+                    // number: a delete above it must not hand this row's identity
                     // to its neighbour and make SwiftUI rebuild the tail.
-                    ForEach(
-                        Array(ideas.enumerated()), id: \.element.lineRange.lowerBound
-                    ) { i, parked in
-                        IdeaCard(
-                            ref: ParkingLotView.IdeaRef(bay: bay, idea: i),
-                            title: parked.title,
-                            details: parked.details,
-                            color: parked.color.map { Palette.card($0).color } ?? bayColor,
-                            minHeight: cardHeight,
-                            zoom: zoom,
-                            onTap: onTap,
-                            onDelete: onDelete
-                        )
+                    ForEach(rows, id: \.first) { row in
+                        HStack(alignment: .top, spacing: gutter) {
+                            ForEach(row, id: \.self) { i in
+                                IdeaCard(
+                                    ref: ParkingLotView.IdeaRef(bay: bay, idea: i),
+                                    title: ideas[i].title,
+                                    details: ideas[i].details,
+                                    color: ideas[i].color.map { Palette.card($0).color }
+                                        ?? bayColor,
+                                    minHeight: cardHeight,
+                                    zoom: zoom,
+                                    onTap: onTap,
+                                    onDelete: onDelete
+                                )
+                            }
+                            // Holds the empty slots open so a last row of one
+                            // card is card-sized, not a banner across the lot.
+                            if row.count < columns {
+                                ForEach(row.count..<columns, id: \.self) { _ in
+                                    Color.clear.frame(maxWidth: .infinity, maxHeight: 1)
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -636,15 +690,17 @@ private struct IdeaCard: View {
 
     var body: some View {
         Text(title.isEmpty ? "Untitled" : title)
-            .font(.system(size: 12.5 * zoom, weight: .semibold))
-            .lineLimit(8)
+            .font(.system(size: 13.5 * zoom, weight: .semibold))
+            .lineLimit(10)
             .multilineTextAlignment(.leading)
             .foregroundStyle(Palette.cardInk.color)
             .frame(maxWidth: .infinity, alignment: .topLeading)
-            .padding(9 * zoom)
-            // A floor first, then stretch to whatever the tallest card in the
-            // row needs. Reversed, or with a fixedSize in the stack, the two
-            // frames argue and the row height never settles.
+            .padding(10 * zoom)
+            // A floor first, then match the tallest card in the row. The row is
+            // a plain HStack, so it settles this from its own children. Asking
+            // for full height straight inside a lazy container instead means
+            // asking for a number that container has not worked out yet, and
+            // the two never agree: that is what wedged the app mid-scroll.
             .frame(minHeight: minHeight, alignment: .topLeading)
             .frame(maxHeight: .infinity, alignment: .topLeading)
             .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(color))
@@ -709,6 +765,9 @@ private struct IdeaPanel: View {
     @ObservedObject var lot: ParkingLotStore
     let bay: Int
     let idea: Int
+    /// Height the lot can spare. The note grows into it instead of scrolling
+    /// inside a short box, which is the whole point of opening a card.
+    let available: CGFloat
     var onDelete: () -> Void
     var onClose: () -> Void
 
@@ -724,13 +783,14 @@ private struct IdeaPanel: View {
     static let colorKeys = ["yellow", "pink", "blue", "green", "purple", "gray"]
 
     init(
-        lot: ParkingLotStore, bay: Int, idea: Int,
+        lot: ParkingLotStore, bay: Int, idea: Int, available: CGFloat,
         onDelete: @escaping () -> Void,
         onClose: @escaping () -> Void
     ) {
         self._lot = ObservedObject(wrappedValue: lot)
         self.bay = bay
         self.idea = idea
+        self.available = available
         self.onDelete = onDelete
         self.onClose = onClose
         let parked = lot.document.bays[bay].ideas[idea]
@@ -745,8 +805,8 @@ private struct IdeaPanel: View {
             // bullet underneath. It wraps: a long idea is still one idea.
             TextField("Idea", text: $title, axis: .vertical)
                 .textFieldStyle(.plain)
-                .font(.system(size: 19, weight: .semibold))
-                .lineLimit(1...4)
+                .font(.system(size: 21, weight: .semibold))
+                .lineLimit(1...6)
                 .focused($focusedField, equals: .title)
                 .onSubmit { focusedField = .details }
                 .onKeyPress(.escape) {
@@ -758,13 +818,15 @@ private struct IdeaPanel: View {
                 .fill(Color.black.opacity(0.12))
                 .frame(height: 1)
 
-            // Grows with what you type instead of opening as a tall empty box.
+            // Grows with what you type instead of opening as a tall empty box,
+            // and keeps growing up to everything the lot can spare. A note only
+            // scrolls once it is longer than the panel is tall.
             TextEditor(text: $details)
                 .focused($focusedField, equals: .details)
                 .scrollContentBackground(.hidden)
                 .font(.system(size: 15))
                 .lineSpacing(3)
-                .frame(minHeight: 64, maxHeight: 320)
+                .frame(minHeight: 150, maxHeight: max(150, available - 190))
                 .fixedSize(horizontal: false, vertical: true)
                 .overlay(alignment: .topLeading) {
                     if details.isEmpty {
