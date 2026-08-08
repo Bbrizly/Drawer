@@ -13,7 +13,16 @@ public struct ParkedIdea: Equatable {
 
 public struct ParkingBay: Equatable {
     public var name: String
+    /// Set from a lone colour token in the heading paren: `## Apps (blue)`.
+    /// Every card in the bay wears it unless the card names its own.
+    public var color: String?
     public var ideas: [ParkedIdea]
+
+    public init(name: String, color: String? = nil, ideas: [ParkedIdea]) {
+        self.name = name
+        self.color = color
+        self.ideas = ideas
+    }
 }
 
 public struct ParkingLotDocument: Equatable {
@@ -25,12 +34,13 @@ public struct ParkingLotDocument: Equatable {
 /// an idea are its details until the next blank line, the same rule the task
 /// file uses. The trailing paren holds an optional date and colour in either
 /// order; anything else in it is just title text and comes back untouched.
+///
+/// No regex anywhere. `Regex.firstMatch` per line showed up as the whole of a
+/// main-thread hang once already in this app, and every rule here is a prefix
+/// or a suffix test that plain string work does for a fraction of the cost.
 public enum ParkingLotParser {
     /// The exact keys BoardItem.color uses. No second colour vocabulary.
     public static let colors: Set<String> = ["yellow", "pink", "blue", "green", "purple", "gray"]
-
-    private static let ideaRegex = #/^- (.+)$/#
-    private static let metaRegex = #/\s*\(([^()]*)\)$/#
 
     public static func parse(_ text: String) -> ParkingLotDocument {
         let lines = text.split(omittingEmptySubsequences: false, whereSeparator: \.isNewline)
@@ -40,40 +50,17 @@ public enum ParkingLotParser {
         while i < lines.count {
             let line = lines[i]
             if line.hasPrefix("## ") {
-                let name = String(line.dropFirst(3)).trimmingCharacters(in: .whitespaces)
-                bays.append(ParkingBay(name: name, ideas: []))
+                let heading = String(line.dropFirst(3)).trimmingCharacters(in: .whitespaces)
+                let (name, color) = bayHeading(heading)
+                bays.append(ParkingBay(name: name, color: color, ideas: []))
                 i += 1
                 continue
             }
-            guard !bays.isEmpty, let m = line.wholeMatch(of: ideaRegex) else {
+            guard !bays.isEmpty, line.hasPrefix("- "), line.count > 2 else {
                 i += 1
                 continue
             }
-            var title = String(m.1)
-            var parked: String?
-            var color: String?
-            if let meta = title.firstMatch(of: metaRegex) {
-                let tokens = meta.1.split(separator: " ").map(String.init)
-                var date: String?
-                var col: String?
-                var recognised = !tokens.isEmpty
-                for token in tokens {
-                    if date == nil, TodoParser.isValidDate(token) {
-                        date = token
-                    } else if col == nil, colors.contains(token) {
-                        col = token
-                    } else {
-                        recognised = false
-                        break
-                    }
-                }
-                if recognised {
-                    parked = date
-                    color = col
-                    title = String(title[..<meta.range.lowerBound])
-                        .trimmingCharacters(in: .whitespaces)
-                }
-            }
+            let meta = ideaMeta(String(line.dropFirst(2)))
             var detailLines: [String] = []
             var j = i + 1
             while j < lines.count, isDetailLine(lines[j]) {
@@ -81,15 +68,55 @@ public enum ParkingLotParser {
                 j += 1
             }
             bays[bays.count - 1].ideas.append(ParkedIdea(
-                title: title,
+                title: meta.title,
                 details: detailLines.joined(separator: "\n"),
-                parked: parked,
-                color: color,
+                parked: meta.parked,
+                color: meta.color,
                 lineRange: i..<j
             ))
             i = j
         }
         return ParkingLotDocument(bays: bays)
+    }
+
+    /// Splits `Apps (blue)` into a name and a bay colour. Only a lone colour
+    /// token counts; `Apps (later)` keeps its paren as part of the name.
+    public static func bayHeading(_ heading: String) -> (name: String, color: String?) {
+        guard let paren = trailingParen(heading), colors.contains(paren.body) else {
+            return (heading, nil)
+        }
+        let name = paren.head.trimmingCharacters(in: .whitespaces)
+        return name.isEmpty ? (heading, nil) : (name, paren.body)
+    }
+
+    /// Splits an idea's text into title, parked date, and colour. The paren has
+    /// to hold nothing but recognised tokens, or it is title text.
+    static func ideaMeta(_ text: String) -> (title: String, parked: String?, color: String?) {
+        guard let paren = trailingParen(text) else { return (text, nil, nil) }
+        var date: String?
+        var color: String?
+        let tokens = paren.body.split(separator: " ")
+        guard !tokens.isEmpty else { return (text, nil, nil) }
+        for token in tokens {
+            let token = String(token)
+            if date == nil, TodoParser.isValidDate(token) {
+                date = token
+            } else if color == nil, colors.contains(token) {
+                color = token
+            } else {
+                return (text, nil, nil)
+            }
+        }
+        return (paren.head.trimmingCharacters(in: .whitespaces), date, color)
+    }
+
+    /// The `(...)` at the very end of a line, and what comes before it. Nil
+    /// when there is no trailing paren or when it nests another one.
+    private static func trailingParen(_ text: String) -> (head: String, body: String)? {
+        guard text.hasSuffix(")"), let open = text.lastIndex(of: "(") else { return nil }
+        let body = text[text.index(after: open)..<text.index(before: text.endIndex)]
+        guard !body.contains(")") else { return nil }
+        return (String(text[..<open]), String(body))
     }
 
     /// Indented and not blank, same shape as TodoParser.isDescriptionLine.

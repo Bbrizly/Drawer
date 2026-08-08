@@ -30,7 +30,7 @@ before you edit. If you still cannot tell, ask.
 ## Unsorted
 - Wild thought (2026-07-19)
 
-## Apps
+## Apps (green)
 - Lock screen widget (2026-07-19 yellow)
     A tiny glanceable version. Maybe just the next task,
     nothing else.
@@ -41,11 +41,16 @@ before you edit. If you still cannot tell, ask.
 ```
 
 - `## Name` starts a bay. Bays render in file order, so order matters.
+- A bay heading may end in a lone colour, `## Apps (green)`. That paints every
+  card in the bay. A paren holding anything else (`## Money track (B2B)`) is
+  part of the name, not a colour.
 - `- Title` is one idea, one car. Ideas render in file order within the bay.
 - The trailing paren is metadata. Both parts optional, either order,
   space separated: a date `YYYY-MM-DD` (when it was parked) and a colour.
 - Colours are exactly `yellow pink blue green purple gray`. Nothing else.
-  No colour means yellow.
+  A card with no colour of its own wears its bay's, and yellow if the bay has
+  none either. Painting the bay is the normal way; per-card colours are a
+  hand edit now.
 - Lines indented under an idea, until the next blank line, are its details.
   The app writes details indented four spaces; match that.
 - A paren that holds anything else (`(maybe)`, `(15m)`) is just title text.
