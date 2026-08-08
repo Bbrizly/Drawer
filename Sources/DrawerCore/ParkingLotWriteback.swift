@@ -11,6 +11,12 @@ public enum ParkingLotWriteback {
         title: String, details: String, parked: String?, color: String?
     ) -> [String] {
         let meta = [parked, color].compactMap { $0 }.joined(separator: " ")
+        // An idea is one bullet line. A title that arrived with a newline in
+        // it (pasted, or typed into the wrapping title field) would split into
+        // a second line the parser reads as prose, so flatten it here where
+        // every writer goes through.
+        let title = title.split(omittingEmptySubsequences: true, whereSeparator: \.isNewline)
+            .joined(separator: " ")
         var lines = [meta.isEmpty ? "- \(title)" : "- \(title) (\(meta))"]
         for line in details.split(omittingEmptySubsequences: false, whereSeparator: \.isNewline)
         where !line.trimmingCharacters(in: .whitespaces).isEmpty {
@@ -104,11 +110,13 @@ public enum ParkingLotWriteback {
         lines.removeSubrange(h..<end)
 
         let remaining = lines.filter { $0.hasPrefix("## ") }.count
-        let at: Int
-        if destination >= remaining {
-            at = lines.count
-        } else {
-            at = headingLine(at: destination, in: lines) ?? lines.count
+        var at = lines.count
+        if destination < remaining, let h = headingLine(at: destination, in: lines) {
+            at = h
+        } else if lines.last?.trimmingCharacters(in: .whitespaces).isEmpty == false {
+            // Landing at the end: the file's last line is an idea, so the
+            // moved heading needs its own blank line or the two bays weld.
+            block.insert("", at: 0)
         }
         lines.insert(contentsOf: block, at: at)
         return lines.joined(separator: "\n")

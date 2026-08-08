@@ -82,6 +82,18 @@ final class ParkingLotBayTests: XCTestCase {
         XCTAssertEqual(doc.bays[1].ideas[0].title, "Widget")
     }
 
+    func testMoveToBottomKeepsABlankLineBetweenBays() {
+        let out = ParkingLotWriteback.moveBay(from: 0, to: 1, in: "## A\n- one\n\n## B\n- two")
+        XCTAssertEqual(out, "## B\n- two\n\n## A\n- one\n")
+        XCTAssertEqual(ParkingLotParser.parse(out).bays.map(\.name), ["B", "A"])
+    }
+
+    func testTitleWithANewlineStaysOneBullet() {
+        let lines = ParkingLotWriteback.serialize(
+            title: "First line\nsecond line", details: "", parked: nil, color: nil)
+        XCTAssertEqual(lines, ["- First line second line"])
+    }
+
     func testMoveBayOutOfRangeLeavesTextAlone() {
         XCTAssertEqual(ParkingLotWriteback.moveBay(from: 0, to: 9, in: text), text)
         XCTAssertEqual(ParkingLotWriteback.moveBay(from: 1, to: 1, in: text), text)

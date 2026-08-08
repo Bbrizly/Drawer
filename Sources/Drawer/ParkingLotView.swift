@@ -76,8 +76,13 @@ struct ParkingLotView: View {
         Set(collapsedRaw.split(separator: "\n").map(String.init))
     }
 
+    /// Measured against the bays that exist, not the count: a name left in
+    /// defaults by a bay you deleted must not read as one that is rolled up.
     private var allCollapsed: Bool {
-        !lot.document.bays.isEmpty && collapsed.count >= lot.document.bays.count
+        let shut = collapsed
+        return !lot.document.bays.isEmpty && lot.document.bays.allSatisfy {
+            shut.contains($0.name)
+        }
     }
 
     var body: some View {
@@ -634,12 +639,14 @@ private struct IdeaCard: View {
             .font(.system(size: 12.5 * zoom, weight: .semibold))
             .lineLimit(8)
             .multilineTextAlignment(.leading)
-            .fixedSize(horizontal: false, vertical: true)
             .foregroundStyle(Palette.cardInk.color)
             .frame(maxWidth: .infinity, alignment: .topLeading)
             .padding(9 * zoom)
-            .frame(maxHeight: .infinity, alignment: .topLeading)
+            // A floor first, then stretch to whatever the tallest card in the
+            // row needs. Reversed, or with a fixedSize in the stack, the two
+            // frames argue and the row height never settles.
             .frame(minHeight: minHeight, alignment: .topLeading)
+            .frame(maxHeight: .infinity, alignment: .topLeading)
             .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(color))
             // A dog-ear when there is more to read than the title.
             .overlay(alignment: .bottomTrailing) {

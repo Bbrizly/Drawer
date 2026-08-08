@@ -21,6 +21,9 @@ public final class ParkingLotStore: ObservableObject {
     private let debounce: TimeInterval
     private var saveTask: Task<Void, Never>?
     private var reloadTask: Task<Void, Never>?
+    /// Bumped by every in-app edit. A background read that started before one
+    /// of these came back stale, so it is dropped.
+    private var edits = 0
     private let readString: (URL) throws -> String
     private let writeString: (String, URL) throws -> Void
     private let todayProvider: () -> String
@@ -78,13 +81,17 @@ public final class ParkingLotStore: ObservableObject {
         guard saveTask == nil, reloadTask == nil else { return }
         let read = readString
         let url = fileURL
+        let startedAt = edits
         reloadTask = Task { [weak self] in
             let disk = await Task.detached(priority: .utility) {
                 (try? read(url)) ?? ""
             }.value
             guard let self, !Task.isCancelled else { return }
             self.reloadTask = nil
-            guard self.saveTask == nil else { return }
+            // An edit that landed while the read was in flight is newer than
+            // what came back. Adopting it would put the old text back on
+            // screen and shut whatever card is open.
+            guard self.saveTask == nil, self.edits == startedAt else { return }
             self.adopt(disk)
         }
     }
@@ -203,6 +210,7 @@ public final class ParkingLotStore: ObservableObject {
     }
 
     private func apply(_ newText: String) {
+        edits += 1
         text = newText
         document = ParkingLotParser.parse(text)
         scheduleSave()
