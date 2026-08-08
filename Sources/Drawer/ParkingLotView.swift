@@ -1,11 +1,15 @@
+import AppKit
 import DrawerCore
 import SwiftUI
 
-/// The lot: every idea in the file as a card, bays as headings that stick to
-/// the top while you scroll past them, so you always know which category you
-/// are reading. It scrolls, it does not pan. Only the bays on screen are ever
-/// built, and a card is a filled rectangle with wrapped text on it, so the
-/// whole board costs about what a list costs.
+/// The lot: every idea in the file as a card, under a heading per bay. It
+/// scrolls, it does not pan. A card is a filled rectangle with wrapped text on
+/// it, so the whole board costs about what a list costs.
+///
+/// Nothing here is lazy, on purpose. A lazy stack works out which bays are on
+/// screen from a height it works out from which bays are on screen, and on a
+/// long lot that argument never ended: the main thread spun at 100% and the app
+/// had to be force quit. See `Docs/adr/0003`.
 ///
 /// It used to be a drawn car park: painted stalls, a car sprite per idea, pan
 /// and zoom over a canvas bigger than the window. It looked good and it was
@@ -279,16 +283,16 @@ struct ParkingLotView: View {
                 Color.black.opacity(0.45)
                     .contentShape(Rectangle())
                     .onTapGesture { close() }
+                // A fixed width, not a cap, so the panel can work out how many
+                // lines the note wraps to and be exactly that tall.
+                let width = min(520, max(260, lotSize.width - 40))
                 IdeaPanel(
                     lot: lot, bay: sel.bay, idea: sel.idea,
-                    // Whatever the board page gave us, less the padding. The
-                    // panel spends it on the note so an idea reads as a block
-                    // instead of through a letterbox.
-                    available: max(220, height - 40),
+                    available: CGSize(width: width, height: max(220, height - 40)),
                     onDelete: { deleteSelected() },
                     onClose: { close() })
                     .id(sel)
-                    .frame(maxWidth: 520)
+                    .frame(width: width)
                     .padding(20)
             }
             .transition(.opacity)
@@ -768,13 +772,14 @@ private struct SignParkButton: View {
 /// The pulled-out idea. The panel is the markdown, not a form: the first line
 /// is the title, the rest is the details. No save button; edits splice back
 /// through the store's debounce. The caret lands on open.
-private struct IdeaPanel: View {
+struct IdeaPanel: View {
     @ObservedObject var lot: ParkingLotStore
     let bay: Int
     let idea: Int
-    /// Height the lot can spare. The note grows into it instead of scrolling
-    /// inside a short box, which is the whole point of opening a card.
-    let available: CGFloat
+    /// The panel's width, and the height the lot can spare. The note is
+    /// measured against the width and the panel ends up exactly that tall,
+    /// up to the height.
+    let available: CGSize
     var onDelete: () -> Void
     var onClose: () -> Void
 
@@ -789,8 +794,34 @@ private struct IdeaPanel: View {
     /// own swatch; the bay menu paints the whole category from this list.
     static let colorKeys = ["yellow", "pink", "blue", "green", "purple", "gray"]
 
+    /// How tall the note box has to be to hold the text without scrolling.
+    /// A TextEditor is a scroll view: it never reports how tall its content
+    /// is, so asking it for an ideal height pins it short and the note
+    /// scrolls no matter what ceiling it is given. Measure the string instead.
+    /// Clamped so an empty idea is not a tall blank box and a very long one
+    /// stops at the board's edge.
+    static func detailsHeight(
+        for text: String, width: CGFloat, fontSize: CGFloat, lineSpacing: CGFloat,
+        floor: CGFloat, cap: CGFloat
+    ) -> CGFloat {
+        let cap = max(floor, cap)
+        guard width > 0, !text.isEmpty else { return floor }
+        let style = NSMutableParagraphStyle()
+        style.lineSpacing = lineSpacing
+        let measured = (text as NSString).boundingRect(
+            with: CGSize(width: width, height: .greatestFiniteMagnitude),
+            options: [.usesLineFragmentOrigin, .usesFontLeading],
+            attributes: [
+                .font: NSFont.systemFont(ofSize: fontSize),
+                .paragraphStyle: style,
+            ]
+        ).height
+        // The editor keeps its own inset around the text it draws.
+        return min(cap, max(floor, ceil(measured) + 22))
+    }
+
     init(
-        lot: ParkingLotStore, bay: Int, idea: Int, available: CGFloat,
+        lot: ParkingLotStore, bay: Int, idea: Int, available: CGSize,
         onDelete: @escaping () -> Void,
         onClose: @escaping () -> Void
     ) {
@@ -825,17 +856,13 @@ private struct IdeaPanel: View {
                 .fill(Color.black.opacity(0.12))
                 .frame(height: 1)
 
-            // Takes every point the panel has left. A TextEditor is a scroll
-            // view: it does not report how tall its text is, so asking it for
-            // its ideal height (fixedSize) pinned it short and the note
-            // scrolled no matter how high the ceiling was set. Give it the
-            // room instead and the text just sits there.
+            // Exactly as tall as the note needs, worked out from the text.
             TextEditor(text: $details)
                 .focused($focusedField, equals: .details)
                 .scrollContentBackground(.hidden)
                 .font(.system(size: 15))
                 .lineSpacing(3)
-                .frame(minHeight: 200, maxHeight: .infinity)
+                .frame(height: detailsBoxHeight)
                 .overlay(alignment: .topLeading) {
                     if details.isEmpty {
                         Text("Details")
@@ -856,9 +883,6 @@ private struct IdeaPanel: View {
             footer
         }
         .padding(14)
-        // Fills the board rather than sitting in the middle of it. An idea you
-        // opened to read should be a block of text, not a letterbox.
-        .frame(maxHeight: available)
         // Concentric: the 14pt inset inside a 26pt corner leaves the inner
         // content sitting on a 12pt curve, so nothing reads pinched.
         .background(RoundedRectangle(cornerRadius: 26, style: .continuous)
@@ -872,6 +896,17 @@ private struct IdeaPanel: View {
         .onAppear { focusedField = .title }
         .onChange(of: title) { _, _ in save() }
         .onChange(of: details) { _, _ in save() }
+    }
+
+    /// The note box, sized to the note. The cap leaves room for the title,
+    /// the rule, and the footer, so the panel never runs off the board.
+    private var detailsBoxHeight: CGFloat {
+        Self.detailsHeight(
+            for: details,
+            // The panel's padding, and the inset the editor draws inside.
+            width: available.width - 28 - 10,
+            fontSize: 15, lineSpacing: 3,
+            floor: 84, cap: available.height - 190)
     }
 
     private func save() {

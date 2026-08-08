@@ -59,3 +59,43 @@ final class LotGridTests: XCTestCase {
         }
     }
 }
+
+/// The open idea is exactly as tall as its note. A TextEditor never reports
+/// how tall its text is, so the panel measures the string itself.
+final class IdeaPanelHeightTests: XCTestCase {
+    private func height(_ text: String, width: CGFloat = 480, cap: CGFloat = 600) -> CGFloat {
+        IdeaPanel.detailsHeight(
+            for: text, width: width, fontSize: 15, lineSpacing: 3,
+            floor: 84, cap: cap)
+    }
+
+    func testAnEmptyNoteGetsTheFloor() {
+        XCTAssertEqual(height(""), 84)
+    }
+
+    func testAShortNoteStaysAtTheFloor() {
+        XCTAssertEqual(height("Ask about the lease."), 84)
+    }
+
+    func testMoreTextIsTaller() {
+        let one = height("One line of note text.")
+        let many = height(String(repeating: "A sentence that keeps going. ", count: 12))
+        XCTAssertGreaterThan(many, one)
+    }
+
+    func testWrappingCountsAgainstTheWidth() {
+        let sentence = String(repeating: "word ", count: 60)
+        XCTAssertGreaterThan(height(sentence, width: 200), height(sentence, width: 480))
+    }
+
+    func testAVeryLongNoteStopsAtTheCap() {
+        let huge = String(repeating: "Lots of text here. ", count: 400)
+        XCTAssertEqual(height(huge, cap: 420), 420)
+    }
+
+    /// A tiny panel must not hand back a cap below the floor.
+    func testACapUnderTheFloorNeverGoesNegative() {
+        XCTAssertEqual(height("some text", cap: 10), 84)
+        XCTAssertEqual(height("some text", cap: -200), 84)
+    }
+}
