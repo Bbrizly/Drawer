@@ -110,6 +110,18 @@ enum AppPaths {
         URL(fileURLWithPath: storedPath(forKey: notesFilePathKey, default: defaultNotesFile))
     }
 
+    /// Extra note tabs, and the ones you closed. Closing a tab files it away
+    /// instead of deleting it, so Settings > Storage is the only thing that
+    /// ever removes a note for good.
+    static var notesTabsDirectory: URL {
+        notesFile.deletingLastPathComponent()
+            .appendingPathComponent("Drawer Notes", isDirectory: true)
+    }
+
+    static var removedNotesDirectory: URL {
+        notesTabsDirectory.appendingPathComponent("Removed", isDirectory: true)
+    }
+
     static var workLogFile: URL {
         URL(fileURLWithPath: storedPath(forKey: workLogFilePathKey, default: defaultWorkLogFile))
     }

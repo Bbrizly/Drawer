@@ -1346,8 +1346,9 @@ private struct AdvancedSettingsView: View {
 
 /// Advanced > storage. What Drawer keeps on disk and how big it is, with a
 /// confirmed clear for each. Derived stores and the idea board folder live
-/// here; your task file and notes are never listed or touched. The live history
-/// scrubber self-heals to the cleared state on its next capture.
+/// here, plus the notes you closed; your task file and your open notes are
+/// never listed or touched. The live history scrubber self-heals to the
+/// cleared state on its next capture.
 private struct StorageSection: View {
     @ObservedObject var boardStore: BoardStore
 
@@ -1381,6 +1382,11 @@ private struct StorageSection: View {
                   ],
                   location: AppPaths.ideasDirectory.path,
                   clearNote: "Every board and pasted image is erased. This cannot be undone."),
+            Store(id: "closedNotes", name: "Closed notes",
+                  caption: "Note tabs you closed. Closing keeps the file; this is where it waits.",
+                  targets: [AppPaths.removedNotesDirectory],
+                  location: AppPaths.removedNotesDirectory.path,
+                  clearNote: "Those notes are erased for good. Open tabs are not touched."),
         ]
     }
 
@@ -1442,7 +1448,7 @@ private struct StorageSection: View {
             Button("Clear \(sizeLabel(sizes[store.id] ?? 0))", role: .destructive) { clear(store) }
         } message: { store in
             if let note = store.clearNote {
-                Text("This deletes it for good. \(note) Your task file and notes are not touched.")
+                Text("This deletes it for good. \(note)")
             } else {
                 Text("This deletes it for good. Your task file and notes are not touched.")
             }
