@@ -691,9 +691,21 @@ private struct IdeaCard: View {
     @State private var hovered = false
 
     var body: some View {
-        Text(title.isEmpty ? "Untitled" : title)
-            .font(.system(size: 13.5 * zoom, weight: .semibold))
-            .lineLimit(10)
+        VStack(alignment: .leading, spacing: 4 * zoom) {
+            Text(title.isEmpty ? "Untitled" : title)
+                .font(.system(size: 13.5 * zoom, weight: .semibold))
+                .lineLimit(5)
+            // The first line or two of the note, quieter and smaller, so a card
+            // says what the idea was and not just what it was called. Whitespace
+            // is collapsed: the note's own line breaks would eat the three lines
+            // this gets before the first sentence finished.
+            if !details.isEmpty {
+                Text(details.split(whereSeparator: \.isWhitespace).joined(separator: " "))
+                    .font(.system(size: 11 * zoom))
+                    .foregroundStyle(Palette.cardInk.color.opacity(0.58))
+                    .lineLimit(3)
+            }
+        }
             .multilineTextAlignment(.leading)
             .foregroundStyle(Palette.cardInk.color)
             .frame(maxWidth: .infinity, alignment: .topLeading)
@@ -706,15 +718,8 @@ private struct IdeaCard: View {
             .frame(minHeight: minHeight, alignment: .topLeading)
             .frame(maxHeight: .infinity, alignment: .topLeading)
             .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(color))
-            // A dog-ear when there is more to read than the title.
-            .overlay(alignment: .bottomTrailing) {
-                if !details.isEmpty {
-                    Circle()
-                        .fill(Color.black.opacity(0.2))
-                        .frame(width: 4, height: 4)
-                        .padding(5)
-                }
-            }
+            // The dog-ear that used to mark a card with a note is gone. The
+            // note's own first words are on the card now, which says it better.
             .overlay(
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
                     .strokeBorder(Color.black.opacity(hovered ? 0.45 : 0.12), lineWidth: 1)
