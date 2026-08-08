@@ -38,6 +38,11 @@ struct ParkingLotView: View {
     /// defaults because it is a view preference, not the user's file.
     @AppStorage("lotCollapsedBays") private var collapsedRaw = ""
 
+    /// What the board page gave us. The width picks the column count, the
+    /// height caps the open card. Read by `onGeometryChange`, never measured
+    /// mid-layout.
+    @State private var lotSize: CGSize = .zero
+
     struct IdeaRef: Hashable {
         var bay: Int
         var idea: Int
@@ -86,50 +91,42 @@ struct ParkingLotView: View {
     }
 
     var body: some View {
-        // One reader around the whole lot. It measures the space the board page
-        // handed us, which never depends on what is in the lot, so nothing here
-        // can feed its own size back into the measurement. The width picks the
-        // column count; the height caps the open card.
-        GeometryReader { geo in
             VStack(spacing: 0) {
                 lotBar
                 ScrollViewReader { proxy in
                     ScrollView {
-                        // Lazy over bays only: a file with forty bays builds the
-                        // two you can see. The cards inside a bay are a plain
-                        // stack of rows, so a bay's height is settled by its own
-                        // content in one pass. A lazy grid in here instead asked
-                        // the scroll view which cards were visible in order to
-                        // work out the height that decides which cards are
-                        // visible, and that argument never ended: the app locked
-                        // up mid-scroll and had to be force quit.
-                        LazyVStack(
-                            alignment: .leading, spacing: 0, pinnedViews: [.sectionHeaders]
-                        ) {
+                        // Plain, not lazy, and this is the whole reason the lot
+                        // stopped freezing. A lazy stack works out which bays
+                        // are on screen from a height it is working out from
+                        // which bays are on screen. On a long lot that argument
+                        // never ends: the main thread spins at 100% and the app
+                        // has to be killed. Every sample of the freeze was
+                        // inside that placement. A plain stack has no such
+                        // question to answer. It builds every bay, which a file
+                        // of categories can afford, and collapsing a bay still
+                        // takes its cards out of the layout entirely.
+                        VStack(alignment: .leading, spacing: 0) {
                             if lot.document.bays.isEmpty {
                                 emptyLot
                             } else {
                                 ForEach(Array(lot.document.bays.enumerated()), id: \.offset) { b, bay in
-                                    Section {
-                                        if !collapsed.contains(bay.name) {
-                                            BayGrid(
-                                                bay: b,
-                                                bayColor: Palette.card(bay.color).color,
-                                                ideas: bay.ideas,
-                                                columns: columns(in: geo.size.width),
-                                                cardHeight: cardHeight,
-                                                gutter: gutter,
-                                                zoom: zoom,
-                                                onTap: { toggle($0) },
-                                                onDelete: { delete($0) },
-                                                onDrop: { ref in drop(ref, toBay: bay.name) }
-                                            )
-                                            .padding(.horizontal, edgePad)
-                                            .padding(.bottom, 18)
-                                        }
-                                    } header: {
-                                        baySign(b)
-                                            .id(b)
+                                    baySign(b)
+                                        .id(b)
+                                    if !collapsed.contains(bay.name) {
+                                        BayGrid(
+                                            bay: b,
+                                            bayColor: Palette.card(bay.color).color,
+                                            ideas: bay.ideas,
+                                            columns: columns(in: lotSize.width),
+                                            cardHeight: cardHeight,
+                                            gutter: gutter,
+                                            zoom: zoom,
+                                            onTap: { toggle($0) },
+                                            onDelete: { delete($0) },
+                                            onDrop: { ref in drop(ref, toBay: bay.name) }
+                                        )
+                                        .padding(.horizontal, edgePad)
+                                        .padding(.bottom, 18)
                                     }
                                 }
                             }
@@ -148,6 +145,12 @@ struct ParkingLotView: View {
                     }
                 }
             }
+            // The panel's own size, read once and parked in state. A
+            // GeometryReader wrapped around this instead sat in the layout
+            // itself and asked the scroll view how big it was every pass,
+            // which is the other half of the loop above. This reports a
+            // settled number and only wakes the view when it actually changes.
+            .onGeometryChange(for: CGSize.self) { $0.size } action: { lotSize = $0 }
             .background(asphalt)
             // An outside edit renumbers the bays and ideas under us. An open card
             // still points at the old position, so one more keystroke would splice
@@ -159,7 +162,7 @@ struct ParkingLotView: View {
                 blankIdea = nil
                 renamingBay = nil
             }
-            .overlay { editor(in: geo.size.height) }
+            .overlay { editor(in: lotSize.height) }
             .confirmationDialog(
                 deletingBay.map { bayName($0) }.map { "Delete \($0)?" } ?? "Delete this category?",
                 isPresented: Binding(
@@ -175,7 +178,6 @@ struct ParkingLotView: View {
             } message: {
                 Text("Every idea parked here goes with it. This edits your file and there is no undo.")
             }
-        }
     }
 
     /// How many cards fit across. The lot lays its own rows out rather than
@@ -818,16 +820,17 @@ private struct IdeaPanel: View {
                 .fill(Color.black.opacity(0.12))
                 .frame(height: 1)
 
-            // Grows with what you type instead of opening as a tall empty box,
-            // and keeps growing up to everything the lot can spare. A note only
-            // scrolls once it is longer than the panel is tall.
+            // Takes every point the panel has left. A TextEditor is a scroll
+            // view: it does not report how tall its text is, so asking it for
+            // its ideal height (fixedSize) pinned it short and the note
+            // scrolled no matter how high the ceiling was set. Give it the
+            // room instead and the text just sits there.
             TextEditor(text: $details)
                 .focused($focusedField, equals: .details)
                 .scrollContentBackground(.hidden)
                 .font(.system(size: 15))
                 .lineSpacing(3)
-                .frame(minHeight: 150, maxHeight: max(150, available - 190))
-                .fixedSize(horizontal: false, vertical: true)
+                .frame(minHeight: 200, maxHeight: .infinity)
                 .overlay(alignment: .topLeading) {
                     if details.isEmpty {
                         Text("Details")
@@ -848,6 +851,9 @@ private struct IdeaPanel: View {
             footer
         }
         .padding(14)
+        // Fills the board rather than sitting in the middle of it. An idea you
+        // opened to read should be a block of text, not a letterbox.
+        .frame(maxHeight: available)
         // Concentric: the 14pt inset inside a 26pt corner leaves the inner
         // content sitting on a 12pt curve, so nothing reads pinched.
         .background(RoundedRectangle(cornerRadius: 26, style: .continuous)
