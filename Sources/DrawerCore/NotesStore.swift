@@ -116,7 +116,11 @@ public final class NotesStore: ObservableObject {
     /// a minus should not be able to lose writing. Tab one cannot be closed.
     public func removeTab(at index: Int) {
         guard index > 0, tabs.indices.contains(index) else { return }
-        if index == activeIndex { saveNow() }
+        // Always, even when the tab going away is not the open one: the
+        // refresh below can re-read the open file, and anything still sitting
+        // in the debounce would be read back over.
+        saveNow()
+        let closingOpenTab = tabs[index].url == fileURL
         let url = tabs[index].url
         let fm = FileManager.default
         try? fm.createDirectory(at: removedDirectory, withIntermediateDirectories: true)
@@ -128,9 +132,9 @@ public final class NotesStore: ObservableObject {
             n += 1
         }
         try? fm.moveItem(at: url, to: target)
-        if url == fileURL { fileURL = primaryURL }
+        if closingOpenTab { fileURL = primaryURL }
         refreshTabs()
-        open(activeIndex)
+        if closingOpenTab { open(activeIndex) }
     }
 
     /// Rebuilds the tab list from disk. The notes file first, then whatever
@@ -149,18 +153,46 @@ public final class NotesStore: ObservableObject {
             .map(\.lastPathComponent)
             .sorted()
             .map { tabsDirectory.appendingPathComponent($0) }
-        tabs = urls.map { NoteTab(url: $0, label: label(for: $0)) }
+        // File names first, so nothing waits on IO. The real labels are the
+        // notes' own first lines and they land a beat later; reading a folder
+        // of files on the main thread at launch is how you freeze a launch.
+        tabs = urls.map {
+            NoteTab(url: $0, label: $0.deletingPathExtension().lastPathComponent)
+        }
         if let index = tabs.firstIndex(where: { $0.url == fileURL }) {
             activeIndex = index
         } else {
-            activeIndex = 0
+            // The open file went away outside the app. Fall back to the notes
+            // file and pull its text in, or the next keystroke writes the
+            // vanished note over it.
             fileURL = primaryURL
+            open(0)
+        }
+        refreshLabels()
+    }
+
+    /// Fills in each tab's first-line label off the main thread.
+    private func refreshLabels() {
+        let read = readString
+        let urls = tabs.map(\.url)
+        let open = fileURL
+        let openText = text
+        Task { [weak self] in
+            let labels = await Task.detached(priority: .utility) {
+                urls.map { url -> String in
+                    let fallback = url.deletingPathExtension().lastPathComponent
+                    if url == open { return Self.label(for: openText, fallback: fallback) }
+                    return Self.label(for: (try? read(url)) ?? "", fallback: fallback)
+                }
+            }.value
+            guard let self, self.tabs.map(\.url) == urls else { return }
+            for (i, label) in labels.enumerated() { self.tabs[i].label = label }
         }
     }
 
     /// A tab's short name: the note's first real line, else the file name. A
     /// note titled by its own first line needs no rename UI.
-    public static func label(for text: String, fallback: String) -> String {
+    nonisolated public static func label(for text: String, fallback: String) -> String {
         let first = text.split(whereSeparator: \.isNewline).first {
             !$0.trimmingCharacters(in: .whitespaces).isEmpty
         }
@@ -168,12 +200,6 @@ public final class NotesStore: ObservableObject {
             .trimmingCharacters(in: CharacterSet(charactersIn: "#-* \t"))
         guard !trimmed.isEmpty else { return fallback }
         return trimmed.count > 18 ? String(trimmed.prefix(17)) + "\u{2026}" : trimmed
-    }
-
-    private func label(for url: URL) -> String {
-        let fallback = url.deletingPathExtension().lastPathComponent
-        let body = url == fileURL ? text : ((try? readString(url)) ?? "")
-        return Self.label(for: body, fallback: fallback)
     }
 
     /// Points the store at a tab and pulls its text in. No save on the way

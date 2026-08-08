@@ -85,6 +85,21 @@ final class NotesTabsTests: XCTestCase {
         XCTAssertEqual(try String(contentsOf: kept, encoding: .utf8), "keep me")
     }
 
+    func testClosingOneTabDoesNotLoseAnotherTabsEdits() {
+        let s = store()
+        s.addTab()          // tab 1
+        s.text = "kept"
+        s.saveNow()
+        s.addTab()          // tab 2
+        s.text = "doomed"
+        s.saveNow()
+        s.select(1)
+        s.text = "kept, edited"   // still inside the debounce
+        s.removeTab(at: 2)
+        XCTAssertEqual(s.text, "kept, edited")
+        XCTAssertEqual(s.activeIndex, 1)
+    }
+
     func testFirstTabCannotBeClosed() {
         let s = store()
         s.removeTab(at: 0)
