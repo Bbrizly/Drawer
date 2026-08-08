@@ -4,7 +4,7 @@ import SwiftUI
 /// The lot: every idea in the file as a card, bays as headings that stick to
 /// the top while you scroll past them, so you always know which category you
 /// are reading. It scrolls, it does not pan. Only the bays on screen are ever
-/// built, and a card is a filled rectangle with a line of text on it, so the
+/// built, and a card is a filled rectangle with wrapped text on it, so the
 /// whole board costs about what a list costs.
 ///
 /// It used to be a drawn car park: painted stalls, a car sprite per idea, pan
@@ -24,10 +24,19 @@ struct ParkingLotView: View {
     @State private var selected: IdeaRef?
     @State private var renamingBay: Int?
     @State private var bayDraft = ""
+    @State private var deletingBay: Int?
+    @State private var addingBay = false
+    @State private var newBayDraft = ""
     /// The idea a tap on the + just created. Closing without typing hands the
     /// space back; nothing else is ever deleted by closing.
     @State private var blankIdea: IdeaRef?
     @FocusState private var bayFieldFocused: Bool
+    @FocusState private var newBayFocused: Bool
+
+    /// Which bays are rolled up. Names, not indexes, so reordering the lot or
+    /// editing the file by hand does not shuffle what is collapsed. Lives in
+    /// defaults because it is a view preference, not the user's file.
+    @AppStorage("lotCollapsedBays") private var collapsedRaw = ""
 
     struct IdeaRef: Hashable {
         var bay: Int
@@ -49,10 +58,11 @@ struct ParkingLotView: View {
         }
     }
 
-    /// Card size at zoom 1. Narrow enough that a 400pt panel holds three.
-    private let baseCardWidth: CGFloat = 112
-    private let baseCardHeight: CGFloat = 62
-    private let gutter: CGFloat = 7
+    /// Card size at zoom 1. Wide enough that a full sentence of a title reads
+    /// as a sentence, which is most of what a card is for.
+    private let baseCardWidth: CGFloat = 158
+    private let baseCardHeight: CGFloat = 76
+    private let gutter: CGFloat = 8
     private let edgePad: CGFloat = 14
     private let signHeight: CGFloat = 34
 
@@ -62,51 +72,66 @@ struct ParkingLotView: View {
     private var cardWidth: CGFloat { baseCardWidth * zoom }
     private var cardHeight: CGFloat { baseCardHeight * zoom }
 
+    private var collapsed: Set<String> {
+        Set(collapsedRaw.split(separator: "\n").map(String.init))
+    }
+
+    private var allCollapsed: Bool {
+        !lot.document.bays.isEmpty && collapsed.count >= lot.document.bays.count
+    }
+
     var body: some View {
-        ScrollViewReader { proxy in
-            ScrollView {
-                // Lazy: a file with forty bays only builds the two you can see.
-                LazyVStack(
-                    alignment: .leading, spacing: 0, pinnedViews: [.sectionHeaders]
-                ) {
-                    if lot.document.bays.isEmpty {
-                        emptyLot
-                    } else {
-                        ForEach(Array(lot.document.bays.enumerated()), id: \.offset) { b, bay in
-                            Section {
-                                BayGrid(
-                                    bay: b,
-                                    bayName: bay.name,
-                                    ideas: bay.ideas,
-                                    cardWidth: cardWidth,
-                                    cardHeight: cardHeight,
-                                    gutter: gutter,
-                                    zoom: zoom,
-                                    onTap: { toggle($0) },
-                                    onDrop: { ref in drop(ref, toBay: bay.name) }
-                                )
-                                .padding(.horizontal, edgePad)
-                                .padding(.bottom, 18)
-                            } header: {
-                                baySign(b)
-                                    .id(b)
+        VStack(spacing: 0) {
+            lotBar
+            ScrollViewReader { proxy in
+                ScrollView {
+                    // Lazy: a file with forty bays only builds the two you can see.
+                    LazyVStack(
+                        alignment: .leading, spacing: 0, pinnedViews: [.sectionHeaders]
+                    ) {
+                        if lot.document.bays.isEmpty {
+                            emptyLot
+                        } else {
+                            ForEach(Array(lot.document.bays.enumerated()), id: \.offset) { b, bay in
+                                Section {
+                                    if !collapsed.contains(bay.name) {
+                                        BayGrid(
+                                            bay: b,
+                                            bayColor: Palette.card(bay.color).color,
+                                            ideas: bay.ideas,
+                                            cardWidth: cardWidth,
+                                            cardHeight: cardHeight,
+                                            gutter: gutter,
+                                            zoom: zoom,
+                                            onTap: { toggle($0) },
+                                            onDelete: { delete($0) },
+                                            onDrop: { ref in drop(ref, toBay: bay.name) }
+                                        )
+                                        .padding(.horizontal, edgePad)
+                                        .padding(.bottom, 18)
+                                    }
+                                } header: {
+                                    baySign(b)
+                                        .id(b)
+                                }
                             }
                         }
                     }
+                    .padding(.bottom, 40)
                 }
-                .padding(.bottom, 40)
-            }
-            .background(asphalt)
-            .onChange(of: resetRequests) { _, _ in
-                zoom = 1
-                withAnimation(.easeOut(duration: 0.25)) { proxy.scrollTo(0, anchor: .top) }
-            }
-            .onChange(of: jumpToBay) { _, target in
-                guard let target else { return }
-                withAnimation(.easeOut(duration: 0.3)) { proxy.scrollTo(target, anchor: .top) }
-                jumpToBay = nil
+                .onChange(of: resetRequests) { _, _ in
+                    zoom = 1
+                    withAnimation(.easeOut(duration: 0.25)) { proxy.scrollTo(0, anchor: .top) }
+                }
+                .onChange(of: jumpToBay) { _, target in
+                    guard let target else { return }
+                    setCollapsed(target, false)
+                    withAnimation(.easeOut(duration: 0.3)) { proxy.scrollTo(target, anchor: .top) }
+                    jumpToBay = nil
+                }
             }
         }
+        .background(asphalt)
         // An outside edit renumbers the bays and ideas under us. An open card
         // still points at the old position, so one more keystroke would splice
         // its text over whatever moved into that slot. Let go instead. Nothing
@@ -118,6 +143,82 @@ struct ParkingLotView: View {
             renamingBay = nil
         }
         .overlay { editor }
+        .confirmationDialog(
+            deletingBay.map { bayName($0) }.map { "Delete \($0)?" } ?? "Delete this category?",
+            isPresented: Binding(
+                get: { deletingBay != nil },
+                set: { if !$0 { deletingBay = nil } }),
+            titleVisibility: .visible
+        ) {
+            Button("Delete category and its ideas", role: .destructive) {
+                if let b = deletingBay { lot.deleteBay(index: b) }
+                deletingBay = nil
+            }
+            Button("Cancel", role: .cancel) { deletingBay = nil }
+        } message: {
+            Text("Every idea parked here goes with it. This edits your file and there is no undo.")
+        }
+    }
+
+    // MARK: - The bar over the lot
+
+    /// Collapse and expand live here rather than in a per-bay menu only,
+    /// because surveying forty bays starts by rolling them all up.
+    private var lotBar: some View {
+        HStack(spacing: 6) {
+            Button {
+                setAllCollapsed(!allCollapsed)
+            } label: {
+                HStack(spacing: 4) {
+                    Image(systemName: allCollapsed
+                          ? "chevron.down.square" : "chevron.up.square")
+                        .font(.system(size: 11, weight: .semibold))
+                    Text(allCollapsed ? "Expand all" : "Collapse all")
+                        .font(.system(size: 11, weight: .semibold))
+                }
+                .foregroundStyle(.white.opacity(0.62))
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .help(allCollapsed ? "Open every category" : "Roll every category up")
+
+            Spacer(minLength: 8)
+
+            if addingBay {
+                TextField("Category", text: $newBayDraft)
+                    .textFieldStyle(.plain)
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .frame(maxWidth: 150)
+                    .focused($newBayFocused)
+                    .onSubmit { commitNewBay() }
+                    .onChange(of: newBayFocused) { _, focused in
+                        if !focused { commitNewBay() }
+                    }
+            } else {
+                Button {
+                    newBayDraft = ""
+                    addingBay = true
+                    newBayFocused = true
+                } label: {
+                    HStack(spacing: 4) {
+                        Image(systemName: "plus")
+                        Text("Category")
+                    }
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(.white.opacity(0.62))
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .help("Add a category to the end of the lot")
+            }
+        }
+        .padding(.horizontal, edgePad)
+        .padding(.vertical, 7)
+        .background(asphalt)
+        .overlay(alignment: .bottom) {
+            Rectangle().fill(Color.white.opacity(0.08)).frame(height: 1)
+        }
     }
 
     // MARK: - The open idea
@@ -134,7 +235,7 @@ struct ParkingLotView: View {
                     .onTapGesture { close() }
                 IdeaPanel(
                     lot: lot, bay: sel.bay, idea: sel.idea,
-                    onMoveToBay: { moveSelected(toBay: $0) },
+                    onDelete: { deleteSelected() },
                     onClose: { close() })
                     .id(sel)
                     .frame(maxWidth: 360)
@@ -189,17 +290,36 @@ struct ParkingLotView: View {
         return short.isEmpty ? category : short
     }
 
-    /// The sign over a bay: name on the left, count on the right, a painted
-    /// rule under both. Double-click the name to rename the bay, which
-    /// rewrites the `## ` heading in the file. It is opaque because it sticks
-    /// to the top of the scroll and cards pass underneath it.
+    /// The sign over a bay: a collapse chevron, the name, the count, a plus,
+    /// and the menu that owns the category itself. Double-click the name to
+    /// rename, which rewrites the `## ` heading in the file. It is opaque
+    /// because it sticks to the top of the scroll and cards pass underneath.
     @ViewBuilder
     private func baySign(_ b: Int) -> some View {
         if lot.document.bays.indices.contains(b) {
             let bay = lot.document.bays[b]
-            let sign = Self.baySign(bay.name)
+            let isCollapsed = collapsed.contains(bay.name)
             VStack(alignment: .leading, spacing: 0) {
-                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                HStack(spacing: 7) {
+                    Button {
+                        setCollapsed(b, !isCollapsed)
+                    } label: {
+                        Image(systemName: "chevron.right")
+                            .font(.system(size: 9, weight: .black))
+                            .rotationEffect(.degrees(isCollapsed ? 0 : 90))
+                            .foregroundStyle(.white.opacity(0.45))
+                            .frame(width: 16, height: 20)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .help(isCollapsed ? "Open this category" : "Roll this category up")
+
+                    if let color = bay.color {
+                        RoundedRectangle(cornerRadius: 2, style: .continuous)
+                            .fill(Palette.card(color).color)
+                            .frame(width: 4, height: 13)
+                    }
+
                     if renamingBay == b {
                         TextField("Name", text: $bayDraft)
                             .textFieldStyle(.plain)
@@ -211,7 +331,7 @@ struct ParkingLotView: View {
                                 if !focused { commitRename() }
                             }
                     } else {
-                        Text(Self.signCategory(sign.category).uppercased())
+                        Text(Self.signCategory(Self.baySign(bay.name).category).uppercased())
                             .font(.system(size: 13, weight: .bold))
                             .kerning(0.6)
                             .foregroundStyle(.white.opacity(0.9))
@@ -220,11 +340,6 @@ struct ParkingLotView: View {
                             .help("\(bay.name)\n\nDouble-click to rename")
                             .onTapGesture(count: 2) { beginRename(b) }
                     }
-                    if let date = sign.date {
-                        Text(date)
-                            .font(.system(size: 9, weight: .semibold, design: .monospaced))
-                            .foregroundStyle(.white.opacity(0.3))
-                    }
                     Spacer(minLength: 8)
                     // Tabular so the count never jiggles the rule as it changes.
                     Text("\(bay.ideas.count)")
@@ -232,6 +347,7 @@ struct ParkingLotView: View {
                         .monospacedDigit()
                         .foregroundStyle(.white.opacity(0.4))
                     SignParkButton { addIdea(toBay: bay.name) }
+                    bayMenu(b, bay: bay, isCollapsed: isCollapsed)
                 }
                 .padding(.horizontal, edgePad)
                 .frame(height: signHeight - 6, alignment: .bottom)
@@ -244,27 +360,65 @@ struct ParkingLotView: View {
         }
     }
 
-    /// Renaming edits the category only. The date prefix is the file's, not
-    /// the sign's, so it goes back on untouched.
-    private func beginRename(_ bay: Int) {
-        // The tap can land after an outside edit dropped this bay.
-        guard lot.document.bays.indices.contains(bay) else { return }
-        bayDraft = Self.baySign(lot.document.bays[bay].name).category
-        renamingBay = bay
-        bayFieldFocused = true
+    /// Everything you can do to a category. One menu keeps the sign clean at
+    /// any zoom, and it is where colour lives now that cards do not carry
+    /// their own swatch.
+    private func bayMenu(_ b: Int, bay: ParkingBay, isCollapsed: Bool) -> some View {
+        Menu {
+            Button("Rename") { beginRename(b) }
+            Button(isCollapsed ? "Expand" : "Collapse") { setCollapsed(b, !isCollapsed) }
+            Menu("Colour") {
+                ForEach(IdeaPanel.colorKeys, id: \.self) { key in
+                    Button(key.capitalized) { lot.setBayColor(index: b, to: key) }
+                }
+                Divider()
+                Button("None") { lot.setBayColor(index: b, to: nil) }
+            }
+            Divider()
+            Button("Move to top") { lot.moveBay(from: b, to: 0) }
+                .disabled(b == 0)
+            Button("Move up") { lot.moveBay(from: b, to: b - 1) }
+                .disabled(b == 0)
+            Button("Move down") { lot.moveBay(from: b, to: b + 1) }
+                .disabled(b >= lot.document.bays.count - 1)
+            Button("Move to bottom") { lot.moveBay(from: b, to: lot.document.bays.count - 1) }
+                .disabled(b >= lot.document.bays.count - 1)
+            Divider()
+            Button("Delete category", role: .destructive) { deletingBay = b }
+        } label: {
+            Image(systemName: "ellipsis")
+                .font(.system(size: 11, weight: .bold))
+                .foregroundStyle(.white.opacity(0.45))
+        }
+        .menuStyle(.button)
+        .buttonStyle(.plain)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .frame(width: 22, height: 22)
+        .contentShape(Rectangle())
+        .help("Category options")
+        .accessibilityLabel("Category options")
     }
 
-    private func commitRename() {
-        guard let b = renamingBay, lot.document.bays.indices.contains(b) else { return }
-        renamingBay = nil
-        bayFieldFocused = false
-        let typed = bayDraft.trimmingCharacters(in: .whitespaces)
-        guard !typed.isEmpty else { return }
-        if let date = Self.baySign(lot.document.bays[b].name).date {
-            lot.renameBay(index: b, to: "\(date): \(typed)")
-        } else {
-            lot.renameBay(index: b, to: typed)
-        }
+    private func bayName(_ b: Int) -> String {
+        guard lot.document.bays.indices.contains(b) else { return "this category" }
+        return Self.signCategory(Self.baySign(lot.document.bays[b].name).category)
+    }
+
+    // MARK: - Collapse
+
+    private func setCollapsed(_ b: Int, _ shut: Bool) {
+        guard lot.document.bays.indices.contains(b) else { return }
+        var names = collapsed
+        if shut { names.insert(lot.document.bays[b].name) }
+        else { names.remove(lot.document.bays[b].name) }
+        collapsedRaw = names.sorted().joined(separator: "\n")
+    }
+
+    private func setAllCollapsed(_ shut: Bool) {
+        collapsedRaw = shut
+            ? lot.document.bays.map(\.name).sorted().joined(separator: "\n")
+            : ""
     }
 
     // MARK: - Actions
@@ -299,6 +453,7 @@ struct ParkingLotView: View {
 
     private func addIdea(toBay name: String) {
         if selected != nil { close() }
+        setCollapsedByName(name, false)
         lot.park(title: "", details: "", toBay: name)
         guard let b = lot.document.bays.firstIndex(where: { $0.name == name }),
               !lot.document.bays[b].ideas.isEmpty else { return }
@@ -306,6 +461,12 @@ struct ParkingLotView: View {
         // Only this one may vanish on close. An idea that already had a title
         // is safe even if you clear the field to retype it.
         blankIdea = selected
+    }
+
+    private func setCollapsedByName(_ name: String, _ shut: Bool) {
+        var names = collapsed
+        if shut { names.insert(name) } else { names.remove(name) }
+        collapsedRaw = names.sorted().joined(separator: "\n")
     }
 
     private func idea(_ ref: IdeaRef) -> ParkedIdea? {
@@ -337,15 +498,48 @@ struct ParkingLotView: View {
         selected = nil
     }
 
-    private func moveSelected(toBay target: String) {
+    private func delete(_ ref: IdeaRef) {
+        guard idea(ref) != nil else { return }
+        if selected == ref { selected = nil; blankIdea = nil }
+        lot.delete(bayIndex: ref.bay, ideaIndex: ref.idea)
+    }
+
+    private func deleteSelected() {
         guard let sel = selected else { return }
-        lot.move(bayIndex: sel.bay, ideaIndex: sel.idea, toBay: target)
-        if let b = lot.document.bays.firstIndex(where: { $0.name == target }),
-           !lot.document.bays[b].ideas.isEmpty {
-            selected = IdeaRef(bay: b, idea: lot.document.bays[b].ideas.count - 1)
+        selected = nil
+        blankIdea = nil
+        lot.delete(bayIndex: sel.bay, ideaIndex: sel.idea)
+        lot.saveNow()
+    }
+
+    private func beginRename(_ bay: Int) {
+        // The tap can land after an outside edit dropped this bay.
+        guard lot.document.bays.indices.contains(bay) else { return }
+        bayDraft = Self.baySign(lot.document.bays[bay].name).category
+        renamingBay = bay
+        bayFieldFocused = true
+    }
+
+    /// Renaming edits the category only. The date prefix is the file's, not
+    /// the sign's, so it goes back on untouched.
+    private func commitRename() {
+        guard let b = renamingBay, lot.document.bays.indices.contains(b) else { return }
+        renamingBay = nil
+        bayFieldFocused = false
+        let typed = bayDraft.trimmingCharacters(in: .whitespaces)
+        guard !typed.isEmpty else { return }
+        if let date = Self.baySign(lot.document.bays[b].name).date {
+            lot.renameBay(index: b, to: "\(date): \(typed)")
         } else {
-            selected = nil
+            lot.renameBay(index: b, to: typed)
         }
+    }
+
+    private func commitNewBay() {
+        addingBay = false
+        newBayFocused = false
+        lot.addBay(named: newBayDraft)
+        newBayDraft = ""
     }
 }
 
@@ -357,13 +551,14 @@ struct ParkingLotView: View {
 /// the panel allows at any zoom, with no leftover strip down the side.
 private struct BayGrid: View {
     let bay: Int
-    let bayName: String
+    let bayColor: Color
     let ideas: [ParkedIdea]
     let cardWidth: CGFloat
     let cardHeight: CGFloat
     let gutter: CGFloat
     let zoom: CGFloat
     let onTap: (ParkingLotView.IdeaRef) -> Void
+    let onDelete: (ParkingLotView.IdeaRef) -> Void
     let onDrop: (ParkingLotView.IdeaRef) -> Void
 
     @State private var targeted = false
@@ -382,15 +577,21 @@ private struct BayGrid: View {
                     alignment: .leading,
                     spacing: gutter
                 ) {
-                    ForEach(ideas.indices, id: \.self) { i in
+                    // Keyed on the idea's line in the file, not its slot in the
+                    // bay: a delete above it must not hand this card's identity
+                    // to its neighbour and make SwiftUI rebuild the tail.
+                    ForEach(
+                        Array(ideas.enumerated()), id: \.element.lineRange.lowerBound
+                    ) { i, parked in
                         IdeaCard(
                             ref: ParkingLotView.IdeaRef(bay: bay, idea: i),
-                            title: ideas[i].title,
-                            details: ideas[i].details,
-                            color: Palette.card(ideas[i].color).color,
-                            height: cardHeight,
+                            title: parked.title,
+                            details: parked.details,
+                            color: parked.color.map { Palette.card($0).color } ?? bayColor,
+                            minHeight: cardHeight,
                             zoom: zoom,
-                            onTap: onTap
+                            onTap: onTap,
+                            onDelete: onDelete
                         )
                     }
                 }
@@ -411,31 +612,35 @@ private struct BayGrid: View {
     }
 }
 
-/// One idea. A filled rectangle and a line of text, nothing drawn, nothing
-/// measured: the whole point of the rewrite is that a hundred of these cost
-/// less than a dozen of the old canvas-drawn cars.
+/// One idea. A filled rectangle and its title, wrapped: the card grows to fit
+/// the words rather than shrinking the words to fit the card, because a lot
+/// you cannot read is not worth surveying. Nothing is drawn and nothing is
+/// measured, so a hundred of these cost less than a dozen of the old
+/// canvas-drawn cars.
 private struct IdeaCard: View {
     let ref: ParkingLotView.IdeaRef
     let title: String
     let details: String
     let color: Color
-    let height: CGFloat
+    let minHeight: CGFloat
     let zoom: CGFloat
     let onTap: (ParkingLotView.IdeaRef) -> Void
+    let onDelete: (ParkingLotView.IdeaRef) -> Void
 
     @State private var hovered = false
 
     var body: some View {
         Text(title.isEmpty ? "Untitled" : title)
-            .font(.system(size: 11.5 * zoom, weight: .semibold))
-            .lineLimit(3)
-            .minimumScaleFactor(0.75)
+            .font(.system(size: 12.5 * zoom, weight: .semibold))
+            .lineLimit(8)
             .multilineTextAlignment(.leading)
+            .fixedSize(horizontal: false, vertical: true)
             .foregroundStyle(Palette.cardInk.color)
             .frame(maxWidth: .infinity, alignment: .topLeading)
-            .padding(7 * zoom)
-            .frame(height: height, alignment: .topLeading)
-            .background(RoundedRectangle(cornerRadius: 7, style: .continuous).fill(color))
+            .padding(9 * zoom)
+            .frame(maxHeight: .infinity, alignment: .topLeading)
+            .frame(minHeight: minHeight, alignment: .topLeading)
+            .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(color))
             // A dog-ear when there is more to read than the title.
             .overlay(alignment: .bottomTrailing) {
                 if !details.isEmpty {
@@ -446,21 +651,25 @@ private struct IdeaCard: View {
                 }
             }
             .overlay(
-                RoundedRectangle(cornerRadius: 7, style: .continuous)
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
                     .strokeBorder(Color.black.opacity(hovered ? 0.45 : 0.12), lineWidth: 1)
             )
-            .scaleEffect(hovered ? 1.04 : 1)
-            .animation(.easeOut(duration: 0.12), value: hovered)
+            // No scale and no animation on hover. Scrolling drags every card
+            // under the pointer in turn, and a per-card animation on each of
+            // those crossings is a storm the panel does not need.
             .contentShape(Rectangle())
             .onHover { hovered = $0 }
             .onTapGesture { onTap(ref) }
+            .contextMenu {
+                Button("Delete idea", role: .destructive) { onDelete(ref) }
+            }
             // The car survives as the thing you drag. It was the best part of
             // the old lot and it costs one sprite, once, mid-drag.
             .draggable(ref.payload) {
                 CarSprite(color: color).frame(width: 78, height: 34)
             }
-            .help(details.isEmpty ? (title.isEmpty ? "Untitled idea" : title)
-                                  : "\(title)\n\n\(details)")
+            // Only when there is something the card is not already showing.
+            .help(details.isEmpty ? "" : details)
     }
 }
 
@@ -474,15 +683,14 @@ private struct SignParkButton: View {
     var body: some View {
         Image(systemName: "plus")
             .font(.system(size: 11, weight: .bold))
-            .foregroundStyle(.white.opacity(hovered ? 0.9 : 0.4))
+            .foregroundStyle(.white.opacity(hovered ? 0.9 : 0.45))
             // The glyph is 11pt; the frame is what your pointer actually has
             // to hit.
-            .frame(width: 24, height: 24)
+            .frame(width: 22, height: 22)
             .background(Circle().fill(Color.white.opacity(hovered ? 0.12 : 0)))
             .contentShape(Circle())
             .onHover { hovered = $0 }
             .onTapGesture { onPark() }
-            .animation(.easeOut(duration: 0.14), value: hovered)
             .help("Park a new idea in this bay")
     }
 }
@@ -494,27 +702,29 @@ private struct IdeaPanel: View {
     @ObservedObject var lot: ParkingLotStore
     let bay: Int
     let idea: Int
-    var onMoveToBay: (String) -> Void
+    var onDelete: () -> Void
     var onClose: () -> Void
 
     @State private var title: String
     @State private var details: String
+    @State private var confirmingDelete = false
     @FocusState private var focusedField: Field?
 
     private enum Field { case title, details }
 
-    /// Panel swatches in a fixed order; the parser's set has none.
-    private static let colorKeys = ["yellow", "pink", "blue", "green", "purple", "gray"]
+    /// The colour vocabulary, in a fixed order. Cards no longer carry their
+    /// own swatch; the bay menu paints the whole category from this list.
+    static let colorKeys = ["yellow", "pink", "blue", "green", "purple", "gray"]
 
     init(
         lot: ParkingLotStore, bay: Int, idea: Int,
-        onMoveToBay: @escaping (String) -> Void,
+        onDelete: @escaping () -> Void,
         onClose: @escaping () -> Void
     ) {
         self._lot = ObservedObject(wrappedValue: lot)
         self.bay = bay
         self.idea = idea
-        self.onMoveToBay = onMoveToBay
+        self.onDelete = onDelete
         self.onClose = onClose
         let parked = lot.document.bays[bay].ideas[idea]
         self._title = State(initialValue: parked.title)
@@ -523,14 +733,13 @@ private struct IdeaPanel: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            metaLine
-
-            // The title is its own field, big, because it is the one line the
+            // The title is its own field, big, because it is the one thing the
             // card shows. It is still just the first line of the markdown
-            // bullet underneath.
-            TextField("Idea", text: $title)
+            // bullet underneath. It wraps: a long idea is still one idea.
+            TextField("Idea", text: $title, axis: .vertical)
                 .textFieldStyle(.plain)
                 .font(.system(size: 19, weight: .semibold))
+                .lineLimit(1...4)
                 .focused($focusedField, equals: .title)
                 .onSubmit { focusedField = .details }
                 .onKeyPress(.escape) {
@@ -567,7 +776,7 @@ private struct IdeaPanel: View {
                     return .handled
                 }
 
-            colorRow
+            footer
         }
         .padding(14)
         // Concentric: the 14pt inset inside a 26pt corner leaves the inner
@@ -598,66 +807,32 @@ private struct IdeaPanel: View {
         return lot.document.bays[bay].ideas[idea].color
     }
 
-    private var colorRow: some View {
-        HStack(spacing: 2) {
-            ForEach(Self.colorKeys, id: \.self) { key in
-                let active = key == (currentColor ?? "yellow")
-                Circle()
-                    .fill(Palette.card(key).color)
-                    .frame(width: 16, height: 16)
-                    .overlay(Circle().stroke(
-                        Color.black.opacity(active ? 0.55 : 0.12),
-                        lineWidth: active ? 2 : 1))
-                    .scaleEffect(active ? 1.18 : 1)
-                    .animation(.easeOut(duration: 0.15), value: active)
-                    // A 16pt dot is a 16pt target unless you say otherwise.
-                    // The frame gives it a real one without growing the dot.
-                    .frame(width: 30, height: 30)
-                    .contentShape(Circle())
-                    .onTapGesture {
-                        lot.update(
-                            bayIndex: bay, ideaIndex: idea,
-                            title: title.trimmingCharacters(in: .whitespaces),
-                            details: details, color: key)
-                    }
-                    .help(key.capitalized)
-            }
-            Spacer()
-        }
-        .padding(.leading, -7)
-    }
-
-    private var metaLine: some View {
+    /// Delete on one side, done on the other. The parked date and the bay
+    /// chip used to live up here; neither told you anything the lot does not,
+    /// and the date is still in the file.
+    private var footer: some View {
         HStack(spacing: 8) {
-            if let parked = lot.document.bays.indices.contains(bay)
-                && lot.document.bays[bay].ideas.indices.contains(idea)
-                ? lot.document.bays[bay].ideas[idea].parked : nil {
-                Text("PARKED \(parked)")
-                    .font(.system(size: 10, weight: .semibold, design: .monospaced))
-                    .monospacedDigit()
-                    .foregroundStyle(.secondary)
+            Button(role: .destructive) {
+                confirmingDelete = true
+            } label: {
+                Label("Delete", systemImage: "trash")
+                    .font(.system(size: 11, weight: .semibold))
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(Color(red: 0.62, green: 0.16, blue: 0.12))
+            .confirmationDialog(
+                "Delete this idea?", isPresented: $confirmingDelete, titleVisibility: .visible
+            ) {
+                Button("Delete", role: .destructive) { onDelete() }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("It comes out of your file. There is no undo.")
             }
             Spacer()
-            Menu {
-                ForEach(lot.document.bays.map(\.name), id: \.self) { name in
-                    Button(name) {
-                        if name != lot.document.bays[bay].name { onMoveToBay(name) }
-                    }
-                }
-            } label: {
-                HStack(spacing: 3) {
-                    Text(lot.document.bays.indices.contains(bay)
-                        ? lot.document.bays[bay].name : "")
-                    Image(systemName: "chevron.down")
-                        .font(.system(size: 8, weight: .bold))
-                }
-                .font(.system(size: 10, weight: .semibold, design: .monospaced))
+            Button("Done") { onClose() }
+                .buttonStyle(.plain)
+                .font(.system(size: 11, weight: .semibold))
                 .foregroundStyle(.secondary)
-            }
-            .menuStyle(.button)
-            .buttonStyle(.plain)
-            .menuIndicator(.hidden)
-            .fixedSize()
         }
     }
 }
