@@ -657,10 +657,13 @@ struct DrawerView: View {
     /// without disturbing the top strip above (which stays byte-identical).
     private var taskListRegion: some View {
                 ScrollView {
-                    // Lazy so only the rows near the viewport are built. Bounds
-                    // every per-row cost (rebuilds, gestures, geometry) to what
-                    // is actually on screen rather than the whole list.
-                    LazyVStack(alignment: .leading, spacing: 5) {
+                    // Plain, not lazy. A lazy stack decides which rows are on
+                    // screen from a height it decides from which rows are on
+                    // screen, and on a long list that can fail to settle: the
+                    // main thread spins at 100% and the app has to be force
+                    // quit. Samples of the freeze all sat inside that
+                    // placement. A day of tasks is small enough to just build.
+                    VStack(alignment: .leading, spacing: 5) {
                         if let endSummary {
                             WorkSummaryCard(
                                 summary: endSummary,
