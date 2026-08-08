@@ -20,6 +20,7 @@ public final class ParkingLotStore: ObservableObject {
     private let watcher: FileWatcher
     private let debounce: TimeInterval
     private var saveTask: Task<Void, Never>?
+    private var reloadTask: Task<Void, Never>?
     private let readString: (URL) throws -> String
     private let writeString: (String, URL) throws -> Void
     private let todayProvider: () -> String
@@ -57,7 +58,7 @@ public final class ParkingLotStore: ObservableObject {
     }
 
     public func start() {
-        watcher.onChange = { [weak self] in self?.load() }
+        watcher.onChange = { [weak self] in self?.reload() }
         watcher.start()
         load()
     }
@@ -66,7 +67,29 @@ public final class ParkingLotStore: ObservableObject {
         // A pending save means in-app edits are newer than the disk; let the
         // debounced write land instead of clobbering it with a stale read.
         guard saveTask == nil else { return }
-        let read = (try? readString(fileURL)) ?? ""
+        adopt((try? readString(fileURL)) ?? "")
+    }
+
+    /// The watcher's path into `load`, off the main thread. The lot usually
+    /// lives in an iCloud-backed vault folder, where the watcher fires on
+    /// every touch and a single read can block for seconds. Blocking there
+    /// froze the whole panel mid-scroll.
+    private func reload() {
+        guard saveTask == nil, reloadTask == nil else { return }
+        let read = readString
+        let url = fileURL
+        reloadTask = Task { [weak self] in
+            let disk = await Task.detached(priority: .utility) {
+                (try? read(url)) ?? ""
+            }.value
+            guard let self, !Task.isCancelled else { return }
+            self.reloadTask = nil
+            guard self.saveTask == nil else { return }
+            self.adopt(disk)
+        }
+    }
+
+    private func adopt(_ read: String) {
         diskText = read
         // Our own atomic write comes back through the watcher; skip the noop.
         guard read != text else { return }
@@ -111,6 +134,36 @@ public final class ParkingLotStore: ObservableObject {
               trimmed != document.bays[index].name,
               !document.bays.contains(where: { $0.name == trimmed }) else { return }
         apply(ParkingLotWriteback.renameBay(at: index, to: trimmed, in: text))
+    }
+
+    /// Paints a whole bay. Its cards wear this unless they name a colour of
+    /// their own, which only a hand edit does now.
+    public func setBayColor(index: Int, to color: String?) {
+        guard document.bays.indices.contains(index),
+              document.bays[index].color != color else { return }
+        apply(ParkingLotWriteback.setBayColor(at: index, to: color, in: text))
+    }
+
+    /// Deletes a bay and every idea in it. There is no undo, so the view asks
+    /// first.
+    public func deleteBay(index: Int) {
+        guard document.bays.indices.contains(index) else { return }
+        apply(ParkingLotWriteback.deleteBay(at: index, in: text))
+    }
+
+    /// Reorders bays by moving one heading block. File order is lot order.
+    public func moveBay(from index: Int, to destination: Int) {
+        guard document.bays.indices.contains(index),
+              document.bays.indices.contains(destination), index != destination else { return }
+        apply(ParkingLotWriteback.moveBay(from: index, to: destination, in: text))
+    }
+
+    /// Adds an empty bay at the end of the file.
+    public func addBay(named name: String) {
+        let trimmed = name.trimmingCharacters(in: .whitespaces)
+        guard !trimmed.isEmpty, !document.bays.contains(where: { $0.name == trimmed }) else { return }
+        let body = text.hasSuffix("\n") || text.isEmpty ? text : text + "\n"
+        apply(body + "\n## \(trimmed)\n")
     }
 
     /// Capture: appends to a bay stamped with today's date. Unsorted by
