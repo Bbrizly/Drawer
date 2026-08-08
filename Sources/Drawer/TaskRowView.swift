@@ -73,26 +73,33 @@ struct TaskRowView: View, Equatable {
         // the trailing edge, revealing a delete button that was sitting just
         // out of frame (clipped) underneath. Both inputs share one offset.
         let offset = swipe.offset(for: item.id)
-        ZStack {
-            // Right swipe slides the row off the leading edge, revealing the
-            // in-progress affordance underneath. It triggers on release, it is
-            // not a button you tap, so the row snaps straight back.
-            progressReveal
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .offset(x: -swipe.progressWidth + max(offset, 0))
-            deleteButton
-                .frame(maxWidth: .infinity, alignment: .trailing)
-                .offset(x: swipe.deleteWidth + min(offset, 0))
-            rowContent
-                .offset(x: offset)
-                // Disable the swipe entirely when neither direction is on, but
-                // keep the checkbox and tap-to-expand working (.subviews).
-                .gesture(
-                    swipeGesture,
-                    including: swipeDeleteEnabled || swipeProgressEnabled ? .all : .subviews
-                )
-        }
-        .clipShape(theme.usesXPChrome ? AnyShape(Rectangle()) : AnyShape(RoundedRectangle(cornerRadius: theme.rowCornerRadius, style: .continuous)))
+        // The reveals hang off the row as a background, not as stack siblings.
+        // They ask for full height, and a lazy stack has no height to give
+        // until it knows this row's, so as siblings they made the row's size
+        // depend on the answer it was being asked for. A background is handed
+        // the row's settled size, so the same request resolves against a real
+        // number. As siblings they froze the app mid-scroll. The offset stays
+        // on rowContent, so only the row slides.
+        rowContent
+            // Disable the swipe entirely when neither direction is on, but
+            // keep the checkbox and tap-to-expand working (.subviews).
+            .gesture(
+                swipeGesture,
+                including: swipeDeleteEnabled || swipeProgressEnabled ? .all : .subviews
+            )
+            .offset(x: offset)
+            .background {
+                // Right swipe slides the row off the leading edge, revealing the
+                // in-progress affordance underneath. It triggers on release, it is
+                // not a button you tap, so the row snaps straight back.
+                progressReveal
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .offset(x: -swipe.progressWidth + max(offset, 0))
+                deleteButton
+                    .frame(maxWidth: .infinity, alignment: .trailing)
+                    .offset(x: swipe.deleteWidth + min(offset, 0))
+            }
+            .clipShape(theme.usesXPChrome ? AnyShape(Rectangle()) : AnyShape(RoundedRectangle(cornerRadius: theme.rowCornerRadius, style: .continuous)))
     }
 
     private var xpRowHighlighted: Bool {
