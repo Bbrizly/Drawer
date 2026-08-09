@@ -106,25 +106,42 @@ final class HoverScrollMover {
         let movedX = after.x - before.x
         let movedY = after.y - before.y
         if movedX == 0 && movedY == 0 { return }
-        guard let primary = NSScreen.screens.first else { return }
-        let target = Self.warpTarget(
-            mouse: NSEvent.mouseLocation, dx: movedX, dy: movedY,
-            primaryMaxY: primary.frame.maxY
-        )
-        CGWarpMouseCursorPosition(target)
-        // Reassociate so the warp does not carry the OS input-suppression pause
-        // that would otherwise freeze the pointer for a beat after each move.
-        CGAssociateMouseAndMouseCursorPosition(1)
+        Self.warpCursor(byAppKitDeltaX: movedX, deltaY: movedY)
     }
 
-    /// The AppKit mouse point plus a window delta, expressed in Quartz display
-    /// space (top-left origin of the primary display) for `CGWarpMouseCursorPosition`.
-    /// AppKit y grows up from the bottom, Quartz y grows down from the top, so
-    /// the moved point flips against `primaryMaxY`.
+    /// Warps the system cursor by an AppKit-space window delta. Uses the live
+    /// CGEvent location (same space as `CGWarpMouseCursorPosition`) and zeroes
+    /// the post-warp suppression interval so trackpad pans do not drift or
+    /// stutter for 250ms after each nudge.
+    static func warpCursor(byAppKitDeltaX deltaX: CGFloat, deltaY: CGFloat) {
+        guard deltaX != 0 || deltaY != 0 else { return }
+        guard var loc = CGEvent(source: nil)?.location else { return }
+
+        if let src = CGEventSource(stateID: .combinedSessionState) {
+            src.localEventsSuppressionInterval = 0
+        }
+
+        loc.x += deltaX
+        loc.y -= deltaY
+
+        CGAssociateMouseAndMouseCursorPosition(boolean_t(0))
+        CGWarpMouseCursorPosition(loc)
+        CGAssociateMouseAndMouseCursorPosition(boolean_t(1))
+    }
+
+    /// AppKit mouse plus a window delta, expressed in Quartz display space for
+    /// `CGWarpMouseCursorPosition`. Kept for tests; production warping reads the
+    /// live CGEvent location instead so multi-monitor layouts stay aligned.
     static func warpTarget(
         mouse: CGPoint, dx: CGFloat, dy: CGFloat, primaryMaxY: CGFloat
     ) -> CGPoint {
-        CGPoint(x: mouse.x + dx, y: primaryMaxY - (mouse.y + dy))
+        let cg = CGPoint(x: mouse.x, y: primaryMaxY - mouse.y)
+        return cgPoint(byApplyingAppKitDeltaX: dx, deltaY: dy, to: cg)
+    }
+
+    /// Applies an AppKit-space move delta to a Quartz global point.
+    static func cgPoint(byApplyingAppKitDeltaX deltaX: CGFloat, deltaY: CGFloat, to point: CGPoint) -> CGPoint {
+        CGPoint(x: point.x + deltaX, y: point.y - deltaY)
     }
 
     private func startInertia() {
