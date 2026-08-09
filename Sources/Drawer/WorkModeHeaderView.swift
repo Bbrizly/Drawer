@@ -128,13 +128,15 @@ private struct WorkHeaderPill: View {
                     .foregroundStyle(.tertiary)
                     .lineLimit(1)
                     .truncationMode(.tail)
-                    // Fixed, not max: a long task title must not widen the pill
-                    // and shove the other timer pills around.
-                    .frame(width: 160, alignment: .leading)
+                    .frame(maxWidth: .infinity, alignment: .leading)
             }
 
             trailingControl
         }
+        // One fixed width for every state. The text used to size the pill, and
+        // the pause button only exists in two of the four states, so the pill
+        // kept resizing and shoving the other timers around.
+        .frame(width: 198, alignment: .leading)
         .padding(.leading, 11)
         .padding(.trailing, 7)
         .padding(.vertical, 7)
