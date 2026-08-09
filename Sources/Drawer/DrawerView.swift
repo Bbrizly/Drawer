@@ -551,7 +551,8 @@ struct DrawerView: View {
                     HStack(spacing: 8) {
                         Image(systemName: addIsHeader ? "number" : "plus.circle.fill")
                             .foregroundStyle(.tint)
-                        TextField(addIsHeader ? "Add a header" : "Add a task", text: $newTaskTitle)
+                        TextField(addIsHeader ? "Add a header" : "Add a task",
+                                  text: $newTaskTitle, axis: .vertical)
                             .textFieldStyle(.plain)
                             .focused($addFieldFocused)
                             .onSubmit(commitAdd)

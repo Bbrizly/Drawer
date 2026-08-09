@@ -112,9 +112,12 @@ struct TaskRowView: View, Equatable {
                 checkbox
 
                 if isEditingTitle {
-                    TextField("Task", text: $draftTitle)
+                    // Vertical axis so a long title wraps while you edit it,
+                    // instead of scrolling sideways in a one line field.
+                    TextField("Task", text: $draftTitle, axis: .vertical)
                         .textFieldStyle(.plain)
                         .font(theme.titleFont(size: taskFontSize))
+                        .lineSpacing(2)
                         .focused($titleFieldFocused)
                         .onSubmit(saveTitle)
                         .onChange(of: titleFieldFocused) { _, focused in
