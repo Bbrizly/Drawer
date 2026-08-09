@@ -189,16 +189,21 @@ final class BureauScene: SKScene {
         // Front lip: a darker band drawn in front of the receipts along the
         // very bottom so the drawer reads with depth (the parallax the spec
         // wants between lip, receipts, and floor).
-        lipNode?.removeFromParent()
-        let lip = SKSpriteNode(
-            color: BureauPalette.drawerLip,
-            size: CGSize(width: size.width, height: CGFloat(tuning.drawer.lipHeightPx))
-        )
-        lip.anchorPoint = CGPoint(x: 0, y: 0)
-        lip.position = .zero
-        lip.zPosition = 100
-        addChild(lip)
-        lipNode = lip
+        // Resized, not rebuilt: this runs on every resize tick of the panel
+        // animation, and swapping a node out of the scene graph per tick costs
+        // more than setting two properties.
+        let lipSize = CGSize(width: size.width, height: CGFloat(tuning.drawer.lipHeightPx))
+        if let lip = lipNode {
+            lip.size = lipSize
+            lip.color = BureauPalette.drawerLip
+        } else {
+            let lip = SKSpriteNode(color: BureauPalette.drawerLip, size: lipSize)
+            lip.anchorPoint = CGPoint(x: 0, y: 0)
+            lip.position = .zero
+            lip.zPosition = 100
+            addChild(lip)
+            lipNode = lip
+        }
 
         // A thin dark gradient strip just above the tray lip, fading up to clear,
         // so the tray reads recessed below the drawer floor.
@@ -220,7 +225,13 @@ final class BureauScene: SKScene {
     /// here); alpha comes from the texture tuning and 0 disables it.
     private func layoutVignette() {
         guard size.width > 0, size.height > 0 else { return }
-        vignetteNode?.removeFromParent()
+        // Resized, not rebuilt, for the same reason as the lip: the texture is
+        // shared and static, so a resize tick only has to move the sprite.
+        if let node = vignetteNode {
+            node.size = size
+            node.alpha = CGFloat(tuning.texture.vignetteAlpha)
+            return
+        }
         let node = SKSpriteNode(texture: Self.vignetteTexture)
         node.anchorPoint = CGPoint(x: 0, y: 0)
         node.position = .zero
