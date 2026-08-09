@@ -13,6 +13,7 @@ struct NotesPaneView: View {
     var onNeedsKeyboard: () -> Void
 
     @Environment(\.drawerTheme) private var theme
+    @Environment(SwipeCoordinator.self) private var swipe
     @State private var dragBase: Double?
 
     private let minHeight: Double = 90
@@ -85,6 +86,9 @@ struct NotesPaneView: View {
             .padding(.vertical, 1)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+        // Sideways swipes here scroll the tabs, they don't page to the board.
+        .onHover { swipe.pointerOverSideScroller = $0 }
+        .onDisappear { swipe.pointerOverSideScroller = false }
     }
 
     private var resizeHandle: some View {

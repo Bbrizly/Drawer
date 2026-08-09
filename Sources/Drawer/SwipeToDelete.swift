@@ -32,6 +32,10 @@ final class SwipeCoordinator {
     /// scroll monitor then reads a horizontal two-finger swipe there as a page
     /// switch between the task list and the idea board, not a row swipe.
     var pointerOverChrome = false
+    /// True while the pointer is over chrome that scrolls sideways itself (the
+    /// notes tab strip). A horizontal swipe there scrolls that strip, so the
+    /// monitor lets the event through instead of paging or closing the drawer.
+    var pointerOverSideScroller = false
     // Page flag lives here (not @State) so the scroll monitor can flip it
     // without a captured binding going stale mid-gesture.
     var showingBoard = false
@@ -179,7 +183,11 @@ final class ScrollSwipeMonitor: ObservableObject {
             // board, using the same hoveredID signal the row swipes rely on.
             // Board page: only the header (pointerOverChrome) pages back, so the
             // canvas keeps its own horizontal pan.
-            if coordinator.overBureauContent {
+            if coordinator.pointerOverSideScroller {
+                // Sideways-scrolling chrome: the swipe belongs to that strip.
+                pageMode = false
+                lockedID = nil
+            } else if coordinator.overBureauContent {
                 // Over the Bureau tray or a floating sticky: the gesture moves a
                 // note, never pages. Fall through as plain content so the event
                 // passes to the sticky mover and the board stays put.
