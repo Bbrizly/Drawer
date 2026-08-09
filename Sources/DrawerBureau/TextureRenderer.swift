@@ -37,6 +37,8 @@ enum BureauPalette {
     /// unit test) falls back to a system face so the slip still renders
     /// legible ink.
     static private(set) var pixelFamily = "Pixelify Sans"
+    static private(set) var titleFontSize: CGFloat = 15
+    static private(set) var detailFontSize: CGFloat = 8
 
     static func titleFont(_ size: CGFloat) -> NSFont {
         NSFont(name: pixelFamily, size: size) ?? NSFont.boldSystemFont(ofSize: size)
@@ -64,6 +66,8 @@ enum BureauPalette {
         metalEdge = color(art.metalEdge)
         rivet = color(art.rivet)
         pixelFamily = art.fontFamily
+        titleFontSize = CGFloat(art.titleFontSize)
+        detailFontSize = CGFloat(art.detailFontSize)
     }
 
     /// "#RRGGBB" or "#RRGGBBAA" (leading # optional) to NSColor. Magenta on a

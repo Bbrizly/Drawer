@@ -10,7 +10,12 @@ enum StickyMetrics {
     /// The portrait slip default, used when no tuned size is threaded in (bare
     /// tests). The live size comes from `sticky.slipWidth`/`slipHeight`.
     static let drawerSlip = CGSize(width: 96, height: 144)
-    static let subtaskRowHeight: CGFloat = 16
+    static let subtaskRowHeight: CGFloat = 14
+    /// Top plus bottom padding on a full sticky's content, and the red rule
+    /// with its spacing above the bullets. Named here so the panel height and
+    /// the title's line budget are measuring the same slip.
+    static let fullContentInsets: CGFloat = 24
+    static let footerRuleHeight: CGFloat = 6
 
     static func size(_ s: StickySize, pullOutScale: CGFloat = 1, slip: CGSize = drawerSlip) -> CGSize {
         switch s {
@@ -22,14 +27,14 @@ enum StickyMetrics {
     }
 
     /// The panel size a model needs right now: the base slip (scaled for a
-    /// `.full` pull-out) plus one row per visible subtask line (R3) and the
-    /// "+N more" row. Only the `.full` size shows subtasks, so the others stay
-    /// fixed.
+    /// `.full` pull-out) plus one row per visible subtask line (R3), the
+    /// "+N more" row, and the "Add a point" row that always renders. Only the
+    /// `.full` size shows subtasks, so the others stay fixed.
     @MainActor
     static func size(for model: StickyModel) -> CGSize {
         var s = size(model.size, pullOutScale: CGFloat(model.pullOutScale), slip: model.slipSize)
         if model.size == .full {
-            let rows = model.visibleSubtaskCount + (model.overflowCount > 0 ? 1 : 0)
+            let rows = model.visibleSubtaskCount + (model.overflowCount > 0 ? 1 : 0) + 1
             s.height += CGFloat(rows) * subtaskRowHeight
         }
         return s
@@ -174,7 +179,33 @@ struct StickyView: View {
     @FocusState private var titleFocused: Bool
 
     private var metrics: CGSize { StickyMetrics.size(for: model) }
-    private var titleFontSize: CGFloat { model.size == .chip ? 11 : 15 }
+    private var titleFontSize: CGFloat {
+        switch model.size {
+        case .full:
+            // The pull-out is the drawer slip grown in the hand; scale the title
+            // with it so the note reads as one big headline, not a shrunk slip.
+            return BureauPalette.titleFontSize * CGFloat(model.pullOutScale) * 1.08
+        case .title: return BureauPalette.titleFontSize
+        case .chip: return 11
+        }
+    }
+    private var pointFontSize: CGFloat { max(8, BureauPalette.detailFontSize + 1) }
+    private var titleFont: Font { .custom(BureauPalette.pixelFamily, size: titleFontSize) }
+    private var pointFont: Font { .custom(BureauPalette.pixelFamily, size: pointFontSize) }
+    /// Lines of title the slip has room for. Unbounded multiline text inside a
+    /// fixed frame makes SwiftUI refit the whole note on every publish, and the
+    /// budget moves with the tuning sliders, so it is derived rather than typed.
+    private var titleLineLimit: Int {
+        switch model.size {
+        case .full:
+            let bullets = CGFloat(model.visibleSubtaskCount + (model.overflowCount > 0 ? 1 : 0) + 1)
+            let footer = bullets * StickyMetrics.subtaskRowHeight + StickyMetrics.footerRuleHeight
+            let free = metrics.height - StickyMetrics.fullContentInsets - footer
+            return max(1, Int(free / (titleFontSize * 1.25)))
+        case .title: return 2
+        case .chip: return 1
+        }
+    }
     /// The scale a freshly pulled-out sticky starts at: the tuned start (about
     /// the drawer slip relative to the grown pull-out) so it swells up out of
     /// the drawer.
@@ -224,7 +255,7 @@ struct StickyView: View {
                     .mask {
                         VStack(spacing: 0) {
                             Spacer()
-                            Rectangle().frame(height: metrics.height * 0.28)
+                            Rectangle().frame(height: metrics.height * 0.18)
                         }
                     }
             )
@@ -237,34 +268,47 @@ struct StickyView: View {
     private var content: some View {
         switch model.size {
         case .full:
-            VStack(alignment: .leading, spacing: 4) {
-                titleText(lineLimit: 3)
-                Rectangle()
-                    .fill(Color(nsColor: BureauPalette.red))
-                    .frame(height: 1.5)
-                subtaskRows
-                Spacer(minLength: 0)
+            VStack(alignment: .leading, spacing: 0) {
+                titleText
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                notesFooter
             }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 8)
+            .padding(.horizontal, 12)
+            .padding(.top, 14)
+            .padding(.bottom, 10)
         case .title:
-            titleText(lineLimit: 2)
+            titleText
                 .padding(.horizontal, 10)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
         case .chip:
-            titleText(lineLimit: 1)
+            titleText
                 .padding(.horizontal, 8)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
         }
     }
 
+    /// Optional bullet points pinned to the foot of a full sticky. Faint and
+    /// small so the title owns the slip.
+    private var notesFooter: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Rectangle()
+                .fill(Color(nsColor: BureauPalette.red).opacity(0.55))
+                .frame(height: 1)
+                .padding(.bottom, 2)
+            subtaskRows
+        }
+        .fixedSize(horizontal: false, vertical: true)
+    }
+
     @ViewBuilder
-    private func titleText(lineLimit: Int) -> some View {
+    private var titleText: some View {
         if isEditingTitle {
-            TextField("", text: $model.title)
+            TextField("", text: $model.title, axis: .vertical)
                 .textFieldStyle(.plain)
-                .font(.custom(BureauPalette.pixelFamily, size: titleFontSize))
+                .font(titleFont)
                 .foregroundStyle(Color(nsColor: BureauPalette.ink))
+                .lineLimit(titleLineLimit)
+                .multilineTextAlignment(.leading)
                 .focused($titleFocused)
                 .onSubmit { endTitleEdit() }
                 .onChange(of: titleFocused) { _, focused in
@@ -272,9 +316,11 @@ struct StickyView: View {
                 }
         } else {
             Text(model.title)
-                .font(.custom(BureauPalette.pixelFamily, size: titleFontSize))
+                .font(titleFont)
                 .foregroundStyle(Color(nsColor: BureauPalette.ink))
-                .lineLimit(lineLimit)
+                .lineLimit(titleLineLimit)
+                .truncationMode(.tail)
+                .multilineTextAlignment(.leading)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .contentShape(Rectangle())
                 .onTapGesture {
@@ -293,34 +339,54 @@ struct StickyView: View {
     // MARK: subtasks (R3)
 
     private var subtaskRows: some View {
-        VStack(alignment: .leading, spacing: 2) {
+        VStack(alignment: .leading, spacing: 1) {
             ForEach(0..<model.visibleSubtaskCount, id: \.self) { i in
-                TextField("", text: $model.subtasks[i])
-                    .textFieldStyle(.plain)
-                    .font(.custom(BureauPalette.pixelFamily, size: 10))
-                    .foregroundStyle(Color(nsColor: BureauPalette.ink))
-                    .onSubmit { model.commitSubtasks() }
-                    .frame(height: StickyMetrics.subtaskRowHeight - 2)
+                bulletRow(text: subtaskBinding(i))
             }
             if model.overflowCount > 0 {
                 Button(action: { model.expand() }) {
                     Text(BureauCopy.subtasksOverflow(model.overflowCount))
-                        .font(.custom(BureauPalette.pixelFamily, size: 10))
+                        .font(pointFont)
                         .foregroundStyle(Color(nsColor: BureauPalette.inkFaint))
                 }
                 .buttonStyle(.plain)
-                .frame(height: StickyMetrics.subtaskRowHeight - 2)
+                .frame(height: StickyMetrics.subtaskRowHeight)
             }
-            TextField(BureauCopy.addSubtaskPlaceholder, text: $newSubtask)
+            bulletRow(text: $newSubtask, placeholder: BureauCopy.addSubtaskPlaceholder) {
+                model.addSubtask(newSubtask)
+                newSubtask = ""
+            }
+        }
+    }
+
+    /// Rows are addressed by index, and `commitSubtasks` drops emptied lines,
+    /// so a row still holding a stale index would trap on the subscript before
+    /// SwiftUI rebuilds the list. Reading past the end yields an empty line.
+    private func subtaskBinding(_ i: Int) -> Binding<String> {
+        Binding(
+            get: { i < model.subtasks.count ? model.subtasks[i] : "" },
+            set: { if i < model.subtasks.count { model.subtasks[i] = $0 } }
+        )
+    }
+
+    private func bulletRow(
+        text: Binding<String>,
+        placeholder: String = "",
+        onSubmit: (() -> Void)? = nil
+    ) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 4) {
+            Text("•")
+                .font(pointFont)
+                .foregroundStyle(Color(nsColor: BureauPalette.inkFaint).opacity(0.7))
+            TextField(placeholder, text: text)
                 .textFieldStyle(.plain)
-                .font(.custom(BureauPalette.pixelFamily, size: 10))
+                .font(pointFont)
                 .foregroundStyle(Color(nsColor: BureauPalette.inkFaint))
                 .onSubmit {
-                    model.addSubtask(newSubtask)
-                    newSubtask = ""
+                    if let onSubmit { onSubmit() } else { model.commitSubtasks() }
                 }
-                .frame(height: StickyMetrics.subtaskRowHeight - 2)
         }
+        .frame(height: StickyMetrics.subtaskRowHeight)
     }
 
     private var returnHomeButton: some View {
