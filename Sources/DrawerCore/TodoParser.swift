@@ -5,9 +5,53 @@ public enum TodoParser {
     /// date, so "## Mon 2026-06-08" works. A "## " heading with no date
     /// (or an impossible one like 2026-13-99) ends the current date section.
     static let dateRegex = #/\d{4}-\d{2}-\d{2}/#
-    // "/" marks an in-progress task, the same glyph Obsidian uses.
-    private static let taskRegex = #/^\s*- \[([ xX/])\] (.*)$/#
-    private static let durationRegex = #/\((\d+)m\)\s*$/#
+    /// The `- [ ] title` shape, scanned by hand. A regex read better but ran
+    /// far slower, and this runs over every line of the file on each parse and
+    /// on each writeback (`lineRoles`), which a year of archive makes felt.
+    /// "/" marks an in-progress task, the same glyph Obsidian uses.
+    static func taskParts<S: StringProtocol>(
+        _ line: S
+    ) -> (marker: Character, title: Substring)? where S.SubSequence == Substring {
+        var i = line.startIndex
+        while i < line.endIndex, line[i] == " " || line[i] == "\t" { i = line.index(after: i) }
+        guard line[i...].hasPrefix("- [") else { return nil }
+        let markerAt = line.index(i, offsetBy: 3)
+        guard markerAt < line.endIndex else { return nil }
+        let marker = line[markerAt]
+        guard marker == " " || marker == "x" || marker == "X" || marker == "/" else { return nil }
+        let close = line.index(after: markerAt)
+        guard line[close...].hasPrefix("] ") else { return nil }
+        return (marker, line[line.index(close, offsetBy: 2)...])
+    }
+
+    /// A ``` line, front-trimmed without allocating a trimmed copy per line.
+    static func isFenceLine(_ line: some StringProtocol) -> Bool {
+        line.drop { $0 == " " || $0 == "\t" }.hasPrefix("```")
+    }
+
+    /// A trailing "(25m)" focus length: the minutes and where the title ends.
+    /// Scanned backwards for the same reason `taskParts` is hand-rolled.
+    static func duration(in title: Substring) -> (minutes: Int, titleEnd: Substring.Index)? {
+        var i = title.endIndex
+        while i > title.startIndex, title[title.index(before: i)].isWhitespace {
+            i = title.index(before: i)
+        }
+        guard i > title.startIndex, title[title.index(before: i)] == ")" else { return nil }
+        i = title.index(before: i)
+        guard i > title.startIndex, title[title.index(before: i)] == "m" else { return nil }
+        let digitsEnd = title.index(before: i)
+        var digitsStart = digitsEnd
+        while digitsStart > title.startIndex,
+              let d = title[title.index(before: digitsStart)].wholeNumberValue, (0...9).contains(d) {
+            digitsStart = title.index(before: digitsStart)
+        }
+        guard digitsStart < digitsEnd,
+              digitsStart > title.startIndex,
+              title[title.index(before: digitsStart)] == "(",
+              let n = Int(title[digitsStart..<digitsEnd])
+        else { return nil }
+        return (n, title.index(before: digitsStart))
+    }
 
     // DateFormatter is thread-safe for parsing since macOS 10.9.
     private static let dateValidator: DateFormatter = {
@@ -44,8 +88,8 @@ public enum TodoParser {
     /// reading and editing agree on where a note starts and ends.
     static func isDescriptionLine(_ text: String) -> Bool {
         guard let first = text.first, first == " " || first == "\t" else { return false }
-        if text.trimmingCharacters(in: .whitespaces).isEmpty { return false }
-        return text.wholeMatch(of: taskRegex) == nil
+        if text.allSatisfy(\.isWhitespace) { return false }
+        return taskParts(text) == nil
     }
 
     /// Per-line classification, produced with the exact fence and
@@ -70,7 +114,7 @@ public enum TodoParser {
         var i = 0
         while i < lines.count {
             let line = lines[i]
-            if line.trimmingCharacters(in: .whitespaces).hasPrefix("```") {
+            if isFenceLine(line) {
                 roles[i] = .fence
                 inFence.toggle()
                 i += 1
@@ -83,7 +127,7 @@ public enum TodoParser {
                 i += 1
                 continue
             }
-            guard currentKey != nil, line.wholeMatch(of: taskRegex) != nil else {
+            guard currentKey != nil, taskParts(line) != nil else {
                 i += 1
                 continue
             }
@@ -123,7 +167,7 @@ public enum TodoParser {
         var i = 0
         while i < lines.count {
             let line = lines[i]
-            if line.trimmingCharacters(in: .whitespaces).hasPrefix("```") {
+            if isFenceLine(line) {
                 inFence.toggle()
                 i += 1
                 continue
@@ -149,21 +193,17 @@ public enum TodoParser {
                 i += 1
                 continue
             }
-            guard let date = currentDate, let m = line.wholeMatch(of: taskRegex) else {
+            guard let date = currentDate, let m = taskParts(line) else {
                 i += 1
                 continue
             }
-            let marker = String(m.1)
-            let isDone = marker.lowercased() == "x"
-            let isInProgress = marker == "/"
-            let fullTitle = String(m.2)
+            let isDone = m.marker == "x" || m.marker == "X"
+            let isInProgress = m.marker == "/"
             var minutes = 25
-            var title = fullTitle
-            if let dm = fullTitle.firstMatch(of: durationRegex),
-               let n = Int(dm.1), (1...480).contains(n) {
-                minutes = n
-                title = String(fullTitle[..<dm.range.lowerBound])
-                    .trimmingCharacters(in: .whitespaces)
+            var title = String(m.title)
+            if let d = duration(in: m.title), (1...480).contains(d.minutes) {
+                minutes = d.minutes
+                title = String(m.title[..<d.titleEnd]).trimmingCharacters(in: .whitespaces)
             }
             // Indented lines right below the task are its description.
             var noteLines: [String] = []
