@@ -128,7 +128,9 @@ private struct WorkHeaderPill: View {
                     .foregroundStyle(.tertiary)
                     .lineLimit(1)
                     .truncationMode(.tail)
-                    .frame(maxWidth: 160, alignment: .leading)
+                    // Fixed, not max: a long task title must not widen the pill
+                    // and shove the other timer pills around.
+                    .frame(width: 160, alignment: .leading)
             }
 
             trailingControl
