@@ -1,0 +1,157 @@
+import DrawerCore
+import Foundation
+
+struct WidgetTask: Codable, Hashable, Identifiable, Sendable {
+    enum Bucket: String, Codable, Sendable {
+        case carried
+        case today
+        case upcoming
+        case backlog
+    }
+
+    let id: String
+    let title: String
+    let rawLine: String
+    let sectionDate: String
+    let occurrence: Int
+    let isDone: Bool
+    let isInProgress: Bool
+    let minutes: Int
+    let bucket: Bucket
+
+    init(
+        id: String,
+        title: String,
+        rawLine: String,
+        sectionDate: String,
+        occurrence: Int,
+        isDone: Bool,
+        isInProgress: Bool,
+        minutes: Int,
+        bucket: Bucket
+    ) {
+        self.id = id
+        self.title = title
+        self.rawLine = rawLine
+        self.sectionDate = sectionDate
+        self.occurrence = occurrence
+        self.isDone = isDone
+        self.isInProgress = isInProgress
+        self.minutes = minutes
+        self.bucket = bucket
+    }
+
+    init(item: TodoItem, bucket: Bucket) {
+        self.init(
+            id: item.id,
+            title: item.title,
+            rawLine: item.rawLine,
+            sectionDate: item.sectionDate,
+            occurrence: item.occurrence,
+            isDone: item.isDone,
+            isInProgress: item.isInProgress,
+            minutes: item.minutes,
+            bucket: bucket
+        )
+    }
+}
+
+struct WidgetSnapshot: Codable, Equatable, Sendable {
+    static let schemaVersion = 1
+
+    let version: Int
+    let generatedAt: Date
+    let sourceFingerprint: String
+    let todayKey: String
+    let upcomingLabel: String?
+    let carried: [WidgetTask]
+    let today: [WidgetTask]
+    let upcoming: [WidgetTask]
+    let backlog: [WidgetTask]
+
+    var remaining: Int {
+        (carried + today).filter { !$0.isDone }.count
+    }
+
+    var actionableTasks: [WidgetTask] {
+        carried.filter { !$0.isDone } + today.filter { !$0.isDone }
+    }
+
+    var allTasks: [WidgetTask] {
+        carried + today + upcoming + backlog
+    }
+
+    static func make(from data: Data, todayKey: String) -> WidgetSnapshot {
+        let text = String(data: data, encoding: .utf8) ?? ""
+        let display = TodoParser.display(
+            sections: TodoParser.parse(text),
+            today: todayKey
+        )
+        let tomorrow = DrawerDate.dayAfter(todayKey)
+        let upcomingLabel: String? = display.upcomingDate.map { date in
+            date == tomorrow ? "Tomorrow" : date
+        }
+
+        return WidgetSnapshot(
+            version: schemaVersion,
+            generatedAt: Date(),
+            sourceFingerprint: fingerprint(data),
+            todayKey: todayKey,
+            upcomingLabel: upcomingLabel,
+            carried: display.carried.map { WidgetTask(item: $0, bucket: .carried) },
+            today: display.today.map { WidgetTask(item: $0, bucket: .today) },
+            upcoming: display.upcoming.map { WidgetTask(item: $0, bucket: .upcoming) },
+            backlog: display.backlog.map { WidgetTask(item: $0, bucket: .backlog) }
+        )
+    }
+
+    static let empty = WidgetSnapshot(
+        version: schemaVersion,
+        generatedAt: .distantPast,
+        sourceFingerprint: "0",
+        todayKey: "",
+        upcomingLabel: nil,
+        carried: [],
+        today: [],
+        upcoming: [],
+        backlog: []
+    )
+
+    private static func fingerprint(_ data: Data) -> String {
+        // Stable, tiny and dependency-free. This is an invalidation fingerprint,
+        // not a security hash.
+        var hash: UInt64 = 14_695_981_039_346_656_037
+        for byte in data {
+            hash ^= UInt64(byte)
+            hash &*= 1_099_511_628_211
+        }
+        return String(hash, radix: 16)
+    }
+}
+
+enum WidgetSnapshotStore {
+    enum StoreError: Error {
+        case appGroupUnavailable
+    }
+
+    static var snapshotURL: URL? {
+        DrawerShared.containerURL?.appendingPathComponent(DrawerShared.snapshotFilename)
+    }
+
+    static func read() -> WidgetSnapshot {
+        guard let url = snapshotURL,
+              let data = try? Data(contentsOf: url),
+              let snapshot = try? JSONDecoder().decode(WidgetSnapshot.self, from: data),
+              snapshot.version == WidgetSnapshot.schemaVersion
+        else { return .empty }
+        return snapshot
+    }
+
+    static func write(_ snapshot: WidgetSnapshot) throws {
+        guard let url = snapshotURL else { throw StoreError.appGroupUnavailable }
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        let data = try encoder.encode(snapshot)
+        try data.write(to: url, options: .atomic)
+    }
+}

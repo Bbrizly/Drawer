@@ -1,0 +1,647 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 60;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		AA1000000000000000000001 /* DrawerMobileApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA2000000000000000000001 /* DrawerMobileApp.swift */; };
+		AA1000000000000000000002 /* DrawerRootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA2000000000000000000002 /* DrawerRootView.swift */; };
+		AA1000000000000000000003 /* CoordinatedDrawerDocument.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA2000000000000000000003 /* CoordinatedDrawerDocument.swift */; };
+		AA1000000000000000000004 /* FocusNotificationScheduler.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA2000000000000000000004 /* FocusNotificationScheduler.swift */; };
+		AA1000000000000000000005 /* DrawerHaptics.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA2000000000000000000005 /* DrawerHaptics.swift */; };
+		AA1000000000000000000006 /* DrawerMobileModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA2000000000000000000006 /* DrawerMobileModel.swift */; };
+		AA1000000000000000000007 /* ObsidianLink.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA2000000000000000000007 /* ObsidianLink.swift */; };
+		AA1000000000000000000008 /* DrawerConnectionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA2000000000000000000008 /* DrawerConnectionView.swift */; };
+		AA1000000000000000000009 /* DrawerHomeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA2000000000000000000009 /* DrawerHomeView.swift */; };
+		AA100000000000000000000A /* MobileTaskRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA200000000000000000000A /* MobileTaskRow.swift */; };
+		AA100000000000000000000B /* DrawerTaskDetailSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA200000000000000000000B /* DrawerTaskDetailSheet.swift */; };
+		AA100000000000000000000C /* QuickCaptureBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA200000000000000000000C /* QuickCaptureBar.swift */; };
+		AA100000000000000000000D /* FocusStrip.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA200000000000000000000D /* FocusStrip.swift */; };
+		AA100000000000000000000E /* DrawerShared.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA200000000000000000000E /* DrawerShared.swift */; };
+		AA100000000000000000000F /* DrawerBookmarkStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA200000000000000000000F /* DrawerBookmarkStore.swift */; };
+		AA1000000000000000000010 /* DrawerFileSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA2000000000000000000010 /* DrawerFileSession.swift */; };
+		AA1000000000000000000011 /* WidgetSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA2000000000000000000011 /* WidgetSnapshot.swift */; };
+		AA1000000000000000000012 /* DrawerMutationEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA2000000000000000000012 /* DrawerMutationEngine.swift */; };
+		AA1000000000000000000013 /* DrawerIntents.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA2000000000000000000013 /* DrawerIntents.swift */; };
+		AA1000000000000000000014 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = AA2000000000000000000014 /* Assets.xcassets */; };
+		AA1000000000000000000015 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = AA2000000000000000000015 /* PrivacyInfo.xcprivacy */; };
+
+		AA110000000000000000000E /* DrawerShared.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA200000000000000000000E /* DrawerShared.swift */; };
+		AA110000000000000000000F /* DrawerBookmarkStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA200000000000000000000F /* DrawerBookmarkStore.swift */; };
+		AA1100000000000000000010 /* DrawerFileSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA2000000000000000000010 /* DrawerFileSession.swift */; };
+		AA1100000000000000000011 /* WidgetSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA2000000000000000000011 /* WidgetSnapshot.swift */; };
+		AA1100000000000000000012 /* DrawerMutationEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA2000000000000000000012 /* DrawerMutationEngine.swift */; };
+		AA1100000000000000000013 /* DrawerIntents.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA2000000000000000000013 /* DrawerIntents.swift */; };
+		AA1100000000000000000016 /* DrawerWidgetsBundle.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA2000000000000000000016 /* DrawerWidgetsBundle.swift */; };
+		AA1100000000000000000017 /* DrawerWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA2000000000000000000017 /* DrawerWidget.swift */; };
+		AA1100000000000000000015 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = AA2000000000000000000015 /* PrivacyInfo.xcprivacy */; };
+
+		AA1200000000000000000001 /* DrawerMobileSharedTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA2000000000000000000018 /* DrawerMobileSharedTests.swift */; };
+
+		AA1300000000000000000001 /* DrawerCore in Frameworks */ = {isa = PBXBuildFile; productRef = AA9000000000000000000001 /* DrawerCore */; };
+		AA1300000000000000000002 /* DrawerCore in Frameworks */ = {isa = PBXBuildFile; productRef = AA9000000000000000000002 /* DrawerCore */; };
+		AA1300000000000000000003 /* DrawerCore in Frameworks */ = {isa = PBXBuildFile; productRef = AA9000000000000000000003 /* DrawerCore */; };
+		AA1400000000000000000001 /* DrawerWidgets.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = AA2000000000000000000021 /* DrawerWidgets.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		AA3000000000000000000001 = {
+			isa = PBXContainerItemProxy;
+			containerPortal = AA7000000000000000000001 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = AA6000000000000000000002;
+			remoteInfo = DrawerWidgets;
+		};
+		AA3000000000000000000002 = {
+			isa = PBXContainerItemProxy;
+			containerPortal = AA7000000000000000000001 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = AA6000000000000000000001;
+			remoteInfo = DrawerMobile;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		AA4000000000000000000001 /* Embed App Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+				AA1400000000000000000001 /* DrawerWidgets.appex in Embed App Extensions */,
+			);
+			name = "Embed App Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
+
+/* Begin PBXFileReference section */
+		AA2000000000000000000001 /* DrawerMobileApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DrawerMobileApp.swift; sourceTree = "<group>"; };
+		AA2000000000000000000002 /* DrawerRootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DrawerRootView.swift; sourceTree = "<group>"; };
+		AA2000000000000000000003 /* CoordinatedDrawerDocument.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CoordinatedDrawerDocument.swift; sourceTree = "<group>"; };
+		AA2000000000000000000004 /* FocusNotificationScheduler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FocusNotificationScheduler.swift; sourceTree = "<group>"; };
+		AA2000000000000000000005 /* DrawerHaptics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DrawerHaptics.swift; sourceTree = "<group>"; };
+		AA2000000000000000000006 /* DrawerMobileModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DrawerMobileModel.swift; sourceTree = "<group>"; };
+		AA2000000000000000000007 /* ObsidianLink.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ObsidianLink.swift; sourceTree = "<group>"; };
+		AA2000000000000000000008 /* DrawerConnectionView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DrawerConnectionView.swift; sourceTree = "<group>"; };
+		AA2000000000000000000009 /* DrawerHomeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DrawerHomeView.swift; sourceTree = "<group>"; };
+		AA200000000000000000000A /* MobileTaskRow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileTaskRow.swift; sourceTree = "<group>"; };
+		AA200000000000000000000B /* DrawerTaskDetailSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DrawerTaskDetailSheet.swift; sourceTree = "<group>"; };
+		AA200000000000000000000C /* QuickCaptureBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuickCaptureBar.swift; sourceTree = "<group>"; };
+		AA200000000000000000000D /* FocusStrip.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FocusStrip.swift; sourceTree = "<group>"; };
+		AA200000000000000000000E /* DrawerShared.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DrawerShared.swift; sourceTree = "<group>"; };
+		AA200000000000000000000F /* DrawerBookmarkStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DrawerBookmarkStore.swift; sourceTree = "<group>"; };
+		AA2000000000000000000010 /* DrawerFileSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DrawerFileSession.swift; sourceTree = "<group>"; };
+		AA2000000000000000000011 /* WidgetSnapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WidgetSnapshot.swift; sourceTree = "<group>"; };
+		AA2000000000000000000012 /* DrawerMutationEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DrawerMutationEngine.swift; sourceTree = "<group>"; };
+		AA2000000000000000000013 /* DrawerIntents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DrawerIntents.swift; sourceTree = "<group>"; };
+		AA2000000000000000000014 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		AA2000000000000000000015 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
+		AA2000000000000000000016 /* DrawerWidgetsBundle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DrawerWidgetsBundle.swift; sourceTree = "<group>"; };
+		AA2000000000000000000017 /* DrawerWidget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DrawerWidget.swift; sourceTree = "<group>"; };
+		AA2000000000000000000018 /* DrawerMobileSharedTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DrawerMobileSharedTests.swift; sourceTree = "<group>"; };
+		AA2000000000000000000019 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		AA200000000000000000001A /* DrawerMobile.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = DrawerMobile.entitlements; sourceTree = "<group>"; };
+		AA200000000000000000001B /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		AA200000000000000000001C /* DrawerWidgets.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = DrawerWidgets.entitlements; sourceTree = "<group>"; };
+		AA2000000000000000000020 /* Drawer.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Drawer.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		AA2000000000000000000021 /* DrawerWidgets.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = DrawerWidgets.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		AA2000000000000000000022 /* DrawerMobileTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = DrawerMobileTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		AA4100000000000000000001 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				AA1300000000000000000001 /* DrawerCore in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		AA4100000000000000000002 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				AA1300000000000000000002 /* DrawerCore in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		AA4100000000000000000003 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				AA1300000000000000000003 /* DrawerCore in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		AA5000000000000000000001 = {
+			isa = PBXGroup;
+			children = (
+				AA5000000000000000000010 /* DrawerMobile */,
+				AA5000000000000000000020 /* Shared */,
+				AA5000000000000000000030 /* DrawerWidgets */,
+				AA5000000000000000000040 /* Tests */,
+				AA5000000000000000000050 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		AA5000000000000000000010 /* DrawerMobile */ = {
+			isa = PBXGroup;
+			children = (
+				AA5000000000000000000011 /* App */,
+				AA5000000000000000000012 /* FileAccess */,
+				AA5000000000000000000013 /* Focus */,
+				AA5000000000000000000014 /* Haptics */,
+				AA5000000000000000000015 /* Model */,
+				AA5000000000000000000016 /* Obsidian */,
+				AA5000000000000000000017 /* Views */,
+				AA5000000000000000000018 /* Resources */,
+			);
+			path = DrawerMobile;
+			sourceTree = "<group>";
+		};
+		AA5000000000000000000011 /* App */ = {
+			isa = PBXGroup;
+			children = (
+				AA2000000000000000000001 /* DrawerMobileApp.swift */,
+				AA2000000000000000000002 /* DrawerRootView.swift */,
+			);
+			path = App;
+			sourceTree = "<group>";
+		};
+		AA5000000000000000000012 /* FileAccess */ = {
+			isa = PBXGroup;
+			children = (AA2000000000000000000003 /* CoordinatedDrawerDocument.swift */, );
+			path = FileAccess;
+			sourceTree = "<group>";
+		};
+		AA5000000000000000000013 /* Focus */ = {
+			isa = PBXGroup;
+			children = (AA2000000000000000000004 /* FocusNotificationScheduler.swift */, );
+			path = Focus;
+			sourceTree = "<group>";
+		};
+		AA5000000000000000000014 /* Haptics */ = {
+			isa = PBXGroup;
+			children = (AA2000000000000000000005 /* DrawerHaptics.swift */, );
+			path = Haptics;
+			sourceTree = "<group>";
+		};
+		AA5000000000000000000015 /* Model */ = {
+			isa = PBXGroup;
+			children = (AA2000000000000000000006 /* DrawerMobileModel.swift */, );
+			path = Model;
+			sourceTree = "<group>";
+		};
+		AA5000000000000000000016 /* Obsidian */ = {
+			isa = PBXGroup;
+			children = (AA2000000000000000000007 /* ObsidianLink.swift */, );
+			path = Obsidian;
+			sourceTree = "<group>";
+		};
+		AA5000000000000000000017 /* Views */ = {
+			isa = PBXGroup;
+			children = (
+				AA2000000000000000000008 /* DrawerConnectionView.swift */,
+				AA2000000000000000000009 /* DrawerHomeView.swift */,
+				AA200000000000000000000A /* MobileTaskRow.swift */,
+				AA200000000000000000000B /* DrawerTaskDetailSheet.swift */,
+				AA200000000000000000000C /* QuickCaptureBar.swift */,
+				AA200000000000000000000D /* FocusStrip.swift */,
+			);
+			path = Views;
+			sourceTree = "<group>";
+		};
+		AA5000000000000000000018 /* Resources */ = {
+			isa = PBXGroup;
+			children = (
+				AA2000000000000000000014 /* Assets.xcassets */,
+				AA2000000000000000000019 /* Info.plist */,
+				AA200000000000000000001A /* DrawerMobile.entitlements */,
+				AA2000000000000000000015 /* PrivacyInfo.xcprivacy */,
+			);
+			path = Resources;
+			sourceTree = "<group>";
+		};
+		AA5000000000000000000020 /* Shared */ = {
+			isa = PBXGroup;
+			children = (
+				AA200000000000000000000E /* DrawerShared.swift */,
+				AA200000000000000000000F /* DrawerBookmarkStore.swift */,
+				AA2000000000000000000010 /* DrawerFileSession.swift */,
+				AA2000000000000000000011 /* WidgetSnapshot.swift */,
+				AA2000000000000000000012 /* DrawerMutationEngine.swift */,
+				AA2000000000000000000013 /* DrawerIntents.swift */,
+			);
+			path = Shared;
+			sourceTree = "<group>";
+		};
+		AA5000000000000000000030 /* DrawerWidgets */ = {
+			isa = PBXGroup;
+			children = (
+				AA2000000000000000000016 /* DrawerWidgetsBundle.swift */,
+				AA2000000000000000000017 /* DrawerWidget.swift */,
+				AA5000000000000000000031 /* Resources */,
+			);
+			path = DrawerWidgets;
+			sourceTree = "<group>";
+		};
+		AA5000000000000000000031 /* Resources */ = {
+			isa = PBXGroup;
+			children = (
+				AA200000000000000000001B /* Info.plist */,
+				AA200000000000000000001C /* DrawerWidgets.entitlements */,
+				AA2000000000000000000015 /* PrivacyInfo.xcprivacy */,
+			);
+			path = Resources;
+			sourceTree = "<group>";
+		};
+		AA5000000000000000000040 /* Tests */ = {
+			isa = PBXGroup;
+			children = (AA2000000000000000000018 /* DrawerMobileSharedTests.swift */, );
+			path = Tests;
+			sourceTree = "<group>";
+		};
+		AA5000000000000000000050 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				AA2000000000000000000020 /* Drawer.app */,
+				AA2000000000000000000021 /* DrawerWidgets.appex */,
+				AA2000000000000000000022 /* DrawerMobileTests.xctest */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		AA6000000000000000000001 /* DrawerMobile */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = AA8000000000000000000001 /* Build configuration list for PBXNativeTarget "DrawerMobile" */;
+			buildPhases = (
+				AA4200000000000000000001 /* Sources */,
+				AA4100000000000000000001 /* Frameworks */,
+				AA4300000000000000000001 /* Resources */,
+				AA4000000000000000000001 /* Embed App Extensions */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				AA3100000000000000000001 /* PBXTargetDependency */,
+			);
+			name = DrawerMobile;
+			packageProductDependencies = (
+				AA9000000000000000000001 /* DrawerCore */,
+			);
+			productName = Drawer;
+			productReference = AA2000000000000000000020 /* Drawer.app */;
+			productType = "com.apple.product-type.application";
+		};
+		AA6000000000000000000002 /* DrawerWidgets */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = AA8000000000000000000002 /* Build configuration list for PBXNativeTarget "DrawerWidgets" */;
+			buildPhases = (
+				AA4200000000000000000002 /* Sources */,
+				AA4100000000000000000002 /* Frameworks */,
+				AA4300000000000000000002 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = DrawerWidgets;
+			packageProductDependencies = (
+				AA9000000000000000000002 /* DrawerCore */,
+			);
+			productName = DrawerWidgets;
+			productReference = AA2000000000000000000021 /* DrawerWidgets.appex */;
+			productType = "com.apple.product-type.app-extension";
+		};
+		AA6000000000000000000003 /* DrawerMobileTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = AA8000000000000000000003 /* Build configuration list for PBXNativeTarget "DrawerMobileTests" */;
+			buildPhases = (
+				AA4200000000000000000003 /* Sources */,
+				AA4100000000000000000003 /* Frameworks */,
+				AA4300000000000000000003 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				AA3100000000000000000002 /* PBXTargetDependency */,
+			);
+			name = DrawerMobileTests;
+			packageProductDependencies = (
+				AA9000000000000000000003 /* DrawerCore */,
+			);
+			productName = DrawerMobileTests;
+			productReference = AA2000000000000000000022 /* DrawerMobileTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		AA7000000000000000000001 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = 1;
+				LastSwiftUpdateCheck = 2600;
+				LastUpgradeCheck = 2600;
+				TargetAttributes = {
+					AA6000000000000000000001 = {CreatedOnToolsVersion = 26.0; };
+					AA6000000000000000000002 = {CreatedOnToolsVersion = 26.0; };
+					AA6000000000000000000003 = {CreatedOnToolsVersion = 26.0; TestTargetID = AA6000000000000000000001; };
+				};
+			};
+			buildConfigurationList = AA8000000000000000000000 /* Build configuration list for PBXProject "DrawerMobile" */;
+			compatibilityVersion = "Xcode 15.0";
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (en, Base, );
+			mainGroup = AA5000000000000000000001;
+			packageReferences = (AA9100000000000000000001 /* XCLocalSwiftPackageReference ".." */, );
+			productRefGroup = AA5000000000000000000050 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				AA6000000000000000000001 /* DrawerMobile */,
+				AA6000000000000000000002 /* DrawerWidgets */,
+				AA6000000000000000000003 /* DrawerMobileTests */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		AA4300000000000000000001 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				AA1000000000000000000014 /* Assets.xcassets in Resources */,
+				AA1000000000000000000015 /* PrivacyInfo.xcprivacy in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		AA4300000000000000000002 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (AA1100000000000000000015 /* PrivacyInfo.xcprivacy in Resources */, );
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		AA4300000000000000000003 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		AA4200000000000000000001 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				AA1000000000000000000001 /* DrawerMobileApp.swift in Sources */,
+				AA1000000000000000000002 /* DrawerRootView.swift in Sources */,
+				AA1000000000000000000003 /* CoordinatedDrawerDocument.swift in Sources */,
+				AA1000000000000000000004 /* FocusNotificationScheduler.swift in Sources */,
+				AA1000000000000000000005 /* DrawerHaptics.swift in Sources */,
+				AA1000000000000000000006 /* DrawerMobileModel.swift in Sources */,
+				AA1000000000000000000007 /* ObsidianLink.swift in Sources */,
+				AA1000000000000000000008 /* DrawerConnectionView.swift in Sources */,
+				AA1000000000000000000009 /* DrawerHomeView.swift in Sources */,
+				AA100000000000000000000A /* MobileTaskRow.swift in Sources */,
+				AA100000000000000000000B /* DrawerTaskDetailSheet.swift in Sources */,
+				AA100000000000000000000C /* QuickCaptureBar.swift in Sources */,
+				AA100000000000000000000D /* FocusStrip.swift in Sources */,
+				AA100000000000000000000E /* DrawerShared.swift in Sources */,
+				AA100000000000000000000F /* DrawerBookmarkStore.swift in Sources */,
+				AA1000000000000000000010 /* DrawerFileSession.swift in Sources */,
+				AA1000000000000000000011 /* WidgetSnapshot.swift in Sources */,
+				AA1000000000000000000012 /* DrawerMutationEngine.swift in Sources */,
+				AA1000000000000000000013 /* DrawerIntents.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		AA4200000000000000000002 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				AA110000000000000000000E /* DrawerShared.swift in Sources */,
+				AA110000000000000000000F /* DrawerBookmarkStore.swift in Sources */,
+				AA1100000000000000000010 /* DrawerFileSession.swift in Sources */,
+				AA1100000000000000000011 /* WidgetSnapshot.swift in Sources */,
+				AA1100000000000000000012 /* DrawerMutationEngine.swift in Sources */,
+				AA1100000000000000000013 /* DrawerIntents.swift in Sources */,
+				AA1100000000000000000016 /* DrawerWidgetsBundle.swift in Sources */,
+				AA1100000000000000000017 /* DrawerWidget.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		AA4200000000000000000003 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (AA1200000000000000000001 /* DrawerMobileSharedTests.swift in Sources */, );
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		AA3100000000000000000001 /* PBXTargetDependency */ = {isa = PBXTargetDependency; target = AA6000000000000000000002 /* DrawerWidgets */; targetProxy = AA3000000000000000000001; };
+		AA3100000000000000000002 /* PBXTargetDependency */ = {isa = PBXTargetDependency; target = AA6000000000000000000001 /* DrawerMobile */; targetProxy = AA3000000000000000000002; };
+/* End PBXTargetDependency section */
+
+/* Begin XCBuildConfiguration section */
+		AA8100000000000000000001 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ENABLE_MODULES = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_TESTABILITY = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
+				ONLY_ACTIVE_ARCH = YES;
+				SDKROOT = iphoneos;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		AA8100000000000000000002 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ENABLE_MODULES = YES;
+				COPY_PHASE_STRIP = YES;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
+				SDKROOT = iphoneos;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_VERSION = 5.0;
+				VALIDATE_PRODUCT = YES;
+			};
+			name = Release;
+		};
+
+		AA8200000000000000000001 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = DrawerMobile/Resources/DrawerMobile.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_ASSET_PATHS = "";
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = DrawerMobile/Resources/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks";
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.bbrizly.drawer;
+				PRODUCT_MODULE_NAME = DrawerMobile;
+				PRODUCT_NAME = Drawer;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Debug;
+		};
+		AA8200000000000000000002 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = DrawerMobile/Resources/DrawerMobile.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_ASSET_PATHS = "";
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = DrawerMobile/Resources/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks";
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.bbrizly.drawer;
+				PRODUCT_MODULE_NAME = DrawerMobile;
+				PRODUCT_NAME = Drawer;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Release;
+		};
+
+		AA8300000000000000000001 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				CODE_SIGN_ENTITLEMENTS = DrawerWidgets/Resources/DrawerWidgets.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = DrawerWidgets/Resources/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks @executable_path/../../Frameworks";
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.bbrizly.drawer.widgets;
+				PRODUCT_NAME = DrawerWidgets;
+				SKIP_INSTALL = YES;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG WIDGET_EXTENSION $(inherited)";
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Debug;
+		};
+		AA8300000000000000000002 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				CODE_SIGN_ENTITLEMENTS = DrawerWidgets/Resources/DrawerWidgets.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = DrawerWidgets/Resources/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks @executable_path/../../Frameworks";
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.bbrizly.drawer.widgets;
+				PRODUCT_NAME = DrawerWidgets;
+				SKIP_INSTALL = YES;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "WIDGET_EXTENSION $(inherited)";
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Release;
+		};
+
+		AA8400000000000000000001 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				GENERATE_INFOPLIST_FILE = YES;
+				PRODUCT_BUNDLE_IDENTIFIER = com.bbrizly.drawer.tests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
+				TARGETED_DEVICE_FAMILY = 1;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Drawer.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Drawer";
+			};
+			name = Debug;
+		};
+		AA8400000000000000000002 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				GENERATE_INFOPLIST_FILE = YES;
+				PRODUCT_BUNDLE_IDENTIFIER = com.bbrizly.drawer.tests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				TARGETED_DEVICE_FAMILY = 1;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Drawer.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Drawer";
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		AA8000000000000000000000 /* Build configuration list for PBXProject "DrawerMobile" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (AA8100000000000000000001 /* Debug */, AA8100000000000000000002 /* Release */, );
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		AA8000000000000000000001 /* Build configuration list for PBXNativeTarget "DrawerMobile" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (AA8200000000000000000001 /* Debug */, AA8200000000000000000002 /* Release */, );
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		AA8000000000000000000002 /* Build configuration list for PBXNativeTarget "DrawerWidgets" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (AA8300000000000000000001 /* Debug */, AA8300000000000000000002 /* Release */, );
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		AA8000000000000000000003 /* Build configuration list for PBXNativeTarget "DrawerMobileTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (AA8400000000000000000001 /* Debug */, AA8400000000000000000002 /* Release */, );
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+
+/* Begin XCLocalSwiftPackageReference section */
+		AA9100000000000000000001 /* XCLocalSwiftPackageReference ".." */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = ..;
+		};
+/* End XCLocalSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		AA9000000000000000000001 /* DrawerCore */ = {isa = XCSwiftPackageProductDependency; package = AA9100000000000000000001 /* XCLocalSwiftPackageReference ".." */; productName = DrawerCore; };
+		AA9000000000000000000002 /* DrawerCore */ = {isa = XCSwiftPackageProductDependency; package = AA9100000000000000000001 /* XCLocalSwiftPackageReference ".." */; productName = DrawerCore; };
+		AA9000000000000000000003 /* DrawerCore */ = {isa = XCSwiftPackageProductDependency; package = AA9100000000000000000001 /* XCLocalSwiftPackageReference ".." */; productName = DrawerCore; };
+/* End XCSwiftPackageProductDependency section */
+	};
+	rootObject = AA7000000000000000000001 /* Project object */;
+}
