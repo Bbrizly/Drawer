@@ -36,6 +36,8 @@ final class DrawerMobileModel: ObservableObject {
     private var lastAppliedDayKey: String?
     private var undoPayload: UndoPayload?
     private var undoExpiryTask: Task<Void, Never>?
+    private var providerRetryTask: Task<Void, Never>?
+    private var hasTransientAccessFailure = false
     private var isSceneActive = true
     private var focusSessionID: UUID?
     private var focusCreatedAt: Date?
@@ -81,6 +83,8 @@ final class DrawerMobileModel: ObservableObject {
         document?.stopObserving()
         document = nil
         clearUndo()
+        cancelProviderRetry()
+        hasTransientAccessFailure = false
         lastAppliedData = nil
         lastAppliedDayKey = nil
         carriedItems = []
@@ -101,7 +105,10 @@ final class DrawerMobileModel: ObservableObject {
     func setSceneActive(_ active: Bool) {
         isSceneActive = active
         focusTimer.setDisplayActive(active)
-        if !active { persistFocusState() }
+        if !active {
+            persistFocusState()
+            cancelProviderRetry()
+        }
         guard let document else { return }
         if active {
             startObserving(document)
@@ -126,7 +133,14 @@ final class DrawerMobileModel: ObservableObject {
         do {
             let today = DrawerDate.todayKey()
             var base = try document.read()
-            if base == lastAppliedData, today == lastAppliedDayKey { return }
+            if base == lastAppliedData, today == lastAppliedDayKey {
+                if hasTransientAccessFailure {
+                    hasTransientAccessFailure = false
+                    statusMessage = nil
+                }
+                cancelProviderRetry()
+                return
+            }
 
             // Automatic recurrence/archive normalization is a canonical write,
             // so it follows the same one-retry content-CAS rule as a user
@@ -424,7 +438,9 @@ final class DrawerMobileModel: ObservableObject {
             return CommitResult(before: base, after: canonical)
         } catch {
             fail(error)
-            reload()
+            if (error as? DrawerFileAccessError)?.isTransient != true {
+                reload()
+            }
             return nil
         }
     }
@@ -463,6 +479,8 @@ final class DrawerMobileModel: ObservableObject {
         } else {
             upcomingLabel = ""
         }
+        hasTransientAccessFailure = false
+        cancelProviderRetry()
         statusMessage = nil
         lastAppliedData = data
         lastAppliedDayKey = today
@@ -488,6 +506,8 @@ final class DrawerMobileModel: ObservableObject {
             let newDocument = CoordinatedDrawerDocument(session: try DrawerBookmarkStore.openSession())
             document?.stopObserving()
             clearUndo()
+            cancelProviderRetry()
+            hasTransientAccessFailure = false
             document = newDocument
             sourceName = newDocument.url.lastPathComponent
             connectionState = .connected
@@ -612,8 +632,69 @@ final class DrawerMobileModel: ObservableObject {
         undoLabel = nil
     }
 
+    private func scheduleProviderRetry() {
+        guard isSceneActive, document != nil, providerRetryTask == nil else { return }
+
+        providerRetryTask = Task { [weak self] in
+            let delays: [Duration] = [
+                .milliseconds(500),
+                .seconds(1),
+                .seconds(2),
+                .seconds(3),
+                .seconds(5),
+                .seconds(5),
+                .seconds(5),
+                .seconds(5),
+                .seconds(5),
+                .seconds(5),
+                .seconds(5),
+                .seconds(5),
+            ]
+
+            for delay in delays {
+                do {
+                    try await Task.sleep(for: delay)
+                } catch {
+                    return
+                }
+
+                guard let self,
+                      self.isSceneActive,
+                      self.document != nil,
+                      self.hasTransientAccessFailure
+                else { return }
+
+                self.reload()
+                if !self.hasTransientAccessFailure { return }
+            }
+
+            self?.providerRetryTask = nil
+        }
+    }
+
+    private func cancelProviderRetry() {
+        providerRetryTask?.cancel()
+        providerRetryTask = nil
+    }
+
     private func fail(_ error: Error) {
-        statusMessage = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
-        DrawerHaptics.shared.error()
+        let message = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+        let changed = statusMessage != message
+        statusMessage = message
+
+        if let accessError = error as? DrawerFileAccessError {
+            hasTransientAccessFailure = accessError.isTransient
+            if accessError.isTransient {
+                scheduleProviderRetry()
+                return
+            }
+        } else {
+            hasTransientAccessFailure = false
+        }
+
+        cancelProviderRetry()
+        if changed {
+            DrawerHaptics.shared.error()
+        }
     }
 }
