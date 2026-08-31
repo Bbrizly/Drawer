@@ -36,10 +36,7 @@ struct FocusStrip: View {
 
             if timer.phase == .finished {
                 Button("Close") {
-                    // Finishing a timer is not proof that its Markdown task is
-                    // complete. Keep the language honest: this only dismisses
-                    // the finished Focus session.
-                    model.resetFocus()
+                    endFocus(completed: true)
                     DrawerHaptics.shared.focusDismissed()
                     DrawerActionFeedbackCenter.announce("Focus session closed")
                 }
@@ -59,6 +56,7 @@ struct FocusStrip: View {
                     case .idle, .finished:
                         break
                     }
+                    syncLiveActivity()
                 } label: {
                     Image(systemName: timer.phase == .running ? "pause.fill" : "play.fill")
                         .font(.system(size: 14, weight: .bold))
@@ -69,7 +67,7 @@ struct FocusStrip: View {
                 .accessibilityLabel(timer.phase == .running ? "Pause focus" : "Resume focus")
 
                 Button {
-                    model.resetFocus()
+                    endFocus(completed: false)
                     DrawerHaptics.shared.focusDismissed()
                     DrawerActionFeedbackCenter.announce("Focus ended")
                 } label: {
@@ -92,5 +90,25 @@ struct FocusStrip: View {
         }
         .shadow(color: .black.opacity(0.035), radius: 12, y: 5)
         .accessibilityElement(children: .contain)
+        .task { syncLiveActivity() }
+        .onChange(of: timer.phase) { _, _ in syncLiveActivity() }
+    }
+
+    private func syncLiveActivity() {
+        let focus = DrawerFocusStore.load()
+        Task {
+            await DrawerFocusLiveActivityManager.shared.reconcile(focus)
+        }
+    }
+
+    private func endFocus(completed: Bool) {
+        let sessionID = DrawerFocusStore.load()?.id
+        model.resetFocus()
+        Task {
+            await DrawerFocusLiveActivityManager.shared.end(
+                sessionID: sessionID,
+                completed: completed
+            )
+        }
     }
 }
