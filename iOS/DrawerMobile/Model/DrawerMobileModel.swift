@@ -37,12 +37,16 @@ final class DrawerMobileModel: ObservableObject {
     private var undoPayload: UndoPayload?
     private var undoExpiryTask: Task<Void, Never>?
     private var isSceneActive = true
+    private var focusSessionID: UUID?
+    private var focusCreatedAt: Date?
 
     init() {
-        focusTimer.onComplete = { _ in
+        focusTimer.onComplete = { [weak self] _ in
             FocusNotificationScheduler.cancel()
             DrawerHaptics.shared.focusFinished()
+            self?.persistFocusState()
         }
+        restoreFocusState()
     }
 
     var connectedFileURL: URL? { document?.url }
@@ -85,6 +89,7 @@ final class DrawerMobileModel: ObservableObject {
     func setSceneActive(_ active: Bool) {
         isSceneActive = active
         focusTimer.setDisplayActive(active)
+        if !active { persistFocusState() }
         guard let document else { return }
         if active {
             startObserving(document)
@@ -95,6 +100,8 @@ final class DrawerMobileModel: ObservableObject {
     }
 
     func handleSignificantTimeChange() {
+        focusTimer.setDisplayActive(isSceneActive)
+        persistFocusState()
         reload()
     }
 
@@ -331,8 +338,11 @@ final class DrawerMobileModel: ObservableObject {
     }
 
     func startFocus(on item: TodoItem) {
+        focusSessionID = UUID()
+        focusCreatedAt = Date()
         focusTimer.start(taskTitle: item.title, minutes: item.minutes)
         objectWillChange.send()
+        persistFocusState()
         FocusNotificationScheduler.schedule(
             taskTitle: item.title,
             seconds: TimeInterval(item.minutes * 60)
@@ -341,11 +351,13 @@ final class DrawerMobileModel: ObservableObject {
 
     func pauseFocus() {
         focusTimer.pause()
+        persistFocusState()
         FocusNotificationScheduler.cancel()
     }
 
     func resumeFocus() {
         focusTimer.resume()
+        persistFocusState()
         if focusTimer.phase == .running {
             FocusNotificationScheduler.schedule(
                 taskTitle: focusTimer.taskTitle,
@@ -356,6 +368,9 @@ final class DrawerMobileModel: ObservableObject {
 
     func resetFocus() {
         focusTimer.reset()
+        focusSessionID = nil
+        focusCreatedAt = nil
+        DrawerFocusStore.clear()
         objectWillChange.send()
         FocusNotificationScheduler.cancel()
     }
@@ -451,6 +466,83 @@ final class DrawerMobileModel: ObservableObject {
                     self.fail(error)
                 }
             }
+        )
+    }
+
+    private func restoreFocusState() {
+        guard let saved = DrawerFocusStore.load() else { return }
+
+        // A finished timer is useful briefly if the app was killed around the
+        // completion boundary, but it must not resurrect stale UI days later.
+        let age = Date().timeIntervalSince(saved.createdAt)
+        guard age >= 0, age < 24 * 60 * 60 else {
+            DrawerFocusStore.clear()
+            FocusNotificationScheduler.cancel()
+            return
+        }
+
+        focusSessionID = saved.id
+        focusCreatedAt = saved.createdAt
+        switch saved.phase {
+        case .running:
+            guard let endDate = saved.endDate else {
+                DrawerFocusStore.clear()
+                focusSessionID = nil
+                focusCreatedAt = nil
+                return
+            }
+            focusTimer.restoreRunning(taskTitle: saved.taskTitle, endDate: endDate)
+            if focusTimer.phase == .running {
+                FocusNotificationScheduler.schedule(
+                    taskTitle: saved.taskTitle,
+                    seconds: focusTimer.remaining
+                )
+            } else {
+                persistFocusState()
+                FocusNotificationScheduler.cancel()
+            }
+        case .paused:
+            focusTimer.restorePaused(taskTitle: saved.taskTitle, remaining: saved.remaining)
+            persistFocusState()
+            FocusNotificationScheduler.cancel()
+        case .finished:
+            focusTimer.restoreFinished(taskTitle: saved.taskTitle)
+            FocusNotificationScheduler.cancel()
+        }
+    }
+
+    private func persistFocusState() {
+        guard focusTimer.phase != .idle else {
+            DrawerFocusStore.clear()
+            return
+        }
+        let id = focusSessionID ?? UUID()
+        let createdAt = focusCreatedAt ?? Date()
+        focusSessionID = id
+        focusCreatedAt = createdAt
+
+        let phase: DrawerPersistedFocus.Phase
+        switch focusTimer.phase {
+        case .idle:
+            DrawerFocusStore.clear()
+            return
+        case .running:
+            phase = .running
+        case .paused:
+            phase = .paused
+        case .finished:
+            phase = .finished
+        }
+
+        DrawerFocusStore.save(
+            DrawerPersistedFocus(
+                id: id,
+                taskTitle: focusTimer.taskTitle,
+                phase: phase,
+                endDate: focusTimer.expectedEndDate,
+                remaining: focusTimer.remaining,
+                createdAt: createdAt
+            )
         )
     }
 
