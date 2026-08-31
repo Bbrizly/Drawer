@@ -20,6 +20,7 @@ struct FocusStrip: View {
                     .font(.system(size: 17, weight: .bold))
                     .foregroundStyle(.tint)
             }
+            .accessibilityHidden(true)
 
             VStack(alignment: .leading, spacing: 3) {
                 Text(timer.phase == .finished ? "Focus complete" : timer.taskTitle)
@@ -36,13 +37,14 @@ struct FocusStrip: View {
 
             if timer.phase == .finished {
                 Button("Close") {
-                    endFocus(completed: true)
+                    model.resetFocus()
                     DrawerHaptics.shared.focusDismissed()
                     DrawerActionFeedbackCenter.announce("Focus session closed")
                 }
                 .font(.subheadline.weight(.bold))
                 .buttonStyle(.borderedProminent)
                 .buttonBorderShape(.capsule)
+                .frame(minHeight: 44)
                 .accessibilityHint("Closes the timer without changing the task")
             } else {
                 Button {
@@ -56,25 +58,26 @@ struct FocusStrip: View {
                     case .idle, .finished:
                         break
                     }
-                    syncLiveActivity()
                 } label: {
                     Image(systemName: timer.phase == .running ? "pause.fill" : "play.fill")
                         .font(.system(size: 14, weight: .bold))
-                        .frame(width: 36, height: 36)
+                        .frame(width: 44, height: 44)
                         .background(.quaternary.opacity(0.6), in: Circle())
+                        .contentShape(Circle())
                 }
                 .buttonStyle(TactileButtonStyle(pressedScale: 0.91, pressedOpacity: 0.96))
                 .accessibilityLabel(timer.phase == .running ? "Pause focus" : "Resume focus")
 
                 Button {
-                    endFocus(completed: false)
+                    model.resetFocus()
                     DrawerHaptics.shared.focusDismissed()
                     DrawerActionFeedbackCenter.announce("Focus ended")
                 } label: {
                     Image(systemName: "xmark")
                         .font(.system(size: 12, weight: .bold))
                         .foregroundStyle(.secondary)
-                        .frame(width: 32, height: 32)
+                        .frame(width: 44, height: 44)
+                        .contentShape(Circle())
                 }
                 .buttonStyle(TactileButtonStyle(pressedScale: 0.91, pressedOpacity: 0.96))
                 .accessibilityLabel("End focus")
@@ -90,25 +93,5 @@ struct FocusStrip: View {
         }
         .shadow(color: .black.opacity(0.035), radius: 12, y: 5)
         .accessibilityElement(children: .contain)
-        .task { syncLiveActivity() }
-        .onChange(of: timer.phase) { _, _ in syncLiveActivity() }
-    }
-
-    private func syncLiveActivity() {
-        let focus = DrawerFocusStore.load()
-        Task {
-            await DrawerFocusLiveActivityManager.shared.reconcile(focus)
-        }
-    }
-
-    private func endFocus(completed: Bool) {
-        let sessionID = DrawerFocusStore.load()?.id
-        model.resetFocus()
-        Task {
-            await DrawerFocusLiveActivityManager.shared.end(
-                sessionID: sessionID,
-                completed: completed
-            )
-        }
     }
 }
