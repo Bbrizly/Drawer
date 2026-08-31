@@ -143,6 +143,20 @@ final class DrawerMobileSharedTests: XCTestCase {
         XCTAssertFalse(missing.preservesSelectedGrant)
     }
 
+    func testFocusLiveActivityStateRoundTrips() throws {
+        let state = DrawerFocusActivityAttributes.ContentState(
+            phase: .running,
+            endDate: Date(timeIntervalSince1970: 1_800_001_500),
+            remaining: 900
+        )
+        let encoded = try JSONEncoder().encode(state)
+        let decoded = try JSONDecoder().decode(
+            DrawerFocusActivityAttributes.ContentState.self,
+            from: encoded
+        )
+        XCTAssertEqual(decoded, state)
+    }
+
     func testObsidianLinkStripsAlias() {
         let link = ObsidianLink.first(in: "Finish [[QCM Mobile|the mobile plan]] today")
         XCTAssertEqual(link?.note, "QCM Mobile")
