@@ -26,9 +26,17 @@ struct DrawerRootView: View {
                     model: model,
                     changeFile: { showingImporter = true }
                 )
+            case .waitingForProvider:
+                DrawerConnectionView(
+                    needsPermission: false,
+                    waitingForProvider: true,
+                    message: model.statusMessage,
+                    chooseFile: { showingImporter = true }
+                )
             case .disconnected, .needsPermission:
                 DrawerConnectionView(
                     needsPermission: model.connectionState == .needsPermission,
+                    waitingForProvider: false,
                     message: model.statusMessage,
                     chooseFile: { showingImporter = true }
                 )
