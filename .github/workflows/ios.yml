@@ -38,11 +38,37 @@ jobs:
           echo "udid=$UDID" >> "$GITHUB_OUTPUT"
 
       - name: iOS app and widget tests
+        shell: bash
         run: |
+          set +e
+          set -o pipefail
           xcodebuild \
             -project iOS/DrawerMobile.xcodeproj \
             -scheme DrawerMobile \
             -configuration Debug \
             -destination "platform=iOS Simulator,id=${{ steps.simulator.outputs.udid }}" \
             CODE_SIGNING_ALLOWED=NO \
-            test
+            test 2>&1 | tee xcodebuild.log
+          STATUS=${PIPESTATUS[0]}
+
+          if [[ $STATUS -ne 0 ]]; then
+            {
+              echo "## Xcode diagnostics"
+              echo '```text'
+              grep -E "(^|[[:space:]])(error:|fatal error:)|warning:.*will be an error|The following build commands failed" xcodebuild.log | tail -n 120 || true
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+          exit $STATUS
+
+      - name: Release build smoke test
+        if: success()
+        run: |
+          xcodebuild \
+            -project iOS/DrawerMobile.xcodeproj \
+            -scheme DrawerMobile \
+            -configuration Release \
+            -destination "generic/platform=iOS Simulator" \
+            CODE_SIGNING_ALLOWED=NO \
+            build
