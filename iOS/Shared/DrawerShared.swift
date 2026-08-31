@@ -3,6 +3,7 @@ import Foundation
 enum DrawerShared {
     static let appGroupIdentifier = "group.com.bbrizly.drawer"
     static let bookmarkKey = "drawer.mobile.bookmark.v1"
+    static let pendingBookmarkKey = "drawer.mobile.bookmark.pending.v1"
     static let snapshotFilename = "drawer-widget-snapshot-v1.json"
     static let focusSessionKey = "drawer.focus.session.v1"
 
