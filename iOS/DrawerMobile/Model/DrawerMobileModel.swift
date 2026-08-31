@@ -9,6 +9,7 @@ final class DrawerMobileModel: ObservableObject {
         case loading
         case disconnected
         case connected
+        case waitingForProvider
         case needsPermission
     }
 
@@ -32,11 +33,14 @@ final class DrawerMobileModel: ObservableObject {
     let focusTimer = FocusTimer()
 
     private var document: CoordinatedDrawerDocument?
+    private var pendingDocument: CoordinatedDrawerDocument?
     private var lastAppliedData: Data?
     private var lastAppliedDayKey: String?
     private var undoPayload: UndoPayload?
     private var undoExpiryTask: Task<Void, Never>?
     private var providerRetryTask: Task<Void, Never>?
+    private var pendingRetryTask: Task<Void, Never>?
+    private var pendingStatusMessage: String?
     private var hasTransientAccessFailure = false
     private var isSceneActive = true
     private var focusSessionID: UUID?
@@ -54,6 +58,17 @@ final class DrawerMobileModel: ObservableObject {
     var connectedFileURL: URL? { document?.url }
 
     func bootstrap() {
+        if DrawerBookmarkStore.hasPendingBookmark {
+            // A staged cloud/provider selection may have been interrupted by a
+            // process kill. Reopen the previous canonical source first when one
+            // exists, then continue materializing the staged replacement.
+            if DrawerBookmarkStore.hasBookmark {
+                openStoredDocument()
+            }
+            beginPendingSelection()
+            return
+        }
+
         guard DrawerBookmarkStore.hasBookmark else {
             WidgetInteractionFeedbackStore.clear()
             connectionState = .disconnected
@@ -64,14 +79,20 @@ final class DrawerMobileModel: ObservableObject {
 
     func connect(to pickedURL: URL) {
         do {
-            try DrawerBookmarkStore.save(pickedURL)
-            openStoredDocument()
+            switch try DrawerBookmarkStore.save(pickedURL) {
+            case .ready:
+                openStoredDocument()
+            case .waitingForProvider:
+                beginPendingSelection()
+            }
         } catch {
-            // Change Drawer.md is transactional: if a new selection fails
-            // validation, keep the already-open source usable rather than
-            // replacing the whole app with a reconnect screen.
+            // Change Drawer.md stays transactional even when another staged
+            // source already exists. A bad replacement never destroys the
+            // active source or the viable staged source that preceded it.
             if document != nil {
                 connectionState = .connected
+            } else if pendingDocument != nil || DrawerBookmarkStore.hasPendingBookmark {
+                connectionState = .waitingForProvider
             } else {
                 connectionState = DrawerBookmarkStore.hasBookmark ? .needsPermission : .disconnected
             }
@@ -84,6 +105,7 @@ final class DrawerMobileModel: ObservableObject {
         document = nil
         clearUndo()
         cancelProviderRetry()
+        clearPendingRuntime()
         hasTransientAccessFailure = false
         lastAppliedData = nil
         lastAppliedDayKey = nil
@@ -108,13 +130,20 @@ final class DrawerMobileModel: ObservableObject {
         if !active {
             persistFocusState()
             cancelProviderRetry()
+            cancelPendingRetry()
         }
-        guard let document else { return }
-        if active {
-            startObserving(document)
-            reload()
-        } else {
-            document.stopObserving()
+
+        if let document {
+            if active {
+                startObserving(document)
+                reload()
+            } else {
+                document.stopObserving()
+            }
+        }
+
+        if active, pendingDocument != nil {
+            attemptPendingSelection()
         }
     }
 
@@ -136,9 +165,9 @@ final class DrawerMobileModel: ObservableObject {
             if base == lastAppliedData, today == lastAppliedDayKey {
                 if hasTransientAccessFailure {
                     hasTransientAccessFailure = false
-                    statusMessage = nil
                 }
                 cancelProviderRetry()
+                statusMessage = pendingStatusMessage
                 return
             }
 
@@ -481,7 +510,7 @@ final class DrawerMobileModel: ObservableObject {
         }
         hasTransientAccessFailure = false
         cancelProviderRetry()
-        statusMessage = nil
+        statusMessage = pendingStatusMessage
         lastAppliedData = data
         lastAppliedDayKey = today
         publishWidgetSnapshot(data, today: today)
@@ -507,6 +536,7 @@ final class DrawerMobileModel: ObservableObject {
             document?.stopObserving()
             clearUndo()
             cancelProviderRetry()
+            clearPendingRuntime()
             hasTransientAccessFailure = false
             document = newDocument
             sourceName = newDocument.url.lastPathComponent
@@ -522,14 +552,115 @@ final class DrawerMobileModel: ObservableObject {
         }
     }
 
+    private func beginPendingSelection() {
+        do {
+            let candidate = CoordinatedDrawerDocument(session: try DrawerBookmarkStore.openPendingSession())
+            pendingDocument = candidate
+            pendingStatusMessage = "Getting the new Drawer.md ready."
+            sourceName = document?.url.lastPathComponent ?? candidate.url.lastPathComponent
+
+            if document == nil {
+                connectionState = .waitingForProvider
+                carriedItems = []
+                todayItems = []
+                upcomingItems = []
+                backlogItems = []
+                upcomingLabel = ""
+            } else {
+                connectionState = .connected
+            }
+
+            attemptPendingSelection()
+        } catch {
+            handlePendingSelectionFailure(error)
+        }
+    }
+
+    private func attemptPendingSelection() {
+        guard let candidate = pendingDocument else { return }
+
+        do {
+            let data = try candidate.read()
+            guard String(data: data, encoding: .utf8) != nil else {
+                throw DrawerBookmarkError.invalidEncoding
+            }
+
+            // Promotion happens only after a real current canonical read. Until
+            // this line the previous primary bookmark remains untouched.
+            try DrawerBookmarkStore.promotePending()
+
+            document?.stopObserving()
+            clearUndo()
+            cancelProviderRetry()
+            cancelPendingRetry()
+            pendingStatusMessage = nil
+            hasTransientAccessFailure = false
+            document = candidate
+            pendingDocument = nil
+            sourceName = candidate.url.lastPathComponent
+            connectionState = .connected
+            lastAppliedData = nil
+            lastAppliedDayKey = nil
+            statusMessage = nil
+            if isSceneActive { startObserving(candidate) }
+            reload()
+        } catch let accessError as DrawerFileAccessError where accessError.isTransient {
+            pendingStatusMessage = pendingMessage(for: accessError)
+            statusMessage = pendingStatusMessage
+            if document == nil {
+                connectionState = .waitingForProvider
+            } else {
+                connectionState = .connected
+            }
+            schedulePendingRetry()
+        } catch {
+            handlePendingSelectionFailure(error)
+        }
+    }
+
+    private func handlePendingSelectionFailure(_ error: Error) {
+        let detail = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+        DrawerBookmarkStore.discardPending()
+        clearPendingRuntime()
+
+        if document != nil {
+            connectionState = .connected
+            statusMessage = "Couldn't switch Drawer.md. \(detail) Your current file is still connected."
+            DrawerHaptics.shared.error()
+            return
+        }
+
+        if DrawerBookmarkStore.hasBookmark {
+            openStoredDocument()
+            if document != nil {
+                statusMessage = "Couldn't switch Drawer.md. \(detail) Your previous file is still connected."
+                DrawerHaptics.shared.error()
+                return
+            }
+        }
+
+        connectionState = DrawerBookmarkStore.hasBookmark ? .needsPermission : .disconnected
+        fail(error)
+    }
+
+    private func pendingMessage(for error: DrawerFileAccessError) -> String {
+        let base = error.errorDescription ?? "Drawer.md isn't available yet."
+        guard document != nil else { return base }
+        return "\(base) Your current Drawer.md stays active until the new file is ready."
+    }
+
     private func startObserving(_ document: CoordinatedDrawerDocument) {
         document.startObserving(
             onChange: { [weak self] in self?.reload() },
             onMove: { [weak self] newURL in
                 guard let self else { return }
                 do {
-                    try DrawerBookmarkStore.save(newURL)
-                    self.openStoredDocument()
+                    switch try DrawerBookmarkStore.save(newURL) {
+                    case .ready:
+                        self.openStoredDocument()
+                    case .waitingForProvider:
+                        self.beginPendingSelection()
+                    }
                 } catch {
                     self.fail(error)
                 }
@@ -672,9 +803,59 @@ final class DrawerMobileModel: ObservableObject {
         }
     }
 
+    private func schedulePendingRetry() {
+        guard isSceneActive, pendingDocument != nil, pendingRetryTask == nil else { return }
+
+        pendingRetryTask = Task { [weak self] in
+            let delays: [Duration] = [
+                .milliseconds(500),
+                .seconds(1),
+                .seconds(2),
+                .seconds(3),
+                .seconds(5),
+                .seconds(5),
+                .seconds(5),
+                .seconds(5),
+                .seconds(5),
+                .seconds(5),
+                .seconds(5),
+                .seconds(5),
+            ]
+
+            for delay in delays {
+                do {
+                    try await Task.sleep(for: delay)
+                } catch {
+                    return
+                }
+
+                guard let self,
+                      self.isSceneActive,
+                      self.pendingDocument != nil
+                else { return }
+
+                self.attemptPendingSelection()
+                if self.pendingDocument == nil { return }
+            }
+
+            self?.pendingRetryTask = nil
+        }
+    }
+
     private func cancelProviderRetry() {
         providerRetryTask?.cancel()
         providerRetryTask = nil
+    }
+
+    private func cancelPendingRetry() {
+        pendingRetryTask?.cancel()
+        pendingRetryTask = nil
+    }
+
+    private func clearPendingRuntime() {
+        cancelPendingRetry()
+        pendingDocument = nil
+        pendingStatusMessage = nil
     }
 
     private func fail(_ error: Error) {
