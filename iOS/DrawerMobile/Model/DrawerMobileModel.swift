@@ -56,14 +56,12 @@ final class DrawerMobileModel: ObservableObject {
 
     init() {
         focusTimer.onComplete = { [weak self] _ in
+            // The timer has already entered .finished here. Persist that truth
+            // first, then let the scheduler reconcile the same stored state to
+            // ActivityKit while removing the pending completion notification.
+            self?.persistFocusState()
             FocusNotificationScheduler.cancel()
             DrawerHaptics.shared.focusFinished()
-            self?.persistFocusState()
-            // persistFocusState happens after the timer flips to finished. Run a
-            // second reconciliation after persistence so ActivityKit receives
-            // the finished state even if the completion callback raced the
-            // scheduler's first read by a turn of the main actor.
-            FocusNotificationScheduler.cancel()
         }
         restoreFocusState()
     }
@@ -72,9 +70,6 @@ final class DrawerMobileModel: ObservableObject {
 
     func bootstrap() {
         if DrawerBookmarkStore.hasPendingBookmark {
-            // A staged cloud/provider selection may have been interrupted by a
-            // process kill. Reopen the previous canonical source first when one
-            // exists, then continue validating the staged replacement.
             if DrawerBookmarkStore.hasBookmark {
                 openStoredDocument()
             }
@@ -99,9 +94,6 @@ final class DrawerMobileModel: ObservableObject {
                 beginPendingSelection()
             }
         } catch {
-            // Change Drawer.md stays transactional even when another staged
-            // source already exists. A bad replacement never destroys the
-            // active source or the viable staged source that preceded it.
             if document != nil {
                 connectionState = .connected
             } else if pendingDocument != nil || DrawerBookmarkStore.hasPendingBookmark {
@@ -159,10 +151,6 @@ final class DrawerMobileModel: ObservableObject {
             }
         }
 
-        // Authentication/conflict states deliberately do not busy-poll. The
-        // user fixes those in Files/Obsidian/provider UI; becoming active is the
-        // natural retry point. Transient download/offline states also get an
-        // immediate attempt here before their foreground retry loop resumes.
         if active, pendingDocument != nil {
             attemptPendingSelection()
         }
@@ -192,10 +180,6 @@ final class DrawerMobileModel: ObservableObject {
                 return
             }
 
-            // Automatic recurrence/archive normalization is a canonical write,
-            // so it follows the same one-retry content-CAS rule as a user
-            // mutation. If Obsidian/iCloud changed Drawer.md after the first
-            // read, recompute against those fresh bytes before writing.
             var normalized = try normalizedData(base, today: today)
             if normalized != base {
                 let fresh = try document.read()
@@ -221,9 +205,6 @@ final class DrawerMobileModel: ObservableObject {
 
     @discardableResult
     func toggle(_ item: TodoItem) -> Bool {
-        // A completed recurring occurrence already has a successor. Reopening
-        // it would create two active members of one series, so history stays
-        // immutable until a dedicated series-history editor exists.
         if item.isDone, recurrence(for: item) != nil {
             setStatus(
                 "Completed repeating occurrences stay in history. Edit the active copy instead.",
@@ -353,9 +334,6 @@ final class DrawerMobileModel: ObservableObject {
         } != nil
     }
 
-    /// Applies the editable task fields in one canonical transaction. A task's
-    /// identity includes its raw Markdown line, so the detail sheet dismisses
-    /// after this succeeds rather than continuing to mutate through a stale ID.
     @discardableResult
     func updateTask(
         _ item: TodoItem,
@@ -430,10 +408,7 @@ final class DrawerMobileModel: ObservableObject {
             )
         }) else { return false }
 
-        armUndoIfExact(
-            label: "Moved to \(destination.title)",
-            result: result
-        )
+        armUndoIfExact(label: "Moved to \(destination.title)", result: result)
         return true
     }
 
@@ -563,8 +538,6 @@ final class DrawerMobileModel: ObservableObject {
 
         var normalized = try TodoRecurrenceWriteback.reconcile(in: data, today: today)
         guard let normalizedText = String(data: normalized, encoding: .utf8) else {
-            // A deterministic transform must never turn valid canonical input
-            // into invalid text; treat it as a hard failure if it does.
             throw DrawerBookmarkError.invalidEncoding
         }
         let swept = TodoArchiver.archiveCompleted(in: normalizedText, today: today)
@@ -672,8 +645,6 @@ final class DrawerMobileModel: ObservableObject {
                 throw DrawerBookmarkError.invalidEncoding
             }
 
-            // Promotion happens only after a real current canonical read. Until
-            // this line the previous primary bookmark remains untouched.
             try DrawerBookmarkStore.promotePending()
 
             document?.stopObserving()
@@ -705,9 +676,6 @@ final class DrawerMobileModel: ObservableObject {
             if accessError.isTransient {
                 schedulePendingRetry()
             } else {
-                // Authentication and conflict states require user action. Keep
-                // the staged bookmark but avoid a pointless foreground poll;
-                // setSceneActive(true) retries when the user returns.
                 cancelPendingRetry()
             }
         } catch {
@@ -774,8 +742,6 @@ final class DrawerMobileModel: ObservableObject {
     private func restoreFocusState() {
         guard let saved = DrawerFocusStore.load() else { return }
 
-        // A finished timer is useful briefly if the app was killed around the
-        // completion boundary, but it must not resurrect stale UI days later.
         let age = Date().timeIntervalSince(saved.createdAt)
         guard age >= 0, age < 24 * 60 * 60 else {
             DrawerFocusStore.clear()
@@ -853,9 +819,6 @@ final class DrawerMobileModel: ObservableObject {
 
     private func armUndoIfExact(label: String, result: CommitResult) {
         guard result.canonicalMatchesAttempt else {
-            // An external writer changed the file immediately after our write.
-            // The displayed canonical data already includes that writer's truth;
-            // a snapshot undo would erase it, so deliberately offer no undo.
             clearUndo()
             return
         }
