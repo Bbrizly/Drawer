@@ -228,7 +228,6 @@ struct DrawerHomeView: View {
         HStack(alignment: .top, spacing: 10) {
             Image(systemName: statusIcon(tone))
                 .foregroundStyle(statusStyle(tone))
-                .symbolEffect(.pulse, options: tone == .info ? .repeating.speed(0.25) : .nonRepeating)
             Text(status)
                 .font(.footnote)
                 .foregroundStyle(.secondary)
