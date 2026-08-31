@@ -47,9 +47,23 @@ enum DrawerFileAccessError: LocalizedError {
         }
     }
 
+    /// Conditions that can heal by waiting while Drawer remains foregrounded.
     var isTransient: Bool {
         switch self {
         case .waitingForICloud, .providerUnavailable:
+            true
+        default:
+            false
+        }
+    }
+
+    /// Conditions where the document-picker grant is still valuable even though
+    /// the bytes cannot be used yet. Authentication and iCloud conflicts need
+    /// user action, not another picker round-trip; Drawer retries them when the
+    /// app becomes active again after the user fixes the provider state.
+    var preservesSelectedGrant: Bool {
+        switch self {
+        case .waitingForICloud, .providerUnavailable, .authenticationRequired, .iCloudConflict:
             true
         default:
             false
