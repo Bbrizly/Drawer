@@ -16,12 +16,12 @@ struct DrawerWidgetProvider: TimelineProvider {
     func getSnapshot(in context: Context, completion: @escaping (DrawerWidgetEntry) -> Void) {
         completion(DrawerWidgetEntry(
             date: Date(),
-            snapshot: context.isPreview ? .preview : WidgetSnapshotStore.read()
+            snapshot: context.isPreview ? .preview : WidgetSnapshotStore.current()
         ))
     }
 
     func getTimeline(in context: Context, completion: @escaping (Timeline<DrawerWidgetEntry>) -> Void) {
-        let entry = DrawerWidgetEntry(date: Date(), snapshot: WidgetSnapshotStore.read())
+        let entry = DrawerWidgetEntry(date: Date(), snapshot: WidgetSnapshotStore.current())
         completion(Timeline(
             entries: [entry],
             policy: .after(Date().addingTimeInterval(15 * 60))
