@@ -1,3 +1,4 @@
+import ActivityKit
 import Foundation
 
 enum DrawerShared {
@@ -31,6 +32,28 @@ struct DrawerPersistedFocus: Codable, Equatable, Sendable {
     let endDate: Date?
     let remaining: TimeInterval
     let createdAt: Date
+}
+
+/// Shared by the app and widget extension so Focus can leave the app without
+/// creating a second timer. Running state carries an absolute end date; the
+/// system renders the countdown itself even while Drawer is suspended.
+struct DrawerFocusActivityAttributes: ActivityAttributes {
+    struct ContentState: Codable, Hashable, Sendable {
+        enum Phase: String, Codable, Hashable, Sendable {
+            case running
+            case paused
+            case finished
+            case ended
+        }
+
+        let phase: Phase
+        let endDate: Date?
+        let remaining: TimeInterval
+    }
+
+    let sessionID: UUID
+    let taskTitle: String
+    let targetDuration: TimeInterval
 }
 
 enum DrawerFocusStore {
