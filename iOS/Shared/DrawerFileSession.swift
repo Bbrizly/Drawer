@@ -240,7 +240,11 @@ final class DrawerFileSession {
             case .noSuchItem:
                 return .itemMissing
             default:
-                return .providerUnavailable(storage)
+                // Quota, collision, sync-anchor and other provider errors are
+                // not necessarily transient connectivity failures. Let the
+                // caller surface their real localized read/write failure rather
+                // than entering an automatic retry loop that cannot fix them.
+                return nil
             }
         }
 
