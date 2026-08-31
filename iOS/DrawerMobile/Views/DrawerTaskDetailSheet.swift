@@ -544,7 +544,8 @@ private struct DrawerTaskEditSheet: View {
         if model.updateTask(item, title: cleanTitle, minutes: minutes, note: note) {
             DrawerHaptics.shared.saved()
             DrawerActionFeedbackCenter.success("Task updated", systemImage: "checkmark.circle.fill")
-            onSaved()
+            dismiss()
+            DispatchQueue.main.async(execute: onSaved)
         }
     }
 }
