@@ -5,6 +5,7 @@ struct DrawerHomeView: View {
     @ObservedObject var model: DrawerMobileModel
     let changeFile: () -> Void
 
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @AppStorage("drawer.ios.hideCompleted") private var hideCompleted = false
     @State private var selectedTask: TodoItem?
     @State private var activeRoutine: DrawerRoutine?
@@ -24,7 +25,7 @@ struct DrawerHomeView: View {
 
                     if model.focusTimer.phase != .idle {
                         FocusStrip(model: model)
-                            .transition(.scale(scale: 0.97).combined(with: .opacity))
+                            .transition(reduceMotion ? .opacity : .scale(scale: 0.97).combined(with: .opacity))
                     }
 
                     if let status = model.statusMessage, !status.isEmpty {
@@ -190,7 +191,11 @@ struct DrawerHomeView: View {
     private func collapsibleSection(title: String, count: Int, isExpanded: Binding<Bool>, items: [TodoItem]) -> some View {
         VStack(alignment: .leading, spacing: 9) {
             Button {
-                withAnimation(.snappy(duration: 0.22)) { isExpanded.wrappedValue.toggle() }
+                if reduceMotion {
+                    isExpanded.wrappedValue.toggle()
+                } else {
+                    withAnimation(.snappy(duration: 0.22)) { isExpanded.wrappedValue.toggle() }
+                }
             } label: {
                 HStack(spacing: 8) {
                     Text(title.uppercased()).font(.caption.weight(.bold)).tracking(0.8)
@@ -210,7 +215,7 @@ struct DrawerHomeView: View {
 
             if isExpanded.wrappedValue {
                 TaskTray(items: items, model: model) { selectedTask = $0 }
-                    .transition(.opacity.combined(with: .move(edge: .top)))
+                    .transition(reduceMotion ? .opacity : .opacity.combined(with: .move(edge: .top)))
             }
         }
     }
