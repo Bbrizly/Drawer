@@ -34,6 +34,17 @@ jobs:
       - uses: actions/checkout@v7
       - run: swift test
 
+  macos-regression:
+    name: macOS Drawer release package
+    runs-on: macos-26
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - name: Build and package existing macOS app
+        run: make app
+      - name: Verify packaged app signature
+        run: codesign --verify --strict --verbose=2 Drawer.app
+
   ios-release-gate:
     name: iOS app, widget and release
     runs-on: macos-26

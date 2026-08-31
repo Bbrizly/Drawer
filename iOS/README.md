@@ -55,8 +55,11 @@ The iOS workflow gates every relevant change with:
 - Apple plist / entitlement / App Group / privacy-manifest validation
 - 1024×1024 opaque App Store icon validation
 - full shared `DrawerCore` tests
+- Release build/package/signature verification of the existing macOS `Drawer.app`
 - Debug iPhone Simulator app + widget tests
-- optimized unsigned Release app + widget build
+- optimized unsigned Release iOS app + widget build
+
+The macOS packaging gate is deliberate: the iPhone target shares `DrawerCore`, so an iOS portability change is not considered safe unless the existing desktop app still builds and packages successfully too.
 
 Store signing and App Group provisioning still require a developer account / Xcode signing setup.
 

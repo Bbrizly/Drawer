@@ -239,12 +239,13 @@ The Xcode project consumes the repository’s local `DrawerCore` Swift package p
 
 ## Release gates
 
-Every iOS change is gated by:
+Every iOS/shared-core change is gated by:
 
 1. Apple plist, entitlement, App Group, privacy-manifest and 1024×1024 opaque AppIcon validation.
 2. The full shared `DrawerCore` test suite.
-3. iPhone-simulator Debug app + widget tests.
-4. An optimized Release app + widget build with signing disabled for CI.
+3. A Release build/package/signature verification of the existing macOS `Drawer.app`, so shared-core portability work cannot silently break the desktop product.
+4. iPhone-simulator Debug app + widget tests.
+5. An optimized Release app + widget build with signing disabled for CI.
 
 Signing/provisioning, TestFlight/App Store submission, real haptic tuning, and real iCloud/Obsidian File Provider behavior are device/account gates and cannot be proven by simulator CI. The concrete physical-device acceptance matrix lives in `iOS/README.md` and must be completed before App Store submission.
 
