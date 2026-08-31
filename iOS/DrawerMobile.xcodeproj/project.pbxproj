@@ -37,7 +37,7 @@
 		AA1100000000000000000013 /* DrawerIntents.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA2000000000000000000013 /* DrawerIntents.swift */; };
 		AA1100000000000000000016 /* DrawerWidgetsBundle.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA2000000000000000000016 /* DrawerWidgetsBundle.swift */; };
 		AA1100000000000000000017 /* DrawerWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA2000000000000000000017 /* DrawerWidget.swift */; };
-		AA1100000000000000000015 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = AA2000000000000000000015 /* PrivacyInfo.xcprivacy */; };
+		AA1100000000000000000015 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = AA200000000000000000001D /* PrivacyInfo.xcprivacy */; };
 
 		AA1200000000000000000001 /* DrawerMobileSharedTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA2000000000000000000018 /* DrawerMobileSharedTests.swift */; };
 
@@ -107,6 +107,7 @@
 		AA200000000000000000001A /* DrawerMobile.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = DrawerMobile.entitlements; sourceTree = "<group>"; };
 		AA200000000000000000001B /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		AA200000000000000000001C /* DrawerWidgets.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = DrawerWidgets.entitlements; sourceTree = "<group>"; };
+		AA200000000000000000001D /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		AA2000000000000000000020 /* Drawer.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Drawer.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		AA2000000000000000000021 /* DrawerWidgets.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = DrawerWidgets.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		AA2000000000000000000022 /* DrawerMobileTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = DrawerMobileTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -257,7 +258,7 @@
 			children = (
 				AA200000000000000000001B /* Info.plist */,
 				AA200000000000000000001C /* DrawerWidgets.entitlements */,
-				AA2000000000000000000015 /* PrivacyInfo.xcprivacy */,
+				AA200000000000000000001D /* PrivacyInfo.xcprivacy */,
 			);
 			path = Resources;
 			sourceTree = "<group>";
