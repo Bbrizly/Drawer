@@ -231,13 +231,13 @@ struct MobileTaskRow: View {
                 model.startFocus(on: item)
                 DrawerHaptics.shared.focusStarted()
             }
+            Menu("Move", systemImage: "arrow.turn.down.right") {
+                moveButton(.today)
+                moveButton(.tomorrow)
+                moveButton(.backlog)
+            }
         }
 
-        Menu("Move", systemImage: "arrow.turn.down.right") {
-            moveButton(.today)
-            moveButton(.tomorrow)
-            moveButton(.backlog)
-        }
         Divider()
         Button("Delete", systemImage: "trash", role: .destructive) {
             if model.delete(item) { DrawerHaptics.shared.deleted() }
