@@ -21,11 +21,26 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: ios-${{ github.workflow }}-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
+
 jobs:
   build-and-test:
     runs-on: macos-26
+    timeout-minutes: 25
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
+
+      - name: Validate Apple metadata
+        run: |
+          plutil -lint \
+            iOS/DrawerMobile/Resources/Info.plist \
+            iOS/DrawerMobile/Resources/DrawerMobile.entitlements \
+            iOS/DrawerMobile/Resources/PrivacyInfo.xcprivacy \
+            iOS/DrawerWidgets/Resources/Info.plist \
+            iOS/DrawerWidgets/Resources/DrawerWidgets.entitlements \
+            iOS/DrawerWidgets/Resources/PrivacyInfo.xcprivacy
 
       - name: Shared core tests
         run: swift test
@@ -64,11 +79,26 @@ jobs:
 
       - name: Release build smoke test
         if: success()
+        shell: bash
         run: |
+          set +e
+          set -o pipefail
           xcodebuild \
             -project iOS/DrawerMobile.xcodeproj \
             -scheme DrawerMobile \
             -configuration Release \
             -destination "generic/platform=iOS Simulator" \
             CODE_SIGNING_ALLOWED=NO \
-            build
+            build 2>&1 | tee xcodebuild-release.log
+          STATUS=${PIPESTATUS[0]}
+
+          if [[ $STATUS -ne 0 ]]; then
+            {
+              echo "## Release build diagnostics"
+              echo '```text'
+              grep -E "(^|[[:space:]])(error:|fatal error:)|warning:.*will be an error|The following build commands failed" xcodebuild-release.log | tail -n 120 || true
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+          exit $STATUS
