@@ -158,8 +158,10 @@ public enum TodoRecurrenceWriteback {
         let scheduled = DayMath.date(item.sectionDate) == nil ? today : item.sectionDate
         let recurrence = TodoRecurrence(seriesID: UUID(), rule: rule, scheduledDate: scheduled)
         let newline = lineEnding(in: text)
-        let insertion = "    " + recurrence.metadataLine + newline
-        let offset = lines[block.endIndex - 1].end
+        let lastLine = lines[block.endIndex - 1]
+        let separator = lastLine.end == lastLine.contentEnd ? newline : ""
+        let insertion = separator + "    " + recurrence.metadataLine + newline
+        let offset = lastLine.end
         var out = text
         out.insert(contentsOf: insertion, at: offset)
         return Data(out.utf8)
@@ -201,8 +203,10 @@ public enum TodoRecurrenceWriteback {
         let lines = scanLines(text)
         guard let completed = locateCompletedOriginal(item: item, lines: lines) else { return advanced }
         let newline = lineEnding(in: text)
-        let insertion = "    <!-- drawer:resolution skipped -->" + newline
-        let offset = lines[completed.endIndex - 1].end
+        let lastLine = lines[completed.endIndex - 1]
+        let separator = lastLine.end == lastLine.contentEnd ? newline : ""
+        let insertion = separator + "    <!-- drawer:resolution skipped -->" + newline
+        let offset = lastLine.end
         text.insert(contentsOf: insertion, at: offset)
         return Data(text.utf8)
     }
@@ -382,7 +386,7 @@ public enum TodoRecurrenceWriteback {
 
     private static func insert(blockText: String, intoSection target: String, subsection: String?, in text: String) -> String {
         let newline = lineEnding(in: text)
-        var lines = scanLines(text)
+        let lines = scanLines(text)
 
         if let sectionIndex = lines.firstIndex(where: { $0.content == "## " + target }) {
             var sectionEnd = lines.count
@@ -522,7 +526,7 @@ private enum DayMath {
         case .weekdays(let allowed):
             var candidate = cal.date(byAdding: .day, value: 1, to: base)!
             for _ in 0..<8 {
-                let appleWeekday = cal.component(.weekday, from: candidate) // Sun=1
+                let appleWeekday = cal.component(.weekday, from: candidate)
                 let iso = appleWeekday == 1 ? 7 : appleWeekday - 1
                 if allowed.contains(iso) { return key(candidate) }
                 candidate = cal.date(byAdding: .day, value: 1, to: candidate)!
