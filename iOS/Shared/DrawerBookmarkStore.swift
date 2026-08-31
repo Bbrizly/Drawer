@@ -2,6 +2,7 @@ import Foundation
 
 enum DrawerBookmarkError: LocalizedError {
     case missingBookmark
+    case missingPendingBookmark
     case accessDenied
     case invalidEncoding
     case appGroupUnavailable
@@ -10,6 +11,8 @@ enum DrawerBookmarkError: LocalizedError {
         switch self {
         case .missingBookmark:
             "No Drawer.md is connected."
+        case .missingPendingBookmark:
+            "The pending Drawer.md selection is no longer available. Choose the file again."
         case .accessDenied:
             "Drawer no longer has permission to access that file. Choose Drawer.md again."
         case .invalidEncoding:
@@ -20,48 +23,77 @@ enum DrawerBookmarkError: LocalizedError {
     }
 }
 
+enum DrawerBookmarkSaveOutcome: Equatable {
+    case ready
+    case waitingForProvider
+}
+
 enum DrawerBookmarkStore {
     static var hasBookmark: Bool {
         guard DrawerShared.containerURL != nil else { return false }
         return DrawerShared.defaults.data(forKey: DrawerShared.bookmarkKey) != nil
     }
 
-    /// Persist the document picker grant only after proving the selected URL is
-    /// readable UTF-8 text. A bad replacement therefore cannot overwrite the
-    /// last known-good bookmark before Drawer knows it can actually use it.
-    static func save(_ pickedURL: URL) throws {
+    static var hasPendingBookmark: Bool {
+        guard DrawerShared.containerURL != nil else { return false }
+        return DrawerShared.defaults.data(forKey: DrawerShared.pendingBookmarkKey) != nil
+    }
+
+    /// Persist a document-picker grant transactionally.
+    ///
+    /// A normal/local selection is promoted only after proving it is readable
+    /// UTF-8 Markdown. If iCloud or another Files provider has granted the URL
+    /// but has not materialized the bytes yet, keep the new bookmark in a
+    /// separate pending slot. The previous canonical bookmark remains intact
+    /// until the pending source produces a real successful read.
+    static func save(_ pickedURL: URL) throws -> DrawerBookmarkSaveOutcome {
         guard DrawerShared.containerURL != nil else {
             throw DrawerBookmarkError.appGroupUnavailable
         }
 
-        let started = pickedURL.startAccessingSecurityScopedResource()
-        defer {
-            if started { pickedURL.stopAccessingSecurityScopedResource() }
-        }
+        // A newer selection always supersedes an older pending attempt, but it
+        // never touches the last known-good primary bookmark until validated.
+        DrawerShared.defaults.removeObject(forKey: DrawerShared.pendingBookmarkKey)
 
-        // A file picked from Files normally returns true above. Still attempt
-        // bookmark creation when it doesn't: iOS' file security model can keep
-        // a valid scoped URL even when the explicit start call reports false.
-        let data = try pickedURL.bookmarkData(
-            options: [],
-            includingResourceValuesForKeys: [.nameKey, .contentModificationDateKey],
-            relativeTo: nil
-        )
-
+        let data = try makeBookmarkData(for: pickedURL)
         let probe = DrawerFileSession(url: pickedURL)
-        let contents = try probe.read()
-        guard String(data: contents, encoding: .utf8) != nil else {
-            throw DrawerBookmarkError.invalidEncoding
-        }
 
-        // Commit the bookmark last. Until this point an existing connection is
-        // untouched, which makes Change Drawer.md transactional from the user's
-        // perspective.
-        DrawerShared.defaults.set(data, forKey: DrawerShared.bookmarkKey)
+        do {
+            let contents = try probe.read()
+            guard String(data: contents, encoding: .utf8) != nil else {
+                throw DrawerBookmarkError.invalidEncoding
+            }
+
+            DrawerShared.defaults.set(data, forKey: DrawerShared.bookmarkKey)
+            return .ready
+        } catch let accessError as DrawerFileAccessError where accessError.isTransient {
+            DrawerShared.defaults.set(data, forKey: DrawerShared.pendingBookmarkKey)
+            return .waitingForProvider
+        }
     }
 
     static func clear() {
         DrawerShared.defaults.removeObject(forKey: DrawerShared.bookmarkKey)
+        DrawerShared.defaults.removeObject(forKey: DrawerShared.pendingBookmarkKey)
+    }
+
+    static func discardPending() {
+        DrawerShared.defaults.removeObject(forKey: DrawerShared.pendingBookmarkKey)
+    }
+
+    /// Commit a staged source only after its session has completed a real UTF-8
+    /// canonical read. This preserves Change Drawer.md's rollback guarantee even
+    /// when a File Provider needed time to materialize the new selection.
+    static func promotePending() throws {
+        guard DrawerShared.containerURL != nil else {
+            throw DrawerBookmarkError.appGroupUnavailable
+        }
+        guard let data = DrawerShared.defaults.data(forKey: DrawerShared.pendingBookmarkKey) else {
+            throw DrawerBookmarkError.missingPendingBookmark
+        }
+
+        DrawerShared.defaults.set(data, forKey: DrawerShared.bookmarkKey)
+        DrawerShared.defaults.removeObject(forKey: DrawerShared.pendingBookmarkKey)
     }
 
     static func openSession() throws -> DrawerFileSession {
@@ -72,6 +104,21 @@ enum DrawerBookmarkStore {
             throw DrawerBookmarkError.missingBookmark
         }
 
+        return try openSession(from: data, refreshKey: DrawerShared.bookmarkKey)
+    }
+
+    static func openPendingSession() throws -> DrawerFileSession {
+        guard DrawerShared.containerURL != nil else {
+            throw DrawerBookmarkError.appGroupUnavailable
+        }
+        guard let data = DrawerShared.defaults.data(forKey: DrawerShared.pendingBookmarkKey) else {
+            throw DrawerBookmarkError.missingPendingBookmark
+        }
+
+        return try openSession(from: data, refreshKey: DrawerShared.pendingBookmarkKey)
+    }
+
+    private static func openSession(from data: Data, refreshKey: String) throws -> DrawerFileSession {
         var stale = false
         let url = try URL(
             resolvingBookmarkData: data,
@@ -82,11 +129,33 @@ enum DrawerBookmarkStore {
 
         let session = DrawerFileSession(url: url)
         if stale {
-            // Refresh only after access is established. Failure to refresh the
-            // bookmark should not throw away a session that can still read the
-            // user's file right now.
-            try? save(url)
+            // This is the same logical selection, not a source replacement, so
+            // refreshing bookmark bytes is safe even if the provider is still
+            // materializing file contents.
+            if let refreshed = try? makeBookmarkData(for: url) {
+                DrawerShared.defaults.set(refreshed, forKey: refreshKey)
+            }
         }
         return session
+    }
+
+    private static func makeBookmarkData(for url: URL) throws -> Data {
+        let started = url.startAccessingSecurityScopedResource()
+        defer {
+            if started { url.stopAccessingSecurityScopedResource() }
+        }
+
+        // A file picked from Files normally returns true above. Still attempt
+        // bookmark creation when it doesn't: iOS' file security model can keep
+        // a valid scoped URL even when the explicit start call reports false.
+        return try url.bookmarkData(
+            options: [],
+            includingResourceValuesForKeys: [
+                .nameKey,
+                .contentModificationDateKey,
+                .isUbiquitousItemKey,
+            ],
+            relativeTo: nil
+        )
     }
 }
