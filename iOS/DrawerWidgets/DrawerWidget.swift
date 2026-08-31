@@ -1,3 +1,4 @@
+import ActivityKit
 import AppIntents
 import SwiftUI
 import UIKit
@@ -81,6 +82,140 @@ struct DrawerWidget: Widget {
             .accessoryRectangular,
             .accessoryCircular,
         ])
+    }
+}
+
+struct DrawerFocusLiveActivity: Widget {
+    var body: some WidgetConfiguration {
+        ActivityConfiguration(for: DrawerFocusActivityAttributes.self) { context in
+            HStack(spacing: 12) {
+                ZStack {
+                    Circle()
+                        .fill(Color.accentColor.opacity(0.14))
+                        .frame(width: 42, height: 42)
+                    Image(systemName: focusSymbol(context))
+                        .font(.system(size: 16, weight: .bold))
+                        .foregroundStyle(.tint)
+                }
+
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(focusTitle(context))
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                    Text(context.attributes.taskTitle)
+                        .font(.headline.weight(.semibold))
+                        .lineLimit(1)
+                        .privacySensitive()
+                }
+
+                Spacer(minLength: 8)
+
+                FocusLiveTime(context: context)
+                    .font(.system(.title3, design: .rounded, weight: .bold))
+                    .monospacedDigit()
+            }
+            .padding(.horizontal, 4)
+            .activityBackgroundTint(Color(uiColor: .secondarySystemBackground))
+            .activitySystemActionForegroundColor(.primary)
+            .widgetURL(URL(string: "drawer://today"))
+        } dynamicIsland: { context in
+            DynamicIsland {
+                DynamicIslandExpandedRegion(.leading) {
+                    Label("Focus", systemImage: focusSymbol(context))
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                }
+
+                DynamicIslandExpandedRegion(.trailing) {
+                    FocusLiveTime(context: context)
+                        .font(.system(.headline, design: .rounded, weight: .bold))
+                        .monospacedDigit()
+                }
+
+                DynamicIslandExpandedRegion(.bottom) {
+                    Text(context.attributes.taskTitle)
+                        .font(.subheadline.weight(.semibold))
+                        .lineLimit(2)
+                        .privacySensitive()
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+            } compactLeading: {
+                Image(systemName: focusSymbol(context))
+                    .foregroundStyle(.tint)
+            } compactTrailing: {
+                FocusLiveTime(context: context)
+                    .font(.caption2.weight(.bold))
+                    .monospacedDigit()
+                    .frame(maxWidth: 48)
+            } minimal: {
+                Image(systemName: focusSymbol(context))
+                    .foregroundStyle(.tint)
+            }
+            .widgetURL(URL(string: "drawer://today"))
+        }
+    }
+
+    private func focusTitle(
+        _ context: ActivityViewContext<DrawerFocusActivityAttributes>
+    ) -> String {
+        switch effectivePhase(context) {
+        case .running: "Focus"
+        case .paused: "Focus paused"
+        case .finished: "Focus complete"
+        case .ended: "Focus ended"
+        }
+    }
+
+    private func focusSymbol(
+        _ context: ActivityViewContext<DrawerFocusActivityAttributes>
+    ) -> String {
+        switch effectivePhase(context) {
+        case .running: "timer"
+        case .paused: "pause.fill"
+        case .finished: "checkmark"
+        case .ended: "xmark"
+        }
+    }
+
+    private func effectivePhase(
+        _ context: ActivityViewContext<DrawerFocusActivityAttributes>
+    ) -> DrawerFocusActivityAttributes.ContentState.Phase {
+        if context.isStale, context.state.phase == .running { return .finished }
+        return context.state.phase
+    }
+}
+
+private struct FocusLiveTime: View {
+    let context: ActivityViewContext<DrawerFocusActivityAttributes>
+
+    var body: some View {
+        let phase: DrawerFocusActivityAttributes.ContentState.Phase =
+            context.isStale && context.state.phase == .running ? .finished : context.state.phase
+
+        switch phase {
+        case .running:
+            if let endDate = context.state.endDate {
+                let now = Date()
+                if endDate > now {
+                    Text(timerInterval: now...endDate, countsDown: true)
+                } else {
+                    Text("0:00")
+                }
+            } else {
+                Text(format(context.state.remaining))
+            }
+        case .paused:
+            Text(format(context.state.remaining))
+        case .finished:
+            Text("Done")
+        case .ended:
+            Text("Ended")
+        }
+    }
+
+    private func format(_ interval: TimeInterval) -> String {
+        let seconds = max(0, Int(interval.rounded(.up)))
+        return String(format: "%d:%02d", seconds / 60, seconds % 60)
     }
 }
 
