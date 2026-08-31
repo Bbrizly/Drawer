@@ -92,29 +92,53 @@ struct DrawerHomeView: View {
     }
 
     private var dayHeader: some View {
-        HStack(alignment: .bottom, spacing: 16) {
-            VStack(alignment: .leading, spacing: 3) {
-                Text(Date.now.formatted(.dateTime.weekday(.wide)))
-                    .font(.system(size: 34, weight: .bold, design: .rounded))
-                    .tracking(-1.1)
-                    .minimumScaleFactor(0.82)
-                Text(Date.now.formatted(.dateTime.month(.wide).day()))
-                    .font(.subheadline.weight(.medium))
-                    .foregroundStyle(.secondary)
+        ViewThatFits(in: .horizontal) {
+            HStack(alignment: .bottom, spacing: 16) {
+                dayIdentity
+                Spacer(minLength: 10)
+                remainingBadge
             }
-            Spacer(minLength: 10)
-            VStack(alignment: .trailing, spacing: 2) {
-                Text("\(model.remainingCount)")
-                    .font(.system(size: 28, weight: .semibold, design: .rounded))
-                    .monospacedDigit()
-                Text("left").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+
+            VStack(alignment: .leading, spacing: 10) {
+                dayIdentity
+                HStack(spacing: 5) {
+                    Text("\(model.remainingCount)")
+                        .font(.system(.title2, design: .rounded, weight: .semibold))
+                        .monospacedDigit()
+                    Text("left")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                }
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel("\(model.remainingCount) tasks remaining")
             }
-            .accessibilityElement(children: .ignore)
-            .accessibilityLabel("\(model.remainingCount) tasks remaining")
         }
         .padding(.horizontal, 4)
         .padding(.top, 8)
         .padding(.bottom, 2)
+    }
+
+    private var dayIdentity: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text(Date.now.formatted(.dateTime.weekday(.wide)))
+                .font(.system(.largeTitle, design: .rounded, weight: .bold))
+                .tracking(-0.8)
+                .fixedSize(horizontal: false, vertical: true)
+            Text(Date.now.formatted(.dateTime.month(.wide).day()))
+                .font(.subheadline.weight(.medium))
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    private var remainingBadge: some View {
+        VStack(alignment: .trailing, spacing: 2) {
+            Text("\(model.remainingCount)")
+                .font(.system(.title, design: .rounded, weight: .semibold))
+                .monospacedDigit()
+            Text("left").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("\(model.remainingCount) tasks remaining")
     }
 
     private var todaySection: some View {
@@ -301,8 +325,8 @@ private struct DrawerRoutineSession: View {
 
                 VStack(spacing: 7) {
                     Text(title)
-                        .font(.system(size: 30, weight: .bold, design: .rounded))
-                        .tracking(-0.8)
+                        .font(.system(.title, design: .rounded, weight: .bold))
+                        .tracking(-0.5)
                         .multilineTextAlignment(.center)
                     Text("\(completedCount) of \(allItems.count)")
                         .font(.subheadline.weight(.semibold))
@@ -317,9 +341,10 @@ private struct DrawerRoutineSession: View {
                         Image(systemName: current.isInProgress ? "circle.lefthalf.filled" : "circle")
                             .font(.system(size: 30, weight: .medium))
                             .foregroundStyle(.tint)
+                            .accessibilityHidden(true)
 
                         Text(current.title)
-                            .font(.system(size: 30, weight: .bold, design: .rounded))
+                            .font(.system(.title, design: .rounded, weight: .bold))
                             .multilineTextAlignment(.center)
                             .fixedSize(horizontal: false, vertical: true)
 
@@ -330,41 +355,15 @@ private struct DrawerRoutineSession: View {
                                 .monospacedDigit()
                         }
 
-                        HStack(spacing: 12) {
-                            Button {
-                                model.startFocus(on: current)
-                                DrawerHaptics.shared.focusStarted()
-                            } label: {
-                                Label("Focus", systemImage: "timer")
-                                    .font(.headline)
-                                    .frame(maxWidth: .infinity)
-                                    .frame(minHeight: 52)
+                        ViewThatFits(in: .horizontal) {
+                            HStack(spacing: 12) {
+                                routineFocusButton(current)
+                                routineDoneButton(current)
                             }
-                            .buttonStyle(.bordered)
-                            .buttonBorderShape(.roundedRectangle(radius: 16))
-
-                            Button {
-                                if model.toggle(current) {
-                                    DrawerHaptics.shared.taskCompleted()
-                                    DrawerActionFeedbackCenter.success(
-                                        "Completed \(current.title)",
-                                        systemImage: "checkmark.circle.fill"
-                                    )
-                                    if remaining.count == 1 {
-                                        DrawerHaptics.shared.groupFinished()
-                                        DispatchQueue.main.asyncAfter(deadline: .now() + (reduceMotion ? 0.12 : 0.35)) {
-                                            dismiss()
-                                        }
-                                    }
-                                }
-                            } label: {
-                                Label("Done", systemImage: "checkmark")
-                                    .font(.headline)
-                                    .frame(maxWidth: .infinity)
-                                    .frame(minHeight: 52)
+                            VStack(spacing: 10) {
+                                routineFocusButton(current)
+                                routineDoneButton(current)
                             }
-                            .buttonStyle(.borderedProminent)
-                            .buttonBorderShape(.roundedRectangle(radius: 16))
                         }
                     }
                     .padding(.horizontal, 28)
@@ -401,6 +400,45 @@ private struct DrawerRoutineSession: View {
                 }
             }
         }
+    }
+
+    private func routineFocusButton(_ item: TodoItem) -> some View {
+        Button {
+            model.startFocus(on: item)
+            DrawerHaptics.shared.focusStarted()
+        } label: {
+            Label("Focus", systemImage: "timer")
+                .font(.headline)
+                .frame(maxWidth: .infinity)
+                .frame(minHeight: 52)
+        }
+        .buttonStyle(.bordered)
+        .buttonBorderShape(.roundedRectangle(radius: 16))
+    }
+
+    private func routineDoneButton(_ item: TodoItem) -> some View {
+        Button {
+            if model.toggle(item) {
+                DrawerHaptics.shared.taskCompleted()
+                DrawerActionFeedbackCenter.success(
+                    "Completed \(item.title)",
+                    systemImage: "checkmark.circle.fill"
+                )
+                if remaining.count == 1 {
+                    DrawerHaptics.shared.groupFinished()
+                    DispatchQueue.main.asyncAfter(deadline: .now() + (reduceMotion ? 0.12 : 0.35)) {
+                        dismiss()
+                    }
+                }
+            }
+        } label: {
+            Label("Done", systemImage: "checkmark")
+                .font(.headline)
+                .frame(maxWidth: .infinity)
+                .frame(minHeight: 52)
+        }
+        .buttonStyle(.borderedProminent)
+        .buttonBorderShape(.roundedRectangle(radius: 16))
     }
 }
 
