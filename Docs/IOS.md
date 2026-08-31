@@ -117,6 +117,24 @@ Drawer document access adapter
              WidgetKit timeline
 ```
 
+### Storage and sync contract
+
+Drawer does not own a cloud service and does not assume that Obsidian owns the file path. The user selects one canonical `Drawer.md` through Files and that grant may resolve to:
+
+- an On My iPhone / local Files item
+- an Obsidian local vault
+- an Obsidian Sync vault's local copy, when that file is exposed through Files
+- `iCloud Drive/Obsidian/<Vault>/Drawer.md`
+- another third-party Files provider
+
+The access adapter classifies only what iOS can prove. An item that reports `isUbiquitousItem == true` receives iCloud-specific freshness handling; every other document-picker source stays on the generic Files path rather than relying on private path heuristics.
+
+For iCloud, canonical reads and writes are permitted only when the local item is current. Apple's `downloaded` state means a local copy exists but is stale, while `notDownloaded` means no local copy exists. In either state Drawer requests `startDownloadingUbiquitousItem`, retains the bookmark and last-known-good UI, and waits rather than reading stale bytes or writing over a newer cloud revision. An unresolved iCloud document conflict also blocks canonical mutation until the user resolves it in Files/Obsidian.
+
+The foreground app automatically retries transient iCloud / File Provider availability with suspended `Task` delays; it never sleeps the main thread. Retry is cancelled when the scene backgrounds, the source changes, or a current canonical read succeeds. Authentication, permission loss, missing files, and unresolved conflicts are surfaced as actionable non-transient states rather than retry loops.
+
+For generic third-party Files providers, `NSFileCoordinator` remains the authority. There is no universal client API equivalent to iCloud's materialization API for every provider, so a provider-offline/authentication failure preserves the bookmark and widget cache and fails closed.
+
 ### Shared core
 
 Keep `TodoParser`, `TodoWriteback`, `TodoItem`, planning, timer models, and other deterministic behavior in `DrawerCore`.
@@ -127,6 +145,8 @@ Add an iOS-compatible document boundary rather than teaching core logic about UI
 - coordinated reads/writes (`NSFileCoordinator`)
 - foreground file presentation / external-change notifications (`NSFilePresenter`)
 - stale/invalid bookmark recovery
+- iCloud freshness/materialization and unresolved-conflict refusal
+- transient File Provider recovery without destroying the saved source
 - content-CAS retry before every canonical write, preserving Drawer’s existing no-clobber invariant
 
 A replacement file bookmark is committed only after the selected file can actually be read as UTF-8 Markdown, so a bad Change Drawer.md selection cannot discard the last known-good connection.
@@ -144,12 +164,13 @@ Apple’s iOS file model returns externally selected URLs through the document p
 - applies the same fresh-byte recheck to automatic recurrence reconciliation / completed-task normalization before those paths write canonical Markdown
 - publishes a widget snapshot only after a successful canonical read/write
 - reports auxiliary widget-cache failure separately without treating the canonical save as failed
+- retains the last-known-good task UI during transient provider materialization/offline states and retries without blocking the main actor
 - maintains a one-action undo payload for destructive/move actions and clears that payload on source-file changes
 - persists/restores absolute Focus state across scene suspension and process relaunch
 
 ### Widget snapshot
 
-The App Group stores a tiny, versioned last-known-good snapshot. Widget timeline generation renders safely from that snapshot and opportunistically refreshes it from the selected canonical `Drawer.md` when the extension can resolve the security-scoped bookmark. If the File Provider is unavailable—or the external file is temporarily not valid UTF-8—the widget preserves the last known-good snapshot instead of inventing an empty state.
+The App Group stores a tiny, versioned last-known-good snapshot. Widget timeline generation renders safely from that snapshot and opportunistically refreshes it from the selected canonical `Drawer.md` when the extension can resolve the security-scoped bookmark. If the File Provider is unavailable, iCloud is still materializing the file, an iCloud conflict exists, or the external file is temporarily not valid UTF-8, the widget preserves the last known-good snapshot instead of inventing an empty or stale task state.
 
 ```swift
 struct WidgetSnapshot: Codable {
@@ -164,7 +185,7 @@ struct WidgetSnapshot: Codable {
 }
 ```
 
-Interactive intents use the same canonical mutation path. On success they rebuild the snapshot and ask WidgetKit to reload. On failure they leave the snapshot untouched, record a short-lived recovery state, and the widget explicitly says the update failed / opens Drawer for recovery. Mutable widget content is marked invalidatable while WidgetKit reloads. This is critical: no UI-only completion state.
+Interactive intents use the same canonical mutation path. On success they rebuild the snapshot and ask WidgetKit to reload. On failure they leave the snapshot untouched, record a short-lived provider-specific recovery state, and the widget explicitly explains whether the file is syncing, the provider is unavailable, or reconnection is required. Mutable widget content is marked invalidatable while WidgetKit reloads. This is critical: no UI-only completion state.
 
 Disconnect removes the shared snapshot and immediately reloads WidgetKit so old task text is not intentionally left on the Home or Lock Screen after the source is disconnected.
 
