@@ -2,7 +2,7 @@ import DrawerCore
 import Foundation
 
 struct WidgetTask: Codable, Hashable, Identifiable, Sendable {
-    enum Bucket: String, Codable, Sendable {
+    enum Bucket: String, Codable, Hashable, Sendable {
         case carried
         case today
         case upcoming
