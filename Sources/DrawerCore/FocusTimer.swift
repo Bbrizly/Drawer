@@ -4,35 +4,31 @@ import Observation
 @MainActor
 @Observable
 public final class FocusTimer {
-    /// `finished` is the alarm state: the countdown hit zero and the timer
-    /// waits, ringing, until `reset()` dismisses it. It never returns to idle
-    /// on its own so the completion cannot be missed.
-    public enum Phase: Equatable {
+    public enum Phase: String, Equatable, Codable, Sendable {
         case idle, running, paused, finished
     }
 
     public private(set) var phase: Phase = .idle
     public private(set) var taskTitle: String = ""
     public private(set) var remaining: TimeInterval = 0
-
-    /// Fired once when the countdown hits zero, with the task title.
     public var onComplete: ((String) -> Void)?
 
     private var endDate: Date?
     private var ticker: Timer?
-    /// False while the panel is hidden. The 0.5s display tick is pure waste
-    /// with no one looking, so hiding swaps it for a one-shot at the end date
-    /// (completion still fires on time), and showing brings the tick back.
     @ObservationIgnored private var displayActive = true
 
     public init() {}
 
-    /// Call when the panel shows (true) or hides (false).
+    /// Absolute target used for persistence and system surfaces. Running
+    /// sessions are represented by a date rather than a per-second counter so
+    /// suspension, sleep and process termination do not lose time.
+    public var expectedEndDate: Date? { endDate }
+
     public func setDisplayActive(_ active: Bool) {
         guard active != displayActive else { return }
         displayActive = active
         guard phase == .running else { return }
-        tick() // refresh `remaining` before the mode switch
+        tick()
         if phase == .running { startTicker() }
     }
 
@@ -43,7 +39,6 @@ public final class FocusTimer {
     public func start(taskTitle: String, seconds: Int) {
         stopTicker()
         self.taskTitle = taskTitle
-        // Absolute end date: accurate across sleep/wake and run-loop stalls.
         endDate = Date().addingTimeInterval(TimeInterval(seconds))
         remaining = TimeInterval(seconds)
         phase = .running
@@ -73,6 +68,36 @@ public final class FocusTimer {
         phase = .idle
     }
 
+    public func restoreRunning(taskTitle: String, endDate: Date) {
+        stopTicker()
+        self.taskTitle = taskTitle
+        self.endDate = endDate
+        remaining = max(0, endDate.timeIntervalSinceNow)
+        if remaining == 0 {
+            phase = .finished
+            self.endDate = nil
+        } else {
+            phase = .running
+            startTicker()
+        }
+    }
+
+    public func restorePaused(taskTitle: String, remaining: TimeInterval) {
+        stopTicker()
+        self.taskTitle = taskTitle
+        self.remaining = max(0, remaining)
+        endDate = nil
+        phase = self.remaining == 0 ? .finished : .paused
+    }
+
+    public func restoreFinished(taskTitle: String) {
+        stopTicker()
+        self.taskTitle = taskTitle
+        remaining = 0
+        endDate = nil
+        phase = .finished
+    }
+
     public static func format(_ t: TimeInterval) -> String {
         let s = Int(t.rounded())
         return String(format: "%02d:%02d", s / 60, s % 60)
@@ -86,7 +111,6 @@ public final class FocusTimer {
                 Task { @MainActor in self?.tick() }
             }
         } else {
-            // Hidden: one wakeup just past zero instead of two per second.
             let delay = max(0.05, (endDate?.timeIntervalSinceNow ?? 0) + 0.05)
             timer = Timer(timeInterval: delay, repeats: false) { [weak self] _ in
                 Task { @MainActor in self?.hiddenFire() }
@@ -96,8 +120,6 @@ public final class FocusTimer {
         ticker = timer
     }
 
-    /// The hidden one-shot landed. Normally the tick finishes the timer; if a
-    /// backward clock jump left time on the clock, re-arm for the new end.
     private func hiddenFire() {
         tick()
         if phase == .running { startTicker() }
@@ -112,8 +134,6 @@ public final class FocusTimer {
         guard phase == .running, let end = endDate else { return }
         remaining = max(0, end.timeIntervalSinceNow)
         if remaining == 0 {
-            // Hold in `finished` (keeping the title for the alarm card) instead
-            // of resetting, so the UI can demand a dismissal.
             stopTicker()
             endDate = nil
             phase = .finished
