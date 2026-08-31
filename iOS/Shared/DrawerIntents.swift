@@ -90,17 +90,27 @@ struct ToggleDrawerTaskIntent: AppIntent {
     static let description = IntentDescription("Checks or reopens a task in the connected Drawer markdown file.")
     static let openAppWhenRun = false
 
-    @Parameter(title: "Task ID") var taskID: String = ""
-    @Parameter(title: "Markdown Line") var rawLine: String = ""
-    @Parameter(title: "Section") var sectionDate: String = ""
-    @Parameter(title: "Occurrence") var occurrence: Int = 0
-    @Parameter(title: "Title") var taskTitle: String = ""
-    @Parameter(title: "Done") var isDone: Bool = false
-    @Parameter(title: "In Progress") var isInProgress: Bool = false
-    @Parameter(title: "Minutes") var minutes: Int = 25
-    @Parameter(title: "Bucket") var bucketRawValue: String = WidgetTask.Bucket.today.rawValue
+    @Parameter(title: "Task ID") var taskID: String
+    @Parameter(title: "Markdown Line") var rawLine: String
+    @Parameter(title: "Section") var sectionDate: String
+    @Parameter(title: "Occurrence") var occurrence: Int
+    @Parameter(title: "Title") var taskTitle: String
+    @Parameter(title: "Done") var isDone: Bool
+    @Parameter(title: "In Progress") var isInProgress: Bool
+    @Parameter(title: "Minutes") var minutes: Int
+    @Parameter(title: "Bucket") var bucketRawValue: String
 
-    init() {}
+    init() {
+        taskID = ""
+        rawLine = ""
+        sectionDate = ""
+        occurrence = 0
+        taskTitle = ""
+        isDone = false
+        isInProgress = false
+        minutes = 25
+        bucketRawValue = WidgetTask.Bucket.today.rawValue
+    }
 
     init(task: WidgetTask) {
         taskID = task.id
@@ -137,8 +147,13 @@ struct AddDrawerTaskIntent: AppIntent {
     static let description = IntentDescription("Adds a task directly to the connected Drawer markdown file.")
     static let openAppWhenRun = false
 
-    @Parameter(title: "Task") var taskTitle: String = ""
-    @Parameter(title: "Destination") var destination: DrawerIntentDestination = .today
+    @Parameter(title: "Task") var taskTitle: String
+    @Parameter(title: "Destination") var destination: DrawerIntentDestination
+
+    init() {
+        taskTitle = ""
+        destination = .today
+    }
 
     static var parameterSummary: some ParameterSummary {
         Summary("Add \(.$taskTitle) to \(.$destination)")
