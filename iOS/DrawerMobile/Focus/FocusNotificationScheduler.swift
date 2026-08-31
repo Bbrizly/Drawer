@@ -6,6 +6,15 @@ enum FocusNotificationScheduler {
     private static let identifier = "drawer.focus.complete"
 
     static func schedule(taskTitle: String, seconds: TimeInterval) {
+        // startFocus/resume/restore all persist the canonical Focus session
+        // before scheduling its notification. Reconcile ActivityKit here so
+        // every entry point gets the same ambient state, including a Focus
+        // started from the full-screen routine surface.
+        let persistedFocus = DrawerFocusStore.load()
+        Task {
+            await DrawerFocusLiveActivityManager.shared.reconcile(persistedFocus)
+        }
+
         guard seconds > 1 else { return }
         Task {
             let center = UNUserNotificationCenter.current()
