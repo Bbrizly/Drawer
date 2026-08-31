@@ -12,9 +12,7 @@ final class DrawerHaptics {
     private let soft = UIImpactFeedbackGenerator(style: .soft)
     private let notification = UINotificationFeedbackGenerator()
 
-    private init() {
-        prepareCommon()
-    }
+    private init() { prepareCommon() }
 
     func prepareForSwipe() {
         selection.prepare()
@@ -41,9 +39,26 @@ final class DrawerHaptics {
         soft.prepare()
     }
 
+    /// Quiet acknowledgement for a persisted text edit; deliberately softer
+    /// than creating a task so note editing never feels like a new object.
+    func saved() {
+        light.impactOccurred(intensity: 0.52)
+        light.prepare()
+    }
+
     func progressChanged() {
         selection.selectionChanged()
         selection.prepare()
+    }
+
+    func recurrenceChanged() {
+        selection.selectionChanged()
+        selection.prepare()
+    }
+
+    func skipped() {
+        light.impactOccurred(intensity: 0.62)
+        light.prepare()
     }
 
     func moved() {
@@ -82,6 +97,17 @@ final class DrawerHaptics {
     func focusFinished() {
         notification.notificationOccurred(.success)
         notification.prepare()
+    }
+
+    /// Group/session completion is intentionally rare, so this can have a
+    /// slightly firmer closure than an ordinary selection without becoming
+    /// celebratory or noisy.
+    func groupFinished() {
+        medium.impactOccurred(intensity: 0.88)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.055) { [weak self] in
+            self?.notification.notificationOccurred(.success)
+            self?.notification.prepare()
+        }
     }
 
     func error() {
