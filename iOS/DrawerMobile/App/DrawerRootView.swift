@@ -21,6 +21,7 @@ struct DrawerRootView: View {
             case .loading:
                 ProgressView()
                     .controlSize(.large)
+                    .accessibilityLabel("Opening Drawer")
             case .connected:
                 DrawerHomeView(
                     model: model,
@@ -56,8 +57,7 @@ struct DrawerRootView: View {
                    nsError.code == CocoaError.userCancelled.rawValue {
                     return
                 }
-                model.statusMessage = error.localizedDescription
-                DrawerHaptics.shared.error()
+                model.reportError(error)
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: .NSCalendarDayChanged)) { _ in
