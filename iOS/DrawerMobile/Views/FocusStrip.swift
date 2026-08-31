@@ -35,13 +35,18 @@ struct FocusStrip: View {
             Spacer(minLength: 8)
 
             if timer.phase == .finished {
-                Button("Done") {
+                Button("Close") {
+                    // Finishing a timer is not proof that its Markdown task is
+                    // complete. Keep the language honest: this only dismisses
+                    // the finished Focus session.
                     model.resetFocus()
                     DrawerHaptics.shared.focusDismissed()
+                    DrawerActionFeedbackCenter.announce("Focus session closed")
                 }
                 .font(.subheadline.weight(.bold))
                 .buttonStyle(.borderedProminent)
                 .buttonBorderShape(.capsule)
+                .accessibilityHint("Closes the timer without changing the task")
             } else {
                 Button {
                     switch timer.phase {
@@ -60,20 +65,22 @@ struct FocusStrip: View {
                         .frame(width: 36, height: 36)
                         .background(.quaternary.opacity(0.6), in: Circle())
                 }
-                .buttonStyle(TactileButtonStyle(pressedScale: 0.91))
+                .buttonStyle(TactileButtonStyle(pressedScale: 0.91, pressedOpacity: 0.96))
                 .accessibilityLabel(timer.phase == .running ? "Pause focus" : "Resume focus")
 
                 Button {
                     model.resetFocus()
-                    DrawerHaptics.shared.progressChanged()
+                    DrawerHaptics.shared.focusDismissed()
+                    DrawerActionFeedbackCenter.announce("Focus ended")
                 } label: {
                     Image(systemName: "xmark")
                         .font(.system(size: 12, weight: .bold))
                         .foregroundStyle(.secondary)
                         .frame(width: 32, height: 32)
                 }
-                .buttonStyle(TactileButtonStyle(pressedScale: 0.91))
+                .buttonStyle(TactileButtonStyle(pressedScale: 0.91, pressedOpacity: 0.96))
                 .accessibilityLabel("End focus")
+                .accessibilityHint("Stops the timer without changing the task")
             }
         }
         .padding(.horizontal, 13)
