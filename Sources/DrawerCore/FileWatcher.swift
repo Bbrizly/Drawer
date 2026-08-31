@@ -1,5 +1,6 @@
 import Foundation
 
+#if os(macOS)
 /// Watches a directory (not the file) so atomic-replace saves from
 /// Obsidian, iCloud, or an editor don't orphan the watch. Debounces bursts.
 ///
@@ -90,8 +91,8 @@ public final class FileWatcher {
 
     // MARK: polling fallback
 
-    // ponytail: 2s mtime+size poll while the directory is unopenable; the
-    // vnode source takes back over the moment a retry attach succeeds.
+    // 2s mtime+size poll while the directory is unopenable; the vnode source
+    // takes back over the moment a retry attach succeeds.
     private func startPollingIfPossible() {
         guard let file = pollFile, pollTimer == nil else { return }
         pollStamp = Self.stamp(of: file)
@@ -127,3 +128,4 @@ public final class FileWatcher {
         pollTimer?.cancel()
     }
 }
+#endif
