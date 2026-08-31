@@ -13,9 +13,9 @@ struct MobileTaskRow: View {
     @State private var checkboxScale: CGFloat = 1
 
     private enum DragAxis { case horizontal, vertical }
-    private enum ArmedAction { case none, progress, delete }
+    private enum ArmedAction { case none, primary, delete }
 
-    private let progressThreshold: CGFloat = 72
+    private let primaryThreshold: CGFloat = 72
     private let deleteThreshold: CGFloat = 108
 
     var body: some View {
@@ -27,11 +27,8 @@ struct MobileTaskRow: View {
         .contentShape(Rectangle())
         .gesture(swipeGesture, including: .all)
         .contextMenu { contextMenu }
-        .accessibilityAction(named: item.isInProgress ? "Clear in progress" : "Mark in progress") {
-            if model.setInProgress(item, !item.isInProgress) {
-                DrawerHaptics.shared.progressChanged()
-                confirmProgressChange()
-            }
+        .accessibilityAction(named: primaryAccessibilityAction) {
+            performPrimaryAction()
         }
         .accessibilityAction(named: "Delete") {
             if model.delete(item) { DrawerHaptics.shared.deleted() }
@@ -89,7 +86,7 @@ struct MobileTaskRow: View {
         .background {
             ZStack(alignment: .leading) {
                 Color(uiColor: .secondarySystemGroupedBackground).opacity(0.82)
-                if item.isInProgress {
+                if item.isInProgress && !item.isDone {
                     Color.accentColor.opacity(0.075)
                     Rectangle()
                         .fill(.tint)
@@ -119,7 +116,7 @@ struct MobileTaskRow: View {
                 .scaleEffect(checkboxScale)
         }
         .buttonStyle(.plain)
-        .accessibilityLabel(item.isDone ? "Mark incomplete" : "Complete task")
+        .accessibilityLabel(item.isDone ? "Reopen task" : "Complete task")
         .accessibilityValue(item.title)
     }
 
@@ -129,12 +126,17 @@ struct MobileTaskRow: View {
         return "circle"
     }
 
+    private var primaryAccessibilityAction: String {
+        if item.isDone { return "Reopen" }
+        return item.isInProgress ? "Clear in progress" : "Mark in progress"
+    }
+
     private var swipeReveals: some View {
         HStack(spacing: 0) {
             HStack(spacing: 8) {
-                Image(systemName: item.isInProgress ? "circle" : "circle.lefthalf.filled")
+                Image(systemName: leadingActionIcon)
                     .font(.system(size: 17, weight: .bold))
-                Text(item.isInProgress ? "Clear" : "Doing")
+                Text(leadingActionTitle)
                     .font(.caption.weight(.bold))
             }
             .foregroundStyle(.white)
@@ -156,6 +158,16 @@ struct MobileTaskRow: View {
         .accessibilityHidden(true)
     }
 
+    private var leadingActionTitle: String {
+        if item.isDone { return "Reopen" }
+        return item.isInProgress ? "Clear" : "Doing"
+    }
+
+    private var leadingActionIcon: String {
+        if item.isDone { return "arrow.uturn.backward" }
+        return item.isInProgress ? "circle" : "circle.lefthalf.filled"
+    }
+
     private var swipeGesture: some Gesture {
         DragGesture(minimumDistance: 12, coordinateSpace: .local)
             .onChanged { value in
@@ -171,7 +183,7 @@ struct MobileTaskRow: View {
                 dragOffset = resisted(value.translation.width)
                 let next = armedAction(for: dragOffset)
                 if next != armedAction {
-                    if next == .progress {
+                    if next == .primary {
                         DrawerHaptics.shared.swipeThreshold()
                     } else if next == .delete {
                         DrawerHaptics.shared.destructiveArmed()
@@ -186,7 +198,7 @@ struct MobileTaskRow: View {
                     if reduceMotion {
                         dragOffset = 0
                     } else {
-                        withAnimation(.spring(response: 0.28, dampingFraction: 0.82)) {
+                        withAnimation(.spring(response: 0.26, dampingFraction: 0.84)) {
                             dragOffset = 0
                         }
                     }
@@ -195,31 +207,32 @@ struct MobileTaskRow: View {
 
                 let projected = value.predictedEndTranslation.width
                 let commitsDelete = dragOffset <= -deleteThreshold || projected <= -180
-                let commitsProgress = dragOffset >= progressThreshold || projected >= 145
+                let commitsPrimary = dragOffset >= primaryThreshold || projected >= 145
 
                 if commitsDelete {
                     if model.delete(item) { DrawerHaptics.shared.deleted() }
-                } else if commitsProgress {
-                    if model.setInProgress(item, !item.isInProgress) {
-                        DrawerHaptics.shared.progressChanged()
-                        confirmProgressChange()
-                    }
+                } else if commitsPrimary {
+                    performPrimaryAction()
                 }
             }
     }
 
     @ViewBuilder
     private var contextMenu: some View {
-        Button(item.isInProgress ? "Clear In Progress" : "Mark In Progress", systemImage: "circle.lefthalf.filled") {
-            if model.setInProgress(item, !item.isInProgress) {
-                DrawerHaptics.shared.progressChanged()
-                confirmProgressChange()
+        if item.isDone {
+            Button("Reopen", systemImage: "arrow.uturn.backward") {
+                reopenTask()
+            }
+        } else {
+            Button(item.isInProgress ? "Clear In Progress" : "Mark In Progress", systemImage: "circle.lefthalf.filled") {
+                changeProgress()
+            }
+            Button("Start Focus", systemImage: "timer") {
+                model.startFocus(on: item)
+                DrawerHaptics.shared.focusStarted()
             }
         }
-        Button("Start Focus", systemImage: "timer") {
-            model.startFocus(on: item)
-            DrawerHaptics.shared.focusStarted()
-        }
+
         Menu("Move", systemImage: "arrow.turn.down.right") {
             moveButton(.today)
             moveButton(.tomorrow)
@@ -239,10 +252,35 @@ struct MobileTaskRow: View {
         }
     }
 
+    private func performPrimaryAction() {
+        if item.isDone {
+            reopenTask()
+        } else {
+            changeProgress()
+        }
+    }
+
+    private func changeProgress() {
+        if model.setInProgress(item, !item.isInProgress) {
+            DrawerHaptics.shared.progressChanged()
+            confirmProgressChange()
+        }
+    }
+
+    private func reopenTask() {
+        if model.toggle(item) {
+            DrawerHaptics.shared.taskReopened()
+            DrawerActionFeedbackCenter.success(
+                "Reopened \(item.title)",
+                systemImage: "arrow.uturn.backward.circle.fill"
+            )
+        }
+    }
+
     private func checkboxTapped() {
         let willComplete = !item.isDone
         if !reduceMotion {
-            withAnimation(.spring(response: 0.11, dampingFraction: 0.68)) {
+            withAnimation(.spring(response: 0.10, dampingFraction: 0.72)) {
                 checkboxScale = 0.78
             }
         }
@@ -265,7 +303,7 @@ struct MobileTaskRow: View {
                 }
             }
             if !reduceMotion {
-                withAnimation(.spring(response: 0.24, dampingFraction: 0.58)) {
+                withAnimation(.spring(response: 0.22, dampingFraction: 0.64)) {
                     checkboxScale = 1
                 }
             } else {
@@ -276,7 +314,7 @@ struct MobileTaskRow: View {
         if reduceMotion {
             perform()
         } else {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.045, execute: perform)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.035, execute: perform)
         }
     }
 
@@ -288,7 +326,7 @@ struct MobileTaskRow: View {
     }
 
     private func armedAction(for offset: CGFloat) -> ArmedAction {
-        if offset >= progressThreshold { return .progress }
+        if offset >= primaryThreshold { return .primary }
         if offset <= -deleteThreshold { return .delete }
         return .none
     }
