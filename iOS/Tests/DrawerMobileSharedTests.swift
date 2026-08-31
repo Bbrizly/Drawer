@@ -143,6 +143,42 @@ final class DrawerMobileSharedTests: XCTestCase {
         XCTAssertFalse(missing.preservesSelectedGrant)
     }
 
+    func testAtomicTaskEditPreservesCheckboxDurationAndReplacesNote() throws {
+        let original = """
+        ## 2026-08-31
+        - [/] Original (45m)
+            old note
+            <!-- drawer:repeat daily -->
+        """.data(using: .utf8)!
+        let item = try XCTUnwrap(
+            TodoParser.parse(String(decoding: original, as: UTF8.self)).first?.items.first
+        )
+
+        var edited = try TodoMetadataWriteback.setNote(
+            line: item.rawLine,
+            sectionDate: item.sectionDate,
+            occurrence: item.occurrence,
+            note: "new note",
+            in: original
+        )
+        edited = try TodoWriteback.rename(
+            line: item.rawLine,
+            sectionDate: item.sectionDate,
+            occurrence: item.occurrence,
+            to: "Renamed (45m)",
+            in: edited
+        )
+
+        let parsed = try XCTUnwrap(
+            TodoParser.parse(String(decoding: edited, as: UTF8.self)).first?.items.first
+        )
+        XCTAssertEqual(parsed.title, "Renamed")
+        XCTAssertEqual(parsed.minutes, 45)
+        XCTAssertTrue(parsed.isInProgress)
+        XCTAssertEqual(parsed.note, "new note")
+        XCTAssertTrue(String(decoding: edited, as: UTF8.self).contains("<!-- drawer:repeat daily -->"))
+    }
+
     func testFocusLiveActivityStateRoundTrips() throws {
         let state = DrawerFocusActivityAttributes.ContentState(
             phase: .running,
