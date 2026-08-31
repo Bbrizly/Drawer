@@ -155,10 +155,6 @@ struct AddDrawerTaskIntent: AppIntent {
         destination = .today
     }
 
-    static var parameterSummary: some ParameterSummary {
-        Summary("Add \(.$taskTitle) to \(.$destination)")
-    }
-
     func perform() async throws -> some IntentResult & ProvidesDialog {
         _ = try DrawerMutationEngine.add(
             title: taskTitle,
