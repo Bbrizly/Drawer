@@ -6,7 +6,7 @@ struct QuickCaptureBar: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @SceneStorage("drawer.capture.draft.v1") private var text = ""
     @SceneStorage("drawer.capture.destination.v1") private var destinationRawValue = DrawerTaskDestination.today.rawValue
-    @SceneStorage("drawer.capture.handled-token.v1") private var handledCaptureToken = 0
+    @State private var handledCaptureToken = 0
     @State private var actionFeedback: DrawerActionFeedbackPayload?
     @FocusState private var focused: Bool
 
@@ -148,7 +148,9 @@ struct QuickCaptureBar: View {
         guard token > 0, token != handledCaptureToken else { return }
         handledCaptureToken = token
         // Dispatch one turn so a cold-launch deep link can create the field
-        // before asking the system to present the keyboard.
+        // before asking the system to present the keyboard. The handled token
+        // is intentionally in-memory: a new model process starts its token
+        // sequence over and must never collide with restored scene storage.
         DispatchQueue.main.async { focused = true }
     }
 
