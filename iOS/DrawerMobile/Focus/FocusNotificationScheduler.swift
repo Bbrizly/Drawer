@@ -14,6 +14,13 @@ enum FocusNotificationScheduler {
 
         reconcileLiveActivity()
 
+        // A new Focus replaces the one global completion alert. Remove the old
+        // request before any notification-settings/authorization suspension so
+        // a prior session can never survive while the new schedule is waiting.
+        UNUserNotificationCenter.current().removePendingNotificationRequests(
+            withIdentifiers: [identifier]
+        )
+
         guard seconds > 1, let scheduledSessionID else { return }
 
         Task { @MainActor in
@@ -63,7 +70,6 @@ enum FocusNotificationScheduler {
                 return
             }
 
-            center.removePendingNotificationRequests(withIdentifiers: [identifier])
             let content = UNMutableNotificationContent()
             content.title = "Focus complete"
             content.body = taskTitle.isEmpty ? "Time's up." : taskTitle
