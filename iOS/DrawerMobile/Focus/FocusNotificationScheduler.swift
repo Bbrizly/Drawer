@@ -10,10 +10,7 @@ enum FocusNotificationScheduler {
         // before scheduling its notification. Reconcile ActivityKit here so
         // every entry point gets the same ambient state, including a Focus
         // started from the full-screen routine surface.
-        let persistedFocus = DrawerFocusStore.load()
-        Task {
-            await DrawerFocusLiveActivityManager.shared.reconcile(persistedFocus)
-        }
+        reconcileLiveActivity()
 
         guard seconds > 1 else { return }
         Task {
@@ -70,9 +67,21 @@ enum FocusNotificationScheduler {
     }
 
     static func cancel() {
+        // pauseFocus, completion, reset and stale-session cleanup all persist
+        // (or clear) DrawerFocusStore before calling cancel. Reconcile here so
+        // the Lock Screen / Dynamic Island never keeps counting after the app
+        // has paused, finished or dismissed the same session.
+        reconcileLiveActivity()
         UNUserNotificationCenter.current().removePendingNotificationRequests(
             withIdentifiers: [identifier]
         )
+    }
+
+    private static func reconcileLiveActivity() {
+        let persistedFocus = DrawerFocusStore.load()
+        Task {
+            await DrawerFocusLiveActivityManager.shared.reconcile(persistedFocus)
+        }
     }
 }
 
