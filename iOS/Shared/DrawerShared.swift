@@ -81,7 +81,7 @@ enum DrawerDate {
               let day = Int(pieces[2])
         else { return nil }
 
-        var calendar = gregorianCalendar()
+        let calendar = gregorianCalendar()
         var components = DateComponents()
         components.calendar = calendar
         components.timeZone = calendar.timeZone
@@ -98,7 +98,7 @@ enum DrawerDate {
     }
 }
 
-enum DrawerTaskDestination: String, CaseIterable, Codable, Sendable {
+enum DrawerTaskDestination: String, CaseIterable, Codable, Hashable, Sendable {
     case today
     case tomorrow
     case backlog
