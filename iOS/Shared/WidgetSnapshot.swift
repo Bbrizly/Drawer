@@ -151,14 +151,15 @@ enum WidgetSnapshotStore {
 
     /// Best-effort canonical refresh for WidgetKit and App Intent queries.
     /// External Obsidian/iCloud edits and a new local day should appear even if
-    /// the Drawer app itself has not launched. If the provider refuses access
-    /// in an extension process, return the last known-good cache rather than
-    /// manufacturing state or clearing the widget.
+    /// the Drawer app itself has not launched. If the provider refuses access,
+    /// or if the external file is temporarily invalid UTF-8, preserve the last
+    /// known-good cache rather than manufacturing an empty task state.
     static func current(todayKey: String = DrawerDate.todayKey()) -> WidgetSnapshot {
         let cached = read()
         do {
             let session = try DrawerBookmarkStore.openSession()
             let data = try session.read()
+            guard String(data: data, encoding: .utf8) != nil else { return cached }
             let fresh = WidgetSnapshot.make(from: data, todayKey: todayKey)
 
             if cached.version == WidgetSnapshot.schemaVersion,

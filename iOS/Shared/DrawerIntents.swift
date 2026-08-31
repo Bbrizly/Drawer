@@ -141,10 +141,9 @@ struct ToggleDrawerTaskIntent: AppIntent {
             _ = try DrawerMutationEngine.toggle(task)
             WidgetInteractionFeedbackStore.clear()
         } catch {
-            // WidgetKit actions must fail closed: leave the canonical snapshot
-            // untouched, expose a short-lived stale/error affordance, and let
-            // the next timeline reload render that state instead of throwing a
-            // generic system error with no recovery path.
+            // This intent is used directly by WidgetKit. Fail closed without
+            // letting the system imply a successful checkbox mutation; the
+            // widget timeline renders the explicit recovery state instead.
             WidgetInteractionFeedbackStore.recordFailure(error)
         }
         WidgetCenter.shared.reloadAllTimelines()
@@ -177,7 +176,9 @@ struct AddDrawerTaskIntent: AppIntent {
         } catch {
             WidgetInteractionFeedbackStore.recordFailure(error)
             WidgetCenter.shared.reloadAllTimelines()
-            return .result(dialog: "Couldn't add the task. Open Drawer and try again.")
+            // Public Shortcut/Siri actions preserve failure semantics so an
+            // automation never continues as though a canonical write worked.
+            throw error
         }
     }
 }
@@ -202,7 +203,7 @@ struct CompleteDrawerTaskIntent: AppIntent {
         } catch {
             WidgetInteractionFeedbackStore.recordFailure(error)
             WidgetCenter.shared.reloadAllTimelines()
-            return .result(dialog: "Couldn't complete the task. Open Drawer and try again.")
+            throw error
         }
     }
 }

@@ -18,13 +18,21 @@ struct DrawerActionFeedbackPayload: Identifiable, Equatable, Sendable {
 @MainActor
 enum DrawerActionFeedbackCenter {
     static func success(_ message: String, systemImage: String = "checkmark.circle.fill") {
-        let payload = DrawerActionFeedbackPayload(message: message, systemImage: systemImage)
-        NotificationCenter.default.post(name: .drawerActionFeedback, object: payload)
-        announce(message)
+        post(message, systemImage: systemImage)
+    }
+
+    static func notice(_ message: String, systemImage: String) {
+        post(message, systemImage: systemImage)
     }
 
     static func announce(_ message: String) {
         UIAccessibility.post(notification: .announcement, argument: message)
+    }
+
+    private static func post(_ message: String, systemImage: String) {
+        let payload = DrawerActionFeedbackPayload(message: message, systemImage: systemImage)
+        NotificationCenter.default.post(name: .drawerActionFeedback, object: payload)
+        announce(message)
     }
 }
 

@@ -9,13 +9,29 @@ enum FocusNotificationScheduler {
         Task {
             let center = UNUserNotificationCenter.current()
             var settings = await center.notificationSettings()
+
             if settings.authorizationStatus == .notDetermined {
-                _ = try? await center.requestAuthorization(options: [.alert, .sound])
+                do {
+                    _ = try await center.requestAuthorization(options: [.alert, .sound])
+                } catch {
+                    await DrawerActionFeedbackCenter.notice(
+                        "Focus is running, but the completion alert couldn't be enabled.",
+                        systemImage: "bell.slash.fill"
+                    )
+                    return
+                }
                 settings = await center.notificationSettings()
             }
+
             guard settings.authorizationStatus == .authorized ||
                     settings.authorizationStatus == .provisional
-            else { return }
+            else {
+                await DrawerActionFeedbackCenter.notice(
+                    "Focus is running; completion notifications are off.",
+                    systemImage: "bell.slash.fill"
+                )
+                return
+            }
 
             center.removePendingNotificationRequests(withIdentifiers: [identifier])
             let content = UNMutableNotificationContent()
@@ -31,7 +47,15 @@ enum FocusNotificationScheduler {
                 content: content,
                 trigger: trigger
             )
-            try? await center.add(request)
+
+            do {
+                try await center.add(request)
+            } catch {
+                await DrawerActionFeedbackCenter.notice(
+                    "Focus is running, but the completion alert couldn't be scheduled.",
+                    systemImage: "bell.slash.fill"
+                )
+            }
         }
     }
 

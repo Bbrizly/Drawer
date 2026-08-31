@@ -42,9 +42,13 @@ Tap a row to open a compact bottom sheet with:
 - Open in Obsidian when a `[[wikilink]]` is detectable
 - Delete (destructive, separated visually)
 
+Dirty note drafts cannot be swipe-dismissed. **Done** saves first, a successful save shows an explicit Saved state, and a failed save remains editable with a Retry action instead of silently losing the draft.
+
 ### Quick capture
 
 The bottom capture field expands in place. Return saves to Today. A small destination control allows Today / Tomorrow / Backlog without exposing a full task editor.
+
+Committed state changes use a compact acknowledgement surface above quick capture in addition to haptics and row motion. The same messages are posted as VoiceOver announcements so success is still legible with Reduce Motion or when tactile feedback is unavailable. Delete/move continue to prioritize their conflict-safe Undo surface.
 
 ## Tactile language
 
@@ -66,20 +70,21 @@ Haptics are state grammar, not decoration.
 | focus start/resume | medium impact | timer expands into active state |
 | focus pause | selection | timer settles, no dramatic animation |
 | focus finish | success notification | restrained completion pulse |
+| dismiss completed focus | light acknowledgement | strip closes without implying a task state change |
 | file/save failure | error notification | mutation visually rolls back / never advances |
 
 Implementation notes:
 
-- Prefer SwiftUI `sensoryFeedback` where the trigger maps cleanly to state.
 - Use prepared UIKit feedback generators for gesture thresholds where timing must land exactly on the drag crossing.
 - Never fire haptics for scrolling, opening settings, expanding ordinary sections, or every button tap.
-- Respect Reduce Motion; haptics remain useful when motion is reduced, but celebration effects disappear.
+- Respect Reduce Motion; haptics remain useful when motion is reduced, and visible/VoiceOver acknowledgements do not depend on animation.
+- A focus timer remains valid if notifications are denied, but Drawer explicitly says that completion notifications are off instead of silently implying background alert delivery.
 
 ## Motion language
 
 - Primary spring: responsive, low overshoot (`.snappy` / tuned spring near 0.2–0.3s perceived duration).
 - Press states should react immediately and recover quickly.
-- Completion sequence: press compression -> successful canonical write -> haptic -> checkbox symbol/fill -> title treatment -> row reflow.
+- Completion sequence: press compression -> successful canonical write -> haptic/acknowledgement -> checkbox symbol/fill -> title treatment -> row reflow.
 - Do not animate optimistic completion before the Markdown mutation succeeds.
 - Swipe gestures are velocity-aware, axis-locked, and use physical resistance beyond their reveal width.
 - Rows never fly around gratuitously. Reordering/reassignment should feel like objects settling into place.
@@ -89,6 +94,7 @@ Implementation notes:
 - 44pt minimum interactive targets.
 - Dynamic Type with multiline task titles; no hard truncation of the primary task text.
 - VoiceOver labels describe the mutation (Complete, Reopen, Mark in progress, Move, Delete).
+- Successful state changes are announced; they are not communicated only through vibration or animation.
 - Reduce Motion switches collapse/insert transitions to near-instant state changes.
 - Differentiate in-progress and completed state with shape/symbol/text, never color alone.
 - Lock Screen widgets use privacy redaction where appropriate.
@@ -121,7 +127,9 @@ Add an iOS-compatible document boundary rather than teaching core logic about UI
 - coordinated reads/writes (`NSFileCoordinator`)
 - foreground file presentation / external-change notifications (`NSFilePresenter`)
 - stale/invalid bookmark recovery
-- content-CAS retry before write, preserving Drawer’s existing no-clobber invariant
+- content-CAS retry before every canonical write, preserving Drawer’s existing no-clobber invariant
+
+A replacement file bookmark is committed only after the selected file can actually be read as UTF-8 Markdown, so a bad Change Drawer.md selection cannot discard the last known-good connection.
 
 Apple’s iOS file model returns externally selected URLs through the document picker, and persistent bookmarks are platform-specific. Relaunch/reboot/iCloud/File Provider behavior remains a physical-device integration gate rather than something inferred from macOS bookmark semantics.
 
@@ -133,13 +141,15 @@ Apple’s iOS file model returns externally selected URLs through the document p
 - reloads + parses via `DrawerCore`
 - exposes Today / Carried / Upcoming / Backlog
 - performs mutation transforms against the freshest coordinated bytes
-- publishes a widget snapshot only after a successful canonical write
-- maintains a one-action undo payload for destructive/move actions
+- applies the same fresh-byte recheck to automatic recurrence reconciliation / completed-task normalization before those paths write canonical Markdown
+- publishes a widget snapshot only after a successful canonical read/write
+- reports auxiliary widget-cache failure separately without treating the canonical save as failed
+- maintains a one-action undo payload for destructive/move actions and clears that payload on source-file changes
 - persists/restores absolute Focus state across scene suspension and process relaunch
 
 ### Widget snapshot
 
-The App Group stores a tiny, versioned last-known-good snapshot. Widget timeline generation renders safely from that snapshot and opportunistically refreshes it from the selected canonical `Drawer.md` when the extension can resolve the security-scoped bookmark. If the File Provider is unavailable, the widget falls back to the cached snapshot instead of inventing state.
+The App Group stores a tiny, versioned last-known-good snapshot. Widget timeline generation renders safely from that snapshot and opportunistically refreshes it from the selected canonical `Drawer.md` when the extension can resolve the security-scoped bookmark. If the File Provider is unavailable—or the external file is temporarily not valid UTF-8—the widget preserves the last known-good snapshot instead of inventing an empty state.
 
 ```swift
 struct WidgetSnapshot: Codable {
@@ -154,9 +164,11 @@ struct WidgetSnapshot: Codable {
 }
 ```
 
-Interactive intents use the same canonical mutation path. On success they rebuild the snapshot and ask WidgetKit to reload. On failure they leave the snapshot untouched. This is critical: no UI-only completion state.
+Interactive intents use the same canonical mutation path. On success they rebuild the snapshot and ask WidgetKit to reload. On failure they leave the snapshot untouched, record a short-lived recovery state, and the widget explicitly says the update failed / opens Drawer for recovery. Mutable widget content is marked invalidatable while WidgetKit reloads. This is critical: no UI-only completion state.
 
-External-file bookmark access from an app-extension process remains provider/OS-sensitive. If the extension cannot safely regain access to `Drawer.md`, the interaction fails closed and the existing widget open/capture affordances remain available; Drawer never marks the cached task complete without a canonical write.
+Disconnect removes the shared snapshot and immediately reloads WidgetKit so old task text is not intentionally left on the Home or Lock Screen after the source is disconnected.
+
+External-file bookmark access from an app-extension process remains provider/OS-sensitive. If the extension cannot safely regain access to `Drawer.md`, the interaction fails closed; Drawer never marks the cached task complete without a canonical write.
 
 ## Widget design
 
@@ -166,16 +178,18 @@ External-file bookmark access from an app-extension process remains provider/OS-
 - top 3–4 unfinished tasks
 - interactive completion controls
 - compact add/open affordance
+- explicit recovery strip after a failed interactive mutation
 
 ### Large
 
 - Carried + Today, up to roughly 7–9 tasks depending on Dynamic Type
-- same completion behavior
+- same completion and failure semantics
 
 ### Lock Screen
 
 - accessory rectangular: current/next task + remaining count
 - accessory circular: remaining count
+- warning glyph/accessibility label when the last interaction failed
 
 The widget’s visual language mirrors the app: generous text, restrained material, strong checkbox affordances. Widgets should not mimic a mini database UI.
 
@@ -185,11 +199,12 @@ V1 ships:
 
 - **Add Drawer Task** — title + Today / Tomorrow / Backlog destination
 - **Complete Drawer Task** — entity-backed unfinished task selection
+- **Open Today** — opens Drawer's day surface
 - **Toggle Drawer Task** — internal interactive-widget mutation intent
 - `drawer://capture` — opens Drawer directly into quick capture
 - `drawer://today` — opens the day surface
 
-The public Add and Complete intents are surfaced as App Shortcuts/Siri actions. Interactive widgets reuse the canonical mutation engine rather than maintaining separate state.
+The public Add, Complete, and Open Today intents are surfaced as App Shortcuts/Siri actions. Add/Complete preserve thrown failure semantics for Shortcut automations; interactive-widget Toggle handles extension errors in place and exposes recovery UI. Widgets reuse the canonical mutation engine rather than maintaining separate task state.
 
 ## Obsidian integration
 
@@ -231,7 +246,7 @@ Every iOS change is gated by:
 3. iPhone-simulator Debug app + widget tests.
 4. An optimized Release app + widget build with signing disabled for CI.
 
-Signing/provisioning, TestFlight/App Store submission, real haptic tuning, and real iCloud/Obsidian File Provider behavior are device/account gates and cannot be proven by simulator CI.
+Signing/provisioning, TestFlight/App Store submission, real haptic tuning, and real iCloud/Obsidian File Provider behavior are device/account gates and cannot be proven by simulator CI. The concrete physical-device acceptance matrix lives in `iOS/README.md` and must be completed before App Store submission.
 
 ## Explicit non-goals
 

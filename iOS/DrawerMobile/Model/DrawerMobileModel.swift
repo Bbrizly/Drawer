@@ -65,7 +65,14 @@ final class DrawerMobileModel: ObservableObject {
             try DrawerBookmarkStore.save(pickedURL)
             openStoredDocument()
         } catch {
-            connectionState = .needsPermission
+            // Change Drawer.md is transactional: if a new selection fails
+            // validation, keep the already-open source usable rather than
+            // replacing the whole app with a reconnect screen.
+            if document != nil {
+                connectionState = .connected
+            } else {
+                connectionState = DrawerBookmarkStore.hasBookmark ? .needsPermission : .disconnected
+            }
             fail(error)
         }
     }
@@ -73,6 +80,7 @@ final class DrawerMobileModel: ObservableObject {
     func disconnect() {
         document?.stopObserving()
         document = nil
+        clearUndo()
         lastAppliedData = nil
         lastAppliedDayKey = nil
         carriedItems = []
@@ -80,11 +88,13 @@ final class DrawerMobileModel: ObservableObject {
         upcomingItems = []
         backlogItems = []
         upcomingLabel = ""
+        statusMessage = nil
         DrawerBookmarkStore.clear()
         WidgetInteractionFeedbackStore.clear()
         if let snapshotURL = WidgetSnapshotStore.snapshotURL {
             try? FileManager.default.removeItem(at: snapshotURL)
         }
+        WidgetCenter.shared.reloadAllTimelines()
         connectionState = .disconnected
     }
 
@@ -396,9 +406,15 @@ final class DrawerMobileModel: ObservableObject {
         guard let document else { return nil }
         do {
             var base = try document.read()
+            guard String(data: base, encoding: .utf8) != nil else {
+                throw DrawerBookmarkError.invalidEncoding
+            }
             var output = try transform(base)
             let fresh = try document.read()
             if fresh != base {
+                guard String(data: fresh, encoding: .utf8) != nil else {
+                    throw DrawerBookmarkError.invalidEncoding
+                }
                 base = fresh
                 output = try transform(base)
             }
@@ -414,12 +430,19 @@ final class DrawerMobileModel: ObservableObject {
     }
 
     private func normalizedData(_ data: Data, today: String) throws -> Data {
+        guard String(data: data, encoding: .utf8) != nil else {
+            throw DrawerBookmarkError.invalidEncoding
+        }
+
         var normalized = try TodoRecurrenceWriteback.reconcile(in: data, today: today)
-        if let text = String(data: normalized, encoding: .utf8) {
-            let swept = TodoArchiver.archiveCompleted(in: text, today: today)
-            if swept != text, let sweptData = swept.data(using: .utf8) {
-                normalized = sweptData
-            }
+        guard let normalizedText = String(data: normalized, encoding: .utf8) else {
+            // A deterministic transform must never turn valid canonical input
+            // into invalid text; treat it as a hard failure if it does.
+            throw DrawerBookmarkError.invalidEncoding
+        }
+        let swept = TodoArchiver.archiveCompleted(in: normalizedText, today: today)
+        if swept != normalizedText, let sweptData = swept.data(using: .utf8) {
+            normalized = sweptData
         }
         return normalized
     }
@@ -452,14 +475,19 @@ final class DrawerMobileModel: ObservableObject {
             WidgetInteractionFeedbackStore.clear()
             WidgetCenter.shared.reloadAllTimelines()
         } catch {
-            // Widget cache failure must never block canonical Markdown writes.
+            statusMessage = "Drawer.md is safe, but widgets couldn't refresh. Check the App Group setup."
+            DrawerActionFeedbackCenter.notice(
+                "Saved to Drawer.md, but widgets couldn't refresh.",
+                systemImage: "rectangle.stack.badge.exclamationmark"
+            )
         }
     }
 
     private func openStoredDocument() {
         do {
-            document?.stopObserving()
             let newDocument = CoordinatedDrawerDocument(session: try DrawerBookmarkStore.openSession())
+            document?.stopObserving()
+            clearUndo()
             document = newDocument
             sourceName = newDocument.url.lastPathComponent
             connectionState = .connected

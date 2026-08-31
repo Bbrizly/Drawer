@@ -3,6 +3,7 @@ import Foundation
 enum DrawerBookmarkError: LocalizedError {
     case missingBookmark
     case accessDenied
+    case invalidEncoding
     case appGroupUnavailable
 
     var errorDescription: String? {
@@ -11,6 +12,8 @@ enum DrawerBookmarkError: LocalizedError {
             "No Drawer.md is connected."
         case .accessDenied:
             "Drawer no longer has permission to access that file. Choose Drawer.md again."
+        case .invalidEncoding:
+            "That file isn't UTF-8 Markdown. Choose a UTF-8 Drawer.md file."
         case .appGroupUnavailable:
             "Drawer's shared app container is unavailable. Check the App Group entitlement."
         }
@@ -23,8 +26,9 @@ enum DrawerBookmarkStore {
         return DrawerShared.defaults.data(forKey: DrawerShared.bookmarkKey) != nil
     }
 
-    /// Persist the document picker grant. On iOS the bookmark itself uses the
-    /// normal bookmark format; the picker URL carries the user-granted scope.
+    /// Persist the document picker grant only after proving the selected URL is
+    /// readable UTF-8 text. A bad replacement therefore cannot overwrite the
+    /// last known-good bookmark before Drawer knows it can actually use it.
     static func save(_ pickedURL: URL) throws {
         guard DrawerShared.containerURL != nil else {
             throw DrawerBookmarkError.appGroupUnavailable
@@ -43,6 +47,16 @@ enum DrawerBookmarkStore {
             includingResourceValuesForKeys: [.nameKey, .contentModificationDateKey],
             relativeTo: nil
         )
+
+        let probe = DrawerFileSession(url: pickedURL)
+        let contents = try probe.read()
+        guard String(data: contents, encoding: .utf8) != nil else {
+            throw DrawerBookmarkError.invalidEncoding
+        }
+
+        // Commit the bookmark last. Until this point an existing connection is
+        // untouched, which makes Change Drawer.md transactional from the user's
+        // perspective.
         DrawerShared.defaults.set(data, forKey: DrawerShared.bookmarkKey)
     }
 
