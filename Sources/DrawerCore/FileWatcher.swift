@@ -43,6 +43,8 @@ public final class FileWatcher {
     public func stop() {
         retryWork?.cancel()
         retryWork = nil
+        pending?.cancel()
+        pending = nil
         source?.cancel()
         source = nil
         stopPolling()
@@ -72,6 +74,7 @@ public final class FileWatcher {
     }
 
     private func scheduleRetry() {
+        retryWork?.cancel()
         let work = DispatchWorkItem { [weak self] in
             self?.attach(notifyOnAttach: true)
         }
@@ -123,8 +126,82 @@ public final class FileWatcher {
     }
 
     deinit {
+        pending?.cancel()
         retryWork?.cancel()
         source?.cancel()
+        pollTimer?.cancel()
+    }
+}
+#else
+/// Portable fallback used by the shared core on platforms without the macOS
+/// vnode watcher. The iOS app itself uses `NSFilePresenter` for its selected
+/// Drawer document; this poller keeps `TodoStore` and `ParkingLotStore`
+/// functional and, critically, keeps `DrawerCore` a genuinely portable target.
+///
+/// `start()`/`stop()` should be called from the main thread, matching the
+/// macOS implementation. Changes are delivered on the main queue.
+public final class FileWatcher {
+    private let pollFile: URL?
+    private let queue = DispatchQueue(label: "com.bbrizly.drawer.watcher.portable", qos: .utility)
+    private var pollTimer: DispatchSourceTimer?
+    private var pending: DispatchWorkItem?
+    private var pollStamp: (Date, Int)?
+
+    public var onChange: (() -> Void)?
+
+    public init(directory: URL, retryInterval: TimeInterval = 5, pollFile: URL? = nil) {
+        // Keep the same API as the macOS implementation. Directory and retry
+        // interval are intentionally unused here because iOS file access is
+        // scoped to the selected document rather than its parent directory.
+        _ = directory
+        _ = retryInterval
+        self.pollFile = pollFile
+    }
+
+    public func start() {
+        stop()
+        guard let pollFile else { return }
+        pollStamp = Self.stamp(of: pollFile)
+        let timer = DispatchSource.makeTimerSource(queue: queue)
+        timer.schedule(deadline: .now() + 2, repeating: 2, leeway: .milliseconds(250))
+        timer.setEventHandler { [weak self] in
+            guard let self else { return }
+            let next = Self.stamp(of: pollFile)
+            if next?.0 != self.pollStamp?.0 || next?.1 != self.pollStamp?.1 {
+                self.pollStamp = next
+                self.scheduleNotify()
+            }
+        }
+        timer.resume()
+        pollTimer = timer
+    }
+
+    public func stop() {
+        pending?.cancel()
+        pending = nil
+        pollTimer?.cancel()
+        pollTimer = nil
+    }
+
+    private func scheduleNotify() {
+        pending?.cancel()
+        let work = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            DispatchQueue.main.async { self.onChange?() }
+        }
+        pending = work
+        queue.asyncAfter(deadline: .now() + 0.2, execute: work)
+    }
+
+    private static func stamp(of url: URL) -> (Date, Int)? {
+        guard let attrs = try? FileManager.default.attributesOfItem(atPath: url.path)
+        else { return nil }
+        return (attrs[.modificationDate] as? Date ?? .distantPast,
+                attrs[.size] as? Int ?? 0)
+    }
+
+    deinit {
+        pending?.cancel()
         pollTimer?.cancel()
     }
 }
