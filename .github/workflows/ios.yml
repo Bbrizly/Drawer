@@ -42,7 +42,9 @@ jobs:
       - uses: actions/checkout@v7
 
       - name: Validate Apple metadata
+        shell: bash
         run: |
+          set -euo pipefail
           plutil -lint \
             iOS/DrawerMobile/Resources/Info.plist \
             iOS/DrawerMobile/Resources/DrawerMobile.entitlements \
@@ -50,6 +52,19 @@ jobs:
             iOS/DrawerWidgets/Resources/Info.plist \
             iOS/DrawerWidgets/Resources/DrawerWidgets.entitlements \
             iOS/DrawerWidgets/Resources/PrivacyInfo.xcprivacy
+
+          APP_GROUP="group.com.bbrizly.drawer"
+          APP_GROUP_ACTUAL="$(plutil -extract com.apple.security.application-groups.0 raw iOS/DrawerMobile/Resources/DrawerMobile.entitlements)"
+          WIDGET_GROUP_ACTUAL="$(plutil -extract com.apple.security.application-groups.0 raw iOS/DrawerWidgets/Resources/DrawerWidgets.entitlements)"
+          [[ "$APP_GROUP_ACTUAL" == "$APP_GROUP" ]]
+          [[ "$WIDGET_GROUP_ACTUAL" == "$APP_GROUP" ]]
+
+          ICON="iOS/DrawerMobile/Resources/Assets.xcassets/AppIcon.appiconset/AppIcon.png"
+          ICON_WIDTH="$(sips -g pixelWidth "$ICON" | awk '/pixelWidth/ { print $2 }')"
+          ICON_HEIGHT="$(sips -g pixelHeight "$ICON" | awk '/pixelHeight/ { print $2 }')"
+          ICON_ALPHA="$(sips -g hasAlpha "$ICON" | awk '/hasAlpha/ { print $2 }')"
+          [[ "$ICON_WIDTH" == "1024" && "$ICON_HEIGHT" == "1024" ]]
+          [[ "$ICON_ALPHA" == "no" ]]
 
       - name: Choose simulator
         id: simulator
