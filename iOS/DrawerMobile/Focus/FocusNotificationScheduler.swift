@@ -2,38 +2,61 @@ import ActivityKit
 import Foundation
 import UserNotifications
 
+@MainActor
 enum FocusNotificationScheduler {
     private static let identifier = "drawer.focus.complete"
+    private static var generation: UInt = 0
 
     static func schedule(taskTitle: String, seconds: TimeInterval) {
-        // startFocus/resume/restore all persist the canonical Focus session
-        // before scheduling its notification. Reconcile ActivityKit here so
-        // every entry point gets the same ambient state, including a Focus
-        // started from the full-screen routine surface.
+        generation &+= 1
+        let scheduledGeneration = generation
+        let scheduledSessionID = DrawerFocusStore.load()?.id
+
         reconcileLiveActivity()
 
-        guard seconds > 1 else { return }
-        Task {
+        guard seconds > 1, let scheduledSessionID else { return }
+
+        Task { @MainActor in
             let center = UNUserNotificationCenter.current()
             var settings = await center.notificationSettings()
+
+            guard isCurrentRunningSchedule(
+                generation: scheduledGeneration,
+                sessionID: scheduledSessionID
+            ) else { return }
 
             if settings.authorizationStatus == .notDetermined {
                 do {
                     _ = try await center.requestAuthorization(options: [.alert, .sound])
                 } catch {
-                    await DrawerActionFeedbackCenter.notice(
+                    guard isCurrentRunningSchedule(
+                        generation: scheduledGeneration,
+                        sessionID: scheduledSessionID
+                    ) else { return }
+                    DrawerActionFeedbackCenter.notice(
                         "Focus is running, but the completion alert couldn't be enabled.",
                         systemImage: "bell.slash.fill"
                     )
                     return
                 }
+
+                guard isCurrentRunningSchedule(
+                    generation: scheduledGeneration,
+                    sessionID: scheduledSessionID
+                ) else { return }
+
                 settings = await center.notificationSettings()
             }
+
+            guard isCurrentRunningSchedule(
+                generation: scheduledGeneration,
+                sessionID: scheduledSessionID
+            ) else { return }
 
             guard settings.authorizationStatus == .authorized ||
                     settings.authorizationStatus == .provisional
             else {
-                await DrawerActionFeedbackCenter.notice(
+                DrawerActionFeedbackCenter.notice(
                     "Focus is running; completion notifications are off.",
                     systemImage: "bell.slash.fill"
                 )
@@ -57,8 +80,20 @@ enum FocusNotificationScheduler {
 
             do {
                 try await center.add(request)
+
+                guard isCurrentRunningSchedule(
+                    generation: scheduledGeneration,
+                    sessionID: scheduledSessionID
+                ) else {
+                    center.removePendingNotificationRequests(withIdentifiers: [identifier])
+                    return
+                }
             } catch {
-                await DrawerActionFeedbackCenter.notice(
+                guard isCurrentRunningSchedule(
+                    generation: scheduledGeneration,
+                    sessionID: scheduledSessionID
+                ) else { return }
+                DrawerActionFeedbackCenter.notice(
                     "Focus is running, but the completion alert couldn't be scheduled.",
                     systemImage: "bell.slash.fill"
                 )
@@ -67,14 +102,23 @@ enum FocusNotificationScheduler {
     }
 
     static func cancel() {
-        // pauseFocus, completion, reset and stale-session cleanup all persist
-        // (or clear) DrawerFocusStore before calling cancel. Reconcile here so
-        // the Lock Screen / Dynamic Island never keeps counting after the app
-        // has paused, finished or dismissed the same session.
+        generation &+= 1
         reconcileLiveActivity()
         UNUserNotificationCenter.current().removePendingNotificationRequests(
             withIdentifiers: [identifier]
         )
+    }
+
+    private static func isCurrentRunningSchedule(
+        generation scheduledGeneration: UInt,
+        sessionID: UUID
+    ) -> Bool {
+        guard generation == scheduledGeneration,
+              let current = DrawerFocusStore.load(),
+              current.id == sessionID,
+              current.phase == .running
+        else { return false }
+        return true
     }
 
     private static func reconcileLiveActivity() {
