@@ -24,9 +24,17 @@ public enum TodoParser {
         return (marker, line[line.index(close, offsetBy: 2)...])
     }
 
-    /// A ``` line, front-trimmed without allocating a trimmed copy per line.
+    /// Markdown fenced-code marker, front-trimmed without allocating a full
+    /// trimmed copy per line. Both CommonMark fence forms are recognized.
+    static func fenceMarker(_ line: some StringProtocol) -> Character? {
+        let trimmed = line.drop { $0 == " " || $0 == "\t" }
+        if trimmed.hasPrefix("```") { return "`" }
+        if trimmed.hasPrefix("~~~") { return "~" }
+        return nil
+    }
+
     static func isFenceLine(_ line: some StringProtocol) -> Bool {
-        line.drop { $0 == " " || $0 == "\t" }.hasPrefix("```")
+        fenceMarker(line) != nil
     }
 
     /// A trailing "(25m)" focus length: the minutes and where the title ends.
@@ -115,17 +123,25 @@ public enum TodoParser {
     static func lineRoles(_ lines: [String]) -> [LineRole] {
         var roles = [LineRole](repeating: .plain, count: lines.count)
         var currentKey: String?
-        var inFence = false
+        var activeFence: Character?
         var i = 0
         while i < lines.count {
             let line = lines[i]
-            if isFenceLine(line) {
-                roles[i] = .fence
-                inFence.toggle()
-                i += 1
-                continue
+            if let marker = fenceMarker(line) {
+                if activeFence == nil {
+                    activeFence = marker
+                    roles[i] = .fence
+                    i += 1
+                    continue
+                }
+                if activeFence == marker {
+                    activeFence = nil
+                    roles[i] = .fence
+                    i += 1
+                    continue
+                }
             }
-            if inFence { roles[i] = .fenced; i += 1; continue }
+            if activeFence != nil { roles[i] = .fenced; i += 1; continue }
             if line.hasPrefix("## ") {
                 roles[i] = .heading
                 currentKey = sectionKey(fromHeading: line)
@@ -163,19 +179,26 @@ public enum TodoParser {
         var occurrences: [String: Int] = [:]
         var currentDate: String?
         var currentSubsection: String?
-        var inFence = false
+        var activeFence: Character?
 
         let lines = text.split(omittingEmptySubsequences: false, whereSeparator: \.isNewline)
             .map(String.init)
         var i = 0
         while i < lines.count {
             let line = lines[i]
-            if isFenceLine(line) {
-                inFence.toggle()
-                i += 1
-                continue
+            if let marker = fenceMarker(line) {
+                if activeFence == nil {
+                    activeFence = marker
+                    i += 1
+                    continue
+                }
+                if activeFence == marker {
+                    activeFence = nil
+                    i += 1
+                    continue
+                }
             }
-            if inFence { i += 1; continue }
+            if activeFence != nil { i += 1; continue }
             if line.hasPrefix("## ") {
                 currentSubsection = nil
                 if let key = sectionKey(fromHeading: line) {
