@@ -53,11 +53,20 @@ jobs:
             iOS/DrawerWidgets/Resources/DrawerWidgets.entitlements \
             iOS/DrawerWidgets/Resources/PrivacyInfo.xcprivacy
 
-          APP_GROUP="group.com.bbrizly.drawer"
-          APP_GROUP_ACTUAL="$(plutil -extract com.apple.security.application-groups.0 raw iOS/DrawerMobile/Resources/DrawerMobile.entitlements)"
-          WIDGET_GROUP_ACTUAL="$(plutil -extract com.apple.security.application-groups.0 raw iOS/DrawerWidgets/Resources/DrawerWidgets.entitlements)"
-          [[ "$APP_GROUP_ACTUAL" == "$APP_GROUP" ]]
-          [[ "$WIDGET_GROUP_ACTUAL" == "$APP_GROUP" ]]
+          python3 - <<'PY'
+          import plistlib
+          expected = ["group.com.bbrizly.drawer"]
+          paths = [
+              "iOS/DrawerMobile/Resources/DrawerMobile.entitlements",
+              "iOS/DrawerWidgets/Resources/DrawerWidgets.entitlements",
+          ]
+          for path in paths:
+              with open(path, "rb") as handle:
+                  payload = plistlib.load(handle)
+              actual = payload.get("com.apple.security.application-groups")
+              if actual != expected:
+                  raise SystemExit(f"{path}: expected App Group {expected}, found {actual}")
+          PY
 
           ICON="iOS/DrawerMobile/Resources/Assets.xcassets/AppIcon.appiconset/AppIcon.png"
           ICON_WIDTH="$(sips -g pixelWidth "$ICON" | awk '/pixelWidth/ { print $2 }')"
