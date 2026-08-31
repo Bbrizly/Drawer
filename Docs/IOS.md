@@ -123,7 +123,7 @@ Add an iOS-compatible document boundary rather than teaching core logic about UI
 - stale/invalid bookmark recovery
 - content-CAS retry before write, preserving Drawer’s existing no-clobber invariant
 
-Apple’s current iOS file model returns externally selected URLs through the document picker, and persistent bookmarks should be treated as platform-specific. The implementation must explicitly test relaunch/reboot/iCloud/File Provider behavior rather than assuming macOS bookmark semantics.
+Apple’s iOS file model returns externally selected URLs through the document picker, and persistent bookmarks are platform-specific. Relaunch/reboot/iCloud/File Provider behavior remains a physical-device integration gate rather than something inferred from macOS bookmark semantics.
 
 ### Mobile application model
 
@@ -135,27 +135,28 @@ Apple’s current iOS file model returns externally selected URLs through the do
 - performs mutation transforms against the freshest coordinated bytes
 - publishes a widget snapshot only after a successful canonical write
 - maintains a one-action undo payload for destructive/move actions
+- persists/restores absolute Focus state across scene suspension and process relaunch
 
 ### Widget snapshot
 
-Widgets never parse an arbitrary vault on render. The app stores a tiny versioned snapshot in the App Group container:
+The App Group stores a tiny, versioned last-known-good snapshot. Widget timeline generation renders safely from that snapshot and opportunistically refreshes it from the selected canonical `Drawer.md` when the extension can resolve the security-scoped bookmark. If the File Provider is unavailable, the widget falls back to the cached snapshot instead of inventing state.
 
 ```swift
 struct WidgetSnapshot: Codable {
-    var schemaVersion: Int
+    var version: Int
     var generatedAt: Date
     var sourceFingerprint: String
     var todayKey: String
-    var remaining: Int
-    var tasks: [WidgetTask]
+    var carried: [WidgetTask]
+    var today: [WidgetTask]
+    var upcoming: [WidgetTask]
+    var backlog: [WidgetTask]
 }
 ```
 
-The widget renders immediately from this cache.
+Interactive intents use the same canonical mutation path. On success they rebuild the snapshot and ask WidgetKit to reload. On failure they leave the snapshot untouched. This is critical: no UI-only completion state.
 
-Interactive intents attempt the same canonical mutation path. On success they rebuild the snapshot and ask WidgetKit to reload. On failure they leave the snapshot untouched. This is critical: no UI-only completion state.
-
-Because external-file bookmark behavior across app-extension processes is platform-sensitive, interactive widget writeback is an explicit integration spike. If the extension cannot safely regain access to the user-selected file, V1 must fall back to opening Drawer for that mutation rather than lying about completion.
+External-file bookmark access from an app-extension process remains provider/OS-sensitive. If the extension cannot safely regain access to `Drawer.md`, the interaction fails closed and the existing widget open/capture affordances remain available; Drawer never marks the cached task complete without a canonical write.
 
 ## Widget design
 
@@ -170,7 +171,6 @@ Because external-file bookmark behavior across app-extension processes is platfo
 
 - Carried + Today, up to roughly 7–9 tasks depending on Dynamic Type
 - same completion behavior
-- stale-state indicator only when genuinely necessary
 
 ### Lock Screen
 
@@ -179,16 +179,17 @@ Because external-file bookmark behavior across app-extension processes is platfo
 
 The widget’s visual language mirrors the app: generous text, restrained material, strong checkbox affordances. Widgets should not mimic a mini database UI.
 
-## App Intents
+## App Intents and system entry points
 
-V1 intents:
+V1 ships:
 
-- Add Drawer Task (title + destination)
-- Complete Drawer Task (entity-backed task selection)
-- Capture to Drawer (text/url into Today or Backlog)
-- Open Today in Drawer
+- **Add Drawer Task** — title + Today / Tomorrow / Backlog destination
+- **Complete Drawer Task** — entity-backed unfinished task selection
+- **Toggle Drawer Task** — internal interactive-widget mutation intent
+- `drawer://capture` — opens Drawer directly into quick capture
+- `drawer://today` — opens the day surface
 
-These support Shortcuts/Siri/system surfaces and are also reused by interactive widgets where appropriate.
+The public Add and Complete intents are surfaced as App Shortcuts/Siri actions. Interactive widgets reuse the canonical mutation engine rather than maintaining separate state.
 
 ## Obsidian integration
 
@@ -196,7 +197,7 @@ No vault-wide index.
 
 - detect `[[wikilinks]]` in task title/note
 - expose an Open in Obsidian action using the Obsidian URL scheme when the selected file path provides enough vault context
-- otherwise expose Open Source File in the Files/Obsidian ecosystem
+- keep `Drawer.md` itself canonical and editable by any compatible Markdown/File Provider app
 
 Drawer remains useful with any Markdown editor; Obsidian integration is additive.
 
@@ -210,8 +211,9 @@ iOS/
     Model/
     Views/
     FileAccess/
+    Focus/
     Haptics/
-    Intents/
+    Obsidian/
     Resources/
   DrawerWidgets/
   Shared/
@@ -220,18 +222,16 @@ iOS/
 
 The Xcode project consumes the repository’s local `DrawerCore` Swift package product. The existing macOS `Drawer` executable remains untouched except for shared-core changes required to make the boundary platform-safe.
 
-## Implementation order
+## Release gates
 
-1. Platform-enable `DrawerCore` without changing macOS behavior.
-2. Build file picker + persisted bookmark + coordinated document adapter.
-3. Build `DrawerMobileModel` and golden task mutation tests.
-4. Build the day surface, task row, quick capture, detail sheet, undo.
-5. Add the haptic/motion language and accessibility behavior.
-6. Add App Group snapshot writer.
-7. Build WidgetKit medium/large/Lock Screen widgets.
-8. Add interactive widget intents and validate canonical write semantics.
-9. Add App Intents / Shortcuts and Obsidian deep links.
-10. Run macOS core tests plus iOS build/tests; review the final diff for macOS regressions.
+Every iOS change is gated by:
+
+1. Apple plist, entitlement, App Group, privacy-manifest and 1024×1024 opaque AppIcon validation.
+2. The full shared `DrawerCore` test suite.
+3. iPhone-simulator Debug app + widget tests.
+4. An optimized Release app + widget build with signing disabled for CI.
+
+Signing/provisioning, TestFlight/App Store submission, real haptic tuning, and real iCloud/Obsidian File Provider behavior are device/account gates and cannot be proven by simulator CI.
 
 ## Explicit non-goals
 
