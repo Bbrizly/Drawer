@@ -75,13 +75,13 @@ struct DrawerTaskEntity: AppEntity, Hashable {
 struct DrawerTaskQuery: EntityQuery {
     func entities(for identifiers: [DrawerTaskEntity.ID]) async throws -> [DrawerTaskEntity] {
         let wanted = Set(identifiers)
-        return WidgetSnapshotStore.read().allTasks
+        return WidgetSnapshotStore.current().allTasks
             .filter { wanted.contains($0.id) }
             .map(DrawerTaskEntity.init)
     }
 
     func suggestedEntities() async throws -> [DrawerTaskEntity] {
-        WidgetSnapshotStore.read().actionableTasks.map(DrawerTaskEntity.init)
+        WidgetSnapshotStore.current().actionableTasks.map(DrawerTaskEntity.init)
     }
 }
 
