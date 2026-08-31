@@ -3,6 +3,11 @@ import XCTest
 @testable import DrawerMobile
 
 final class DrawerMobileSharedTests: XCTestCase {
+    override func tearDown() {
+        DrawerFocusStore.clear()
+        super.tearDown()
+    }
+
     func testWidgetSnapshotMatchesDrawerDisplayRules() throws {
         let data = """
         ## 2026-08-27
@@ -42,5 +47,29 @@ final class DrawerMobileSharedTests: XCTestCase {
     func testObsidianLinkStripsAlias() {
         let link = ObsidianLink.first(in: "Finish [[QCM Mobile|the mobile plan]] today")
         XCTAssertEqual(link?.note, "QCM Mobile")
+    }
+
+    func testDrawerDateAdvancesLeapDayAndRejectsImpossibleDates() {
+        XCTAssertEqual(DrawerDate.dayAfter("2028-02-28"), "2028-02-29")
+        XCTAssertEqual(DrawerDate.dayAfter("2028-02-29"), "2028-03-01")
+        XCTAssertNil(DrawerDate.dayAfter("2027-02-29"))
+        XCTAssertNil(DrawerDate.dayAfter("not-a-date"))
+    }
+
+    func testPersistedFocusRoundTripsThroughSharedStore() {
+        let focus = DrawerPersistedFocus(
+            id: UUID(),
+            taskTitle: "Ship Drawer",
+            phase: .paused,
+            endDate: nil,
+            remaining: 321,
+            createdAt: Date(timeIntervalSince1970: 1_800_000_000)
+        )
+
+        DrawerFocusStore.save(focus)
+        XCTAssertEqual(DrawerFocusStore.load(), focus)
+
+        DrawerFocusStore.clear()
+        XCTAssertNil(DrawerFocusStore.load())
     }
 }
