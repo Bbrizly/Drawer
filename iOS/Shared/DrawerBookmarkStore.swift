@@ -51,10 +51,6 @@ enum DrawerBookmarkStore {
             throw DrawerBookmarkError.appGroupUnavailable
         }
 
-        // A newer selection always supersedes an older pending attempt, but it
-        // never touches the last known-good primary bookmark until validated.
-        DrawerShared.defaults.removeObject(forKey: DrawerShared.pendingBookmarkKey)
-
         let data = try makeBookmarkData(for: pickedURL)
         let probe = DrawerFileSession(url: pickedURL)
 
@@ -65,8 +61,12 @@ enum DrawerBookmarkStore {
             }
 
             DrawerShared.defaults.set(data, forKey: DrawerShared.bookmarkKey)
+            DrawerShared.defaults.removeObject(forKey: DrawerShared.pendingBookmarkKey)
             return .ready
         } catch let accessError as DrawerFileAccessError where accessError.isTransient {
+            // A newer viable-but-not-materialized selection supersedes an older
+            // pending attempt. Terminal validation failures never disturb the
+            // source (primary or pending) that was already in use.
             DrawerShared.defaults.set(data, forKey: DrawerShared.pendingBookmarkKey)
             return .waitingForProvider
         }
