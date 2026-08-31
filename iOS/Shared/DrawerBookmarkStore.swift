@@ -25,7 +25,7 @@ enum DrawerBookmarkError: LocalizedError {
 
 enum DrawerBookmarkSaveOutcome: Equatable {
     case ready
-    case waitingForProvider
+    case staged
 }
 
 enum DrawerBookmarkStore {
@@ -43,9 +43,10 @@ enum DrawerBookmarkStore {
     ///
     /// A normal/local selection is promoted only after proving it is readable
     /// UTF-8 Markdown. If iCloud or another Files provider has granted the URL
-    /// but has not materialized the bytes yet, keep the new bookmark in a
-    /// separate pending slot. The previous canonical bookmark remains intact
-    /// until the pending source produces a real successful read.
+    /// but the source needs download, provider recovery, authentication, or
+    /// conflict resolution, keep the new bookmark in a separate pending slot.
+    /// The previous canonical bookmark remains intact until the pending source
+    /// produces a real successful read.
     static func save(_ pickedURL: URL) throws -> DrawerBookmarkSaveOutcome {
         guard DrawerShared.containerURL != nil else {
             throw DrawerBookmarkError.appGroupUnavailable
@@ -63,12 +64,12 @@ enum DrawerBookmarkStore {
             DrawerShared.defaults.set(data, forKey: DrawerShared.bookmarkKey)
             DrawerShared.defaults.removeObject(forKey: DrawerShared.pendingBookmarkKey)
             return .ready
-        } catch let accessError as DrawerFileAccessError where accessError.isTransient {
-            // A newer viable-but-not-materialized selection supersedes an older
-            // pending attempt. Terminal validation failures never disturb the
-            // source (primary or pending) that was already in use.
+        } catch let accessError as DrawerFileAccessError where accessError.preservesSelectedGrant {
+            // A newer viable selection supersedes an older pending attempt.
+            // Terminal validation failures never disturb the source (primary or
+            // pending) that was already in use.
             DrawerShared.defaults.set(data, forKey: DrawerShared.pendingBookmarkKey)
-            return .waitingForProvider
+            return .staged
         }
     }
 
@@ -83,7 +84,8 @@ enum DrawerBookmarkStore {
 
     /// Commit a staged source only after its session has completed a real UTF-8
     /// canonical read. This preserves Change Drawer.md's rollback guarantee even
-    /// when a File Provider needed time to materialize the new selection.
+    /// when a File Provider needed time or user action before making the source
+    /// safe to read.
     static func promotePending() throws {
         guard DrawerShared.containerURL != nil else {
             throw DrawerBookmarkError.appGroupUnavailable
@@ -131,7 +133,7 @@ enum DrawerBookmarkStore {
         if stale {
             // This is the same logical selection, not a source replacement, so
             // refreshing bookmark bytes is safe even if the provider is still
-            // materializing file contents.
+            // making file contents available.
             if let refreshed = try? makeBookmarkData(for: url) {
                 DrawerShared.defaults.set(refreshed, forKey: refreshKey)
             }
