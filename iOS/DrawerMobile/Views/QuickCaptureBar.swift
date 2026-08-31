@@ -38,7 +38,7 @@ struct QuickCaptureBar: View {
                     Image(systemName: destinationIcon(destination))
                         .font(.system(size: 16, weight: .semibold))
                         .foregroundStyle(.secondary)
-                        .frame(width: 42, height: 42)
+                        .frame(width: 44, height: 44)
                         .background(.quaternary.opacity(0.5), in: Circle())
                         .contentShape(Circle())
                 }
@@ -57,13 +57,14 @@ struct QuickCaptureBar: View {
                     Image(systemName: "arrow.up")
                         .font(.system(size: 15, weight: .bold))
                         .foregroundStyle(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? AnyShapeStyle(.tertiary) : AnyShapeStyle(.white))
-                        .frame(width: 38, height: 38)
+                        .frame(width: 44, height: 44)
                         .background(
                             text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                                 ? AnyShapeStyle(.quaternary.opacity(0.7))
                                 : AnyShapeStyle(Color.accentColor),
                             in: Circle()
                         )
+                        .contentShape(Circle())
                 }
                 .buttonStyle(TactileButtonStyle(pressedScale: 0.92, pressedOpacity: 0.96))
                 .disabled(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
@@ -72,9 +73,9 @@ struct QuickCaptureBar: View {
             .padding(.leading, 8)
             .padding(.trailing, 8)
             .padding(.vertical, 7)
-            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
+            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 25, style: .continuous))
             .overlay {
-                RoundedRectangle(cornerRadius: 24, style: .continuous)
+                RoundedRectangle(cornerRadius: 25, style: .continuous)
                     .stroke(.primary.opacity(focused ? 0.13 : 0.055), lineWidth: focused ? 1 : 0.75)
             }
             .shadow(color: .black.opacity(focused ? 0.12 : 0.08), radius: focused ? 22 : 16, y: focused ? 9 : 7)
@@ -105,7 +106,7 @@ struct QuickCaptureBar: View {
         HStack(spacing: 10) {
             Text(label)
                 .font(.footnote.weight(.medium))
-                .lineLimit(1)
+                .lineLimit(2)
             Spacer(minLength: 8)
             Button("Undo") {
                 if model.undoLastMutation() {
@@ -114,9 +115,11 @@ struct QuickCaptureBar: View {
                 }
             }
             .font(.footnote.weight(.bold))
+            .frame(minHeight: 44)
         }
         .padding(.horizontal, 15)
-        .frame(height: 44)
+        .padding(.vertical, 4)
+        .frame(minHeight: 44)
         .foregroundStyle(.primary)
         .background(.regularMaterial, in: Capsule())
         .overlay { Capsule().stroke(.primary.opacity(0.06), lineWidth: 0.75) }
@@ -131,11 +134,12 @@ struct QuickCaptureBar: View {
                 .foregroundStyle(.tint)
             Text(feedback.message)
                 .font(.footnote.weight(.semibold))
-                .lineLimit(1)
+                .lineLimit(2)
             Spacer(minLength: 0)
         }
         .padding(.horizontal, 15)
-        .frame(height: 44)
+        .padding(.vertical, 10)
+        .frame(minHeight: 44)
         .foregroundStyle(.primary)
         .background(.regularMaterial, in: Capsule())
         .overlay { Capsule().stroke(.primary.opacity(0.06), lineWidth: 0.75) }
@@ -147,10 +151,6 @@ struct QuickCaptureBar: View {
     private func handleCaptureRequest(_ token: Int) {
         guard token > 0, token != handledCaptureToken else { return }
         handledCaptureToken = token
-        // Dispatch one turn so a cold-launch deep link can create the field
-        // before asking the system to present the keyboard. The handled token
-        // is intentionally in-memory: a new model process starts its token
-        // sequence over and must never collide with restored scene storage.
         DispatchQueue.main.async { focused = true }
     }
 
@@ -174,8 +174,6 @@ struct QuickCaptureBar: View {
                 focused = false
             }
         } else {
-            // A failed canonical write deliberately leaves the draft and
-            // destination untouched so retrying never means retyping.
             focused = true
         }
     }
