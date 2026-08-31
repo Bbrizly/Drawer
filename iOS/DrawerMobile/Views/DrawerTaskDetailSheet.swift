@@ -98,8 +98,8 @@ struct DrawerTaskDetailSheet: View {
 
             HStack(alignment: .top, spacing: 10) {
                 Text(item.title)
-                    .font(.system(size: 27, weight: .bold, design: .rounded))
-                    .tracking(-0.5)
+                    .font(.system(.title2, design: .rounded, weight: .bold))
+                    .tracking(-0.3)
                     .fixedSize(horizontal: false, vertical: true)
                     .frame(maxWidth: .infinity, alignment: .leading)
 
