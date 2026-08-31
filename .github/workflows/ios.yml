@@ -26,9 +26,18 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  build-and-test:
+  core-tests:
+    name: Shared core tests
     runs-on: macos-26
-    timeout-minutes: 25
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - run: swift test
+
+  ios-release-gate:
+    name: iOS app, widget and release
+    runs-on: macos-26
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v7
 
@@ -41,9 +50,6 @@ jobs:
             iOS/DrawerWidgets/Resources/Info.plist \
             iOS/DrawerWidgets/Resources/DrawerWidgets.entitlements \
             iOS/DrawerWidgets/Resources/PrivacyInfo.xcprivacy
-
-      - name: Shared core tests
-        run: swift test
 
       - name: Choose simulator
         id: simulator
@@ -78,7 +84,6 @@ jobs:
           exit $STATUS
 
       - name: Release build smoke test
-        if: success()
         shell: bash
         run: |
           set +e
