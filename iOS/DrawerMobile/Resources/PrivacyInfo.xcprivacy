@@ -15,8 +15,11 @@
             <string>NSPrivacyAccessedAPICategoryUserDefaults</string>
             <key>NSPrivacyAccessedAPITypeReasons</key>
             <array>
-                <!-- CA92.1: the app reads and writes only its own preferences. -->
+                <!-- CA92.1: app-private UI preferences / scene state.
+                     1C8F.1: state intentionally shared between Drawer and its
+                     WidgetKit extension through the configured App Group. -->
                 <string>CA92.1</string>
+                <string>1C8F.1</string>
             </array>
         </dict>
         <dict>
@@ -24,10 +27,8 @@
             <string>NSPrivacyAccessedAPICategoryFileTimestamp</string>
             <key>NSPrivacyAccessedAPITypeReasons</key>
             <array>
-                <!-- C617.1: timestamps of files inside the app container
-                     (FileWatcher poll, board images).
-                     3B52.1: timestamps of user-granted files outside it
-                     (the picked drawer file and ideas folder). -->
+                <!-- C617.1: file metadata inside Drawer / App Group containers.
+                     3B52.1: metadata for the user-selected Drawer.md grant. -->
                 <string>C617.1</string>
                 <string>3B52.1</string>
             </array>
