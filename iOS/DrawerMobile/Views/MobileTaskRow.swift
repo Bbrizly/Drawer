@@ -30,6 +30,7 @@ struct MobileTaskRow: View {
         .accessibilityAction(named: item.isInProgress ? "Clear in progress" : "Mark in progress") {
             if model.setInProgress(item, !item.isInProgress) {
                 DrawerHaptics.shared.progressChanged()
+                confirmProgressChange()
             }
         }
         .accessibilityAction(named: "Delete") {
@@ -201,6 +202,7 @@ struct MobileTaskRow: View {
                 } else if commitsProgress {
                     if model.setInProgress(item, !item.isInProgress) {
                         DrawerHaptics.shared.progressChanged()
+                        confirmProgressChange()
                     }
                 }
             }
@@ -211,6 +213,7 @@ struct MobileTaskRow: View {
         Button(item.isInProgress ? "Clear In Progress" : "Mark In Progress", systemImage: "circle.lefthalf.filled") {
             if model.setInProgress(item, !item.isInProgress) {
                 DrawerHaptics.shared.progressChanged()
+                confirmProgressChange()
             }
         }
         Button("Start Focus", systemImage: "timer") {
@@ -249,8 +252,16 @@ struct MobileTaskRow: View {
             if success {
                 if willComplete {
                     DrawerHaptics.shared.taskCompleted()
+                    DrawerActionFeedbackCenter.success(
+                        "Completed \(item.title)",
+                        systemImage: "checkmark.circle.fill"
+                    )
                 } else {
                     DrawerHaptics.shared.taskReopened()
+                    DrawerActionFeedbackCenter.success(
+                        "Reopened \(item.title)",
+                        systemImage: "arrow.uturn.backward.circle.fill"
+                    )
                 }
             }
             if !reduceMotion {
@@ -267,6 +278,13 @@ struct MobileTaskRow: View {
         } else {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.045, execute: perform)
         }
+    }
+
+    private func confirmProgressChange() {
+        DrawerActionFeedbackCenter.success(
+            item.isInProgress ? "Cleared in progress" : "Marked in progress",
+            systemImage: item.isInProgress ? "circle" : "circle.lefthalf.filled"
+        )
     }
 
     private func armedAction(for offset: CGFloat) -> ArmedAction {

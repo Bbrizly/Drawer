@@ -6,12 +6,16 @@ struct QuickCaptureBar: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var text = ""
     @State private var destination: DrawerTaskDestination = .today
+    @State private var actionFeedback: DrawerActionFeedbackPayload?
     @FocusState private var focused: Bool
 
     var body: some View {
         VStack(spacing: 8) {
             if let undoLabel = model.undoLabel {
                 undoToast(undoLabel)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+            } else if let actionFeedback {
+                feedbackToast(actionFeedback)
                     .transition(.move(edge: .bottom).combined(with: .opacity))
             }
 
@@ -77,7 +81,17 @@ struct QuickCaptureBar: View {
         .onChange(of: model.captureRequestToken) { _, _ in
             focused = true
         }
+        .onReceive(NotificationCenter.default.publisher(for: .drawerActionFeedback)) { notification in
+            guard let payload = notification.object as? DrawerActionFeedbackPayload else { return }
+            actionFeedback = payload
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2.2) {
+                if actionFeedback?.id == payload.id {
+                    actionFeedback = nil
+                }
+            }
+        }
         .animation(reduceMotion ? nil : .snappy(duration: 0.22), value: model.undoLabel)
+        .animation(reduceMotion ? nil : .snappy(duration: 0.22), value: actionFeedback?.id)
     }
 
     private func undoToast(_ label: String) -> some View {
@@ -89,6 +103,7 @@ struct QuickCaptureBar: View {
             Button("Undo") {
                 if model.undoLastMutation() {
                     DrawerHaptics.shared.undo()
+                    DrawerActionFeedbackCenter.success("Undone", systemImage: "arrow.uturn.backward.circle.fill")
                 }
             }
             .font(.footnote.weight(.bold))
@@ -102,12 +117,36 @@ struct QuickCaptureBar: View {
         .padding(.horizontal, 18)
     }
 
+    private func feedbackToast(_ feedback: DrawerActionFeedbackPayload) -> some View {
+        HStack(spacing: 9) {
+            Image(systemName: feedback.systemImage)
+                .font(.footnote.weight(.bold))
+                .foregroundStyle(.tint)
+            Text(feedback.message)
+                .font(.footnote.weight(.semibold))
+                .lineLimit(1)
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 15)
+        .frame(height: 44)
+        .foregroundStyle(.primary)
+        .background(.regularMaterial, in: Capsule())
+        .overlay { Capsule().stroke(.primary.opacity(0.06), lineWidth: 0.75) }
+        .shadow(color: .black.opacity(0.08), radius: 14, y: 6)
+        .padding(.horizontal, 18)
+        .accessibilityElement(children: .combine)
+    }
+
     private func save() {
         let clean = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !clean.isEmpty else { return }
         if model.add(clean, destination: destination) {
             text = ""
             DrawerHaptics.shared.taskAdded()
+            DrawerActionFeedbackCenter.success(
+                "Added to \(destination.title)",
+                systemImage: "plus.circle.fill"
+            )
             if !reduceMotion {
                 withAnimation(.spring(response: 0.24, dampingFraction: 0.65)) {
                     focused = false

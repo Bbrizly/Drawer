@@ -1,6 +1,33 @@
 import SwiftUI
 import UIKit
 
+extension Notification.Name {
+    static let drawerActionFeedback = Notification.Name("com.bbrizly.drawer.action-feedback")
+}
+
+struct DrawerActionFeedbackPayload: Identifiable, Equatable, Sendable {
+    let id = UUID()
+    let message: String
+    let systemImage: String
+}
+
+/// One small, app-wide acknowledgement channel for state-changing actions.
+/// Haptics remain the tactile grammar; this gives the same mutation a visible
+/// and VoiceOver-readable confirmation without turning every control into a
+/// toast factory.
+@MainActor
+enum DrawerActionFeedbackCenter {
+    static func success(_ message: String, systemImage: String = "checkmark.circle.fill") {
+        let payload = DrawerActionFeedbackPayload(message: message, systemImage: systemImage)
+        NotificationCenter.default.post(name: .drawerActionFeedback, object: payload)
+        announce(message)
+    }
+
+    static func announce(_ message: String) {
+        UIAccessibility.post(notification: .announcement, argument: message)
+    }
+}
+
 @MainActor
 final class DrawerHaptics {
     static let shared = DrawerHaptics()
@@ -97,6 +124,11 @@ final class DrawerHaptics {
     func focusFinished() {
         notification.notificationOccurred(.success)
         notification.prepare()
+    }
+
+    func focusDismissed() {
+        light.impactOccurred(intensity: 0.5)
+        light.prepare()
     }
 
     /// Group/session completion is intentionally rare, so this can have a

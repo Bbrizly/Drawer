@@ -37,7 +37,7 @@ struct FocusStrip: View {
             if timer.phase == .finished {
                 Button("Done") {
                     model.resetFocus()
-                    DrawerHaptics.shared.taskReopened()
+                    DrawerHaptics.shared.focusDismissed()
                 }
                 .font(.subheadline.weight(.bold))
                 .buttonStyle(.borderedProminent)

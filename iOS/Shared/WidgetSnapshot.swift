@@ -182,3 +182,51 @@ enum WidgetSnapshotStore {
         try data.write(to: url, options: .atomic)
     }
 }
+
+struct WidgetInteractionFeedback: Equatable, Sendable {
+    let message: String
+    let occurredAt: Date
+}
+
+/// A widget mutation may fail even while its last snapshot remains valid—for
+/// example when a File Provider temporarily refuses the extension's bookmark.
+/// Keep failure UI separate from task truth so the widget can say "still old"
+/// without ever pretending the Markdown mutation succeeded.
+enum WidgetInteractionFeedbackStore {
+    private static let messageKey = "drawer.widget.interaction-error.message.v1"
+    private static let dateKey = "drawer.widget.interaction-error.date.v1"
+    private static let lifetime: TimeInterval = 5 * 60
+
+    static func recordFailure(_ error: Error) {
+        let message: String
+        if error is DrawerBookmarkError {
+            message = "Open Drawer to reconnect Drawer.md."
+        } else {
+            message = "Update failed. Open Drawer and try again."
+        }
+        DrawerShared.defaults.set(message, forKey: messageKey)
+        DrawerShared.defaults.set(Date().timeIntervalSince1970, forKey: dateKey)
+    }
+
+    static func clear() {
+        DrawerShared.defaults.removeObject(forKey: messageKey)
+        DrawerShared.defaults.removeObject(forKey: dateKey)
+    }
+
+    static func current(now: Date = Date()) -> WidgetInteractionFeedback? {
+        guard let message = DrawerShared.defaults.string(forKey: messageKey) else { return nil }
+        let timestamp = DrawerShared.defaults.double(forKey: dateKey)
+        guard timestamp > 0 else {
+            clear()
+            return nil
+        }
+        let occurredAt = Date(timeIntervalSince1970: timestamp)
+        guard now.timeIntervalSince(occurredAt) >= 0,
+              now.timeIntervalSince(occurredAt) <= lifetime
+        else {
+            clear()
+            return nil
+        }
+        return WidgetInteractionFeedback(message: message, occurredAt: occurredAt)
+    }
+}

@@ -53,6 +53,7 @@ final class DrawerMobileModel: ObservableObject {
 
     func bootstrap() {
         guard DrawerBookmarkStore.hasBookmark else {
+            WidgetInteractionFeedbackStore.clear()
             connectionState = .disconnected
             return
         }
@@ -80,6 +81,7 @@ final class DrawerMobileModel: ObservableObject {
         backlogItems = []
         upcomingLabel = ""
         DrawerBookmarkStore.clear()
+        WidgetInteractionFeedbackStore.clear()
         if let snapshotURL = WidgetSnapshotStore.snapshotURL {
             try? FileManager.default.removeItem(at: snapshotURL)
         }
@@ -112,26 +114,32 @@ final class DrawerMobileModel: ObservableObject {
     func reload() {
         guard let document else { return }
         do {
-            let data = try document.read()
             let today = DrawerDate.todayKey()
-            if data == lastAppliedData, today == lastAppliedDayKey { return }
+            var base = try document.read()
+            if base == lastAppliedData, today == lastAppliedDayKey { return }
 
-            // Canonical normalization is one coordinated write: first repair
-            // externally-completed recurring series, then run the same small
-            // completed-task archive sweep used by desktop Drawer.
-            var normalized = try TodoRecurrenceWriteback.reconcile(in: data, today: today)
-            if let text = String(data: normalized, encoding: .utf8) {
-                let swept = TodoArchiver.archiveCompleted(in: text, today: today)
-                if swept != text, let sweptData = swept.data(using: .utf8) {
-                    normalized = sweptData
+            // Automatic recurrence/archive normalization is a canonical write,
+            // so it follows the same one-retry content-CAS rule as a user
+            // mutation. If Obsidian/iCloud changed Drawer.md after the first
+            // read, recompute against those fresh bytes before writing.
+            var normalized = try normalizedData(base, today: today)
+            if normalized != base {
+                let fresh = try document.read()
+                if fresh != base {
+                    base = fresh
+                    normalized = try normalizedData(base, today: today)
                 }
-            }
-            if normalized != data {
-                try document.write(normalized)
-                apply(try document.read())
+
+                if normalized != base {
+                    try document.write(normalized)
+                    apply(try document.read())
+                } else {
+                    apply(base)
+                }
                 return
             }
-            apply(data)
+
+            apply(base)
         } catch {
             fail(error)
         }
@@ -405,6 +413,17 @@ final class DrawerMobileModel: ObservableObject {
         }
     }
 
+    private func normalizedData(_ data: Data, today: String) throws -> Data {
+        var normalized = try TodoRecurrenceWriteback.reconcile(in: data, today: today)
+        if let text = String(data: normalized, encoding: .utf8) {
+            let swept = TodoArchiver.archiveCompleted(in: text, today: today)
+            if swept != text, let sweptData = swept.data(using: .utf8) {
+                normalized = sweptData
+            }
+        }
+        return normalized
+    }
+
     private func apply(_ data: Data) {
         guard let text = String(data: data, encoding: .utf8) else {
             statusMessage = "Drawer.md isn't UTF-8 text."
@@ -430,6 +449,7 @@ final class DrawerMobileModel: ObservableObject {
     private func publishWidgetSnapshot(_ data: Data, today: String) {
         do {
             try WidgetSnapshotStore.write(.make(from: data, todayKey: today))
+            WidgetInteractionFeedbackStore.clear()
             WidgetCenter.shared.reloadAllTimelines()
         } catch {
             // Widget cache failure must never block canonical Markdown writes.

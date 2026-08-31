@@ -6,9 +6,15 @@ struct DrawerTaskDetailSheet: View {
     @ObservedObject var model: DrawerMobileModel
     let item: TodoItem
 
+    private enum NoteFeedback: Equatable {
+        case saved
+        case failed
+    }
+
     @Environment(\.dismiss) private var dismiss
     @State private var noteDraft: String
     @State private var savedNote: String
+    @State private var noteFeedback: NoteFeedback?
     @State private var recurrence: TodoRecurrence?
     @FocusState private var noteFocused: Bool
 
@@ -40,11 +46,15 @@ struct DrawerTaskDetailSheet: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("Done") { dismiss() }
+                    Button("Done") { saveNoteAndDismiss() }
                 }
             }
         }
         .task { recurrence = model.recurrence(for: item) }
+        .interactiveDismissDisabled(noteDraft != savedNote)
+        .onChange(of: noteDraft) { _, _ in
+            if noteDraft != savedNote { noteFeedback = nil }
+        }
     }
 
     private var taskHeader: some View {
@@ -103,21 +113,25 @@ struct DrawerTaskDetailSheet: View {
 
     private var noteEditor: some View {
         VStack(alignment: .leading, spacing: 9) {
-            HStack {
+            HStack(spacing: 8) {
                 Text("NOTE")
                     .font(.caption.weight(.bold))
                     .tracking(0.7)
                     .foregroundStyle(.secondary)
                 Spacer()
+
                 if noteDraft != savedNote {
-                    Button("Save") {
-                        if model.setNote(item, noteDraft) {
-                            savedNote = noteDraft
-                            DrawerHaptics.shared.saved()
-                            noteFocused = false
-                        }
+                    if noteFeedback == .failed {
+                        Label("Couldn't save", systemImage: "exclamationmark.circle.fill")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.red)
                     }
-                    .font(.subheadline.weight(.semibold))
+                    Button(noteFeedback == .failed ? "Retry" : "Save") { saveNote() }
+                        .font(.subheadline.weight(.semibold))
+                } else if noteFeedback == .saved {
+                    Label("Saved", systemImage: "checkmark.circle.fill")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
                 }
             }
 
@@ -184,6 +198,7 @@ struct DrawerTaskDetailSheet: View {
                 Button {
                     if model.skipRecurring(item) {
                         DrawerHaptics.shared.skipped()
+                        DrawerActionFeedbackCenter.success("Skipped this occurrence", systemImage: "forward.end.circle.fill")
                         dismiss()
                     }
                 } label: {
@@ -199,6 +214,10 @@ struct DrawerTaskDetailSheet: View {
             Button {
                 if model.setInProgress(item, !item.isInProgress) {
                     DrawerHaptics.shared.progressChanged()
+                    DrawerActionFeedbackCenter.success(
+                        item.isInProgress ? "Cleared in progress" : "Marked in progress",
+                        systemImage: item.isInProgress ? "circle" : "circle.lefthalf.filled"
+                    )
                     dismiss()
                 }
             } label: {
@@ -294,8 +313,29 @@ struct DrawerTaskDetailSheet: View {
             if model.setRecurrence(item, rule: rule) {
                 recurrence = model.recurrence(for: item)
                 DrawerHaptics.shared.recurrenceChanged()
+                DrawerActionFeedbackCenter.announce("Repeat set to \(recurrence?.rule.title ?? "Never")")
             }
         }
+    }
+
+    @discardableResult
+    private func saveNote() -> Bool {
+        guard noteDraft != savedNote else { return true }
+        if model.setNote(item, noteDraft) {
+            savedNote = noteDraft
+            noteFeedback = .saved
+            DrawerHaptics.shared.saved()
+            DrawerActionFeedbackCenter.announce("Note saved")
+            noteFocused = false
+            return true
+        }
+        noteFeedback = .failed
+        DrawerActionFeedbackCenter.announce("Couldn't save note")
+        return false
+    }
+
+    private func saveNoteAndDismiss() {
+        if saveNote() { dismiss() }
     }
 
     private var currentScheduledDay: Int {

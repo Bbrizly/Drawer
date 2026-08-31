@@ -6,22 +6,28 @@ import WidgetKit
 struct DrawerWidgetEntry: TimelineEntry {
     let date: Date
     let snapshot: WidgetSnapshot
+    let interactionFeedback: WidgetInteractionFeedback?
 }
 
 struct DrawerWidgetProvider: TimelineProvider {
     func placeholder(in context: Context) -> DrawerWidgetEntry {
-        DrawerWidgetEntry(date: Date(), snapshot: .preview)
+        DrawerWidgetEntry(date: Date(), snapshot: .preview, interactionFeedback: nil)
     }
 
     func getSnapshot(in context: Context, completion: @escaping (DrawerWidgetEntry) -> Void) {
         completion(DrawerWidgetEntry(
             date: Date(),
-            snapshot: context.isPreview ? .preview : WidgetSnapshotStore.current()
+            snapshot: context.isPreview ? .preview : WidgetSnapshotStore.current(),
+            interactionFeedback: context.isPreview ? nil : WidgetInteractionFeedbackStore.current()
         ))
     }
 
     func getTimeline(in context: Context, completion: @escaping (Timeline<DrawerWidgetEntry>) -> Void) {
-        let entry = DrawerWidgetEntry(date: Date(), snapshot: WidgetSnapshotStore.current())
+        let entry = DrawerWidgetEntry(
+            date: Date(),
+            snapshot: WidgetSnapshotStore.current(),
+            interactionFeedback: WidgetInteractionFeedbackStore.current()
+        )
         completion(Timeline(
             entries: [entry],
             policy: .after(Date().addingTimeInterval(15 * 60))
@@ -34,10 +40,13 @@ struct DrawerWidget: Widget {
 
     var body: some WidgetConfiguration {
         StaticConfiguration(kind: Self.kind, provider: DrawerWidgetProvider()) { entry in
-            DrawerWidgetView(snapshot: entry.snapshot)
-                .containerBackground(for: .widget) {
-                    Color(uiColor: .systemBackground)
-                }
+            DrawerWidgetView(
+                snapshot: entry.snapshot,
+                interactionFeedback: entry.interactionFeedback
+            )
+            .containerBackground(for: .widget) {
+                Color(uiColor: .systemBackground)
+            }
         }
         .configurationDisplayName("Drawer")
         .description("Your day, straight from Drawer.md.")
@@ -53,6 +62,7 @@ struct DrawerWidget: Widget {
 private struct DrawerWidgetView: View {
     @Environment(\.widgetFamily) private var family
     let snapshot: WidgetSnapshot
+    let interactionFeedback: WidgetInteractionFeedback?
 
     var body: some View {
         switch family {
@@ -71,6 +81,10 @@ private struct DrawerWidgetView: View {
         VStack(alignment: .leading, spacing: large ? 9 : 7) {
             header
 
+            if let interactionFeedback {
+                failureNotice(interactionFeedback)
+            }
+
             if snapshot.todayKey.isEmpty {
                 Spacer(minLength: 2)
                 Label("Open Drawer to connect Drawer.md", systemImage: "doc.badge.plus")
@@ -79,7 +93,8 @@ private struct DrawerWidgetView: View {
                     .lineLimit(2)
                 Spacer(minLength: 2)
             } else {
-                let tasks = Array(snapshot.actionableTasks.prefix(maxTasks))
+                let taskLimit = interactionFeedback == nil ? maxTasks : max(1, maxTasks - 1)
+                let tasks = Array(snapshot.actionableTasks.prefix(taskLimit))
                 if tasks.isEmpty {
                     Spacer(minLength: 1)
                     HStack(spacing: 8) {
@@ -122,6 +137,7 @@ private struct DrawerWidgetView: View {
                     .font(.caption.weight(.bold))
                     .monospacedDigit()
                     .foregroundStyle(.secondary)
+                    .invalidatableContent()
             }
 
             Link(destination: URL(string: "drawer://capture")!) {
@@ -134,21 +150,44 @@ private struct DrawerWidgetView: View {
         }
     }
 
+    private func failureNotice(_ feedback: WidgetInteractionFeedback) -> some View {
+        Link(destination: URL(string: "drawer://today")!) {
+            HStack(spacing: 6) {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .font(.caption2.weight(.bold))
+                Text(feedback.message)
+                    .font(.caption2.weight(.semibold))
+                    .lineLimit(1)
+                Spacer(minLength: 0)
+                Image(systemName: "arrow.up.right")
+                    .font(.system(size: 8, weight: .bold))
+            }
+            .foregroundStyle(.orange)
+        }
+        .accessibilityLabel("Drawer update failed. Open Drawer to recover.")
+    }
+
     private var accessoryRectangular: some View {
         VStack(alignment: .leading, spacing: 3) {
             HStack(spacing: 5) {
                 Text("Drawer")
                     .font(.caption.weight(.bold))
                 Spacer(minLength: 2)
+                if interactionFeedback != nil {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .font(.caption2.weight(.bold))
+                }
                 Text("\(snapshot.remaining)")
                     .font(.caption.weight(.bold))
                     .monospacedDigit()
+                    .invalidatableContent()
             }
             if let next = snapshot.actionableTasks.first {
                 Text(next.title)
                     .font(.caption2)
                     .lineLimit(2)
                     .privacySensitive()
+                    .invalidatableContent()
             } else {
                 Text(snapshot.todayKey.isEmpty ? "Open Drawer to connect" : "You're clear")
                     .font(.caption2)
@@ -163,16 +202,25 @@ private struct DrawerWidgetView: View {
         ZStack {
             AccessoryWidgetBackground()
             VStack(spacing: -1) {
+                if interactionFeedback != nil {
+                    Image(systemName: "exclamationmark")
+                        .font(.system(size: 8, weight: .bold))
+                }
                 Text("\(snapshot.remaining)")
                     .font(.system(size: 17, weight: .bold, design: .rounded))
                     .monospacedDigit()
+                    .invalidatableContent()
                 Text("left")
                     .font(.system(size: 8, weight: .bold))
                     .textCase(.uppercase)
             }
         }
         .widgetURL(URL(string: "drawer://today"))
-        .accessibilityLabel("\(snapshot.remaining) Drawer tasks remaining")
+        .accessibilityLabel(
+            interactionFeedback == nil
+                ? "\(snapshot.remaining) Drawer tasks remaining"
+                : "Drawer update failed. \(snapshot.remaining) tasks shown from the last good update"
+        )
     }
 }
 
@@ -196,6 +244,7 @@ private struct WidgetTaskRow: View {
                 .font(.caption.weight(task.isInProgress ? .semibold : .regular))
                 .lineLimit(1)
                 .privacySensitive()
+                .invalidatableContent()
 
             Spacer(minLength: 2)
 

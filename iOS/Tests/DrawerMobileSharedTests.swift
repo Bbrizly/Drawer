@@ -3,8 +3,11 @@ import XCTest
 @testable import DrawerMobile
 
 final class DrawerMobileSharedTests: XCTestCase {
+    private enum TestError: Error { case failed }
+
     override func tearDown() {
         DrawerFocusStore.clear()
+        WidgetInteractionFeedbackStore.clear()
         super.tearDown()
     }
 
@@ -42,6 +45,18 @@ final class DrawerMobileSharedTests: XCTestCase {
         let encoded = try JSONEncoder().encode(snapshot)
         let decoded = try JSONDecoder().decode(WidgetSnapshot.self, from: encoded)
         XCTAssertEqual(decoded, snapshot)
+    }
+
+    func testWidgetInteractionFailureIsShortLived() {
+        let before = Date()
+        WidgetInteractionFeedbackStore.recordFailure(TestError.failed)
+
+        let visible = WidgetInteractionFeedbackStore.current(now: before.addingTimeInterval(1))
+        XCTAssertEqual(visible?.message, "Update failed. Open Drawer and try again.")
+
+        XCTAssertNil(
+            WidgetInteractionFeedbackStore.current(now: before.addingTimeInterval(6 * 60))
+        )
     }
 
     func testObsidianLinkStripsAlias() {

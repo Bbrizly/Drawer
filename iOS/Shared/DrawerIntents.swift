@@ -136,7 +136,17 @@ struct ToggleDrawerTaskIntent: AppIntent {
             minutes: minutes,
             bucket: WidgetTask.Bucket(rawValue: bucketRawValue) ?? .today
         )
-        _ = try DrawerMutationEngine.toggle(task)
+
+        do {
+            _ = try DrawerMutationEngine.toggle(task)
+            WidgetInteractionFeedbackStore.clear()
+        } catch {
+            // WidgetKit actions must fail closed: leave the canonical snapshot
+            // untouched, expose a short-lived stale/error affordance, and let
+            // the next timeline reload render that state instead of throwing a
+            // generic system error with no recovery path.
+            WidgetInteractionFeedbackStore.recordFailure(error)
+        }
         WidgetCenter.shared.reloadAllTimelines()
         return .result()
     }
@@ -156,12 +166,19 @@ struct AddDrawerTaskIntent: AppIntent {
     }
 
     func perform() async throws -> some IntentResult & ProvidesDialog {
-        _ = try DrawerMutationEngine.add(
-            title: taskTitle,
-            destination: destination.destination
-        )
-        WidgetCenter.shared.reloadAllTimelines()
-        return .result(dialog: "Added to \(destination.rawValue).")
+        do {
+            _ = try DrawerMutationEngine.add(
+                title: taskTitle,
+                destination: destination.destination
+            )
+            WidgetInteractionFeedbackStore.clear()
+            WidgetCenter.shared.reloadAllTimelines()
+            return .result(dialog: "Added to \(destination.destination.title).")
+        } catch {
+            WidgetInteractionFeedbackStore.recordFailure(error)
+            WidgetCenter.shared.reloadAllTimelines()
+            return .result(dialog: "Couldn't add the task. Open Drawer and try again.")
+        }
     }
 }
 
@@ -176,9 +193,27 @@ struct CompleteDrawerTaskIntent: AppIntent {
         guard let task else {
             return .result(dialog: "Choose a Drawer task first.")
         }
-        _ = try DrawerMutationEngine.complete(task.widgetTask)
-        WidgetCenter.shared.reloadAllTimelines()
-        return .result(dialog: "Completed \(task.title).")
+
+        do {
+            _ = try DrawerMutationEngine.complete(task.widgetTask)
+            WidgetInteractionFeedbackStore.clear()
+            WidgetCenter.shared.reloadAllTimelines()
+            return .result(dialog: "Completed \(task.title).")
+        } catch {
+            WidgetInteractionFeedbackStore.recordFailure(error)
+            WidgetCenter.shared.reloadAllTimelines()
+            return .result(dialog: "Couldn't complete the task. Open Drawer and try again.")
+        }
+    }
+}
+
+struct OpenDrawerTodayIntent: AppIntent {
+    static let title: LocalizedStringResource = "Open Drawer"
+    static let description = IntentDescription("Opens today's Drawer surface.")
+    static let openAppWhenRun = true
+
+    func perform() async throws -> some IntentResult {
+        .result()
     }
 }
 
@@ -202,6 +237,15 @@ struct DrawerAppShortcuts: AppShortcutsProvider {
             ],
             shortTitle: "Complete Task",
             systemImageName: "checkmark.circle"
+        )
+        AppShortcut(
+            intent: OpenDrawerTodayIntent(),
+            phrases: [
+                "Open \(.applicationName)",
+                "Show my day in \(.applicationName)",
+            ],
+            shortTitle: "Open Today",
+            systemImageName: "sun.max"
         )
     }
 }
