@@ -30,9 +30,10 @@ The project uses automatic signing but does not hard-code a development team so 
 
 1. Tap **Choose Drawer.md**.
 2. Pick the same Markdown file used by Drawer on Mac / your Obsidian vault.
-3. Drawer proves the selection is readable UTF-8 Markdown before replacing any existing bookmark.
-4. Drawer stores the security-scoped bookmark and coordinates reads/writes through `NSFileCoordinator`.
-5. The app writes a small, versioned widget snapshot into the App Group container after successful canonical reads/writes.
+3. If the selected file is already available, Drawer proves it is readable UTF-8 Markdown before promoting its bookmark to the canonical source.
+4. If Files has granted the URL but iCloud/provider bytes are not safely available yet, Drawer stages that bookmark instead. The staged selection survives relaunch and is promoted only after a real current UTF-8 read succeeds.
+5. When changing files, the previous canonical bookmark remains untouched during staging, so an unavailable or invalid replacement cannot strand or silently replace the working source.
+6. Drawer coordinates reads/writes through `NSFileCoordinator` and writes a small, versioned widget snapshot into the App Group container only after successful canonical reads/writes.
 
 No Drawer account, cloud backend, or task database is involved.
 
@@ -57,11 +58,15 @@ Drawer checks Apple's iCloud download state before every canonical read/write:
 - **not downloaded** — request materialization and do not mutate yet
 - **unresolved iCloud conflict** — fail closed until the conflict is resolved in Files/Obsidian
 
-The foreground app retries transient iCloud/provider availability without blocking the UI. A temporary cloud outage does **not** discard the saved bookmark or replace the UI with an empty task list.
+The foreground app retries transient iCloud/provider availability without blocking the UI. A temporary cloud outage does **not** discard the saved bookmark or replace the UI with an empty task list. When a newly chosen cloud source is not current, Drawer keeps it as a staged selection; if another Drawer.md was already connected, that old source remains canonical and usable until the staged file is proven safe and atomically promoted.
+
+If the app is killed while a new source is still downloading, the staged bookmark is retained in the App Group. On relaunch Drawer reopens the previous canonical source when one exists, resumes validation of the staged selection, and promotes it only after a current UTF-8 read. Authentication and iCloud-conflict states preserve the staged grant too: fix the account/conflict in Files, Obsidian, or the provider app and return to Drawer instead of selecting the same file again.
 
 ### Other Files providers
 
 Third-party providers exposed through Files use the same persisted bookmark + `NSFileCoordinator` boundary. Unlike iCloud, client apps do not have a universal public API for forcing every third-party provider to download a placeholder. If that provider is offline, signed out, or temporarily refuses the extension process, Drawer keeps the connection and last-known-good widget snapshot and reports the provider-specific recovery state instead of pretending a mutation succeeded.
+
+Only genuinely transient provider failures are automatically polled. Authentication and other user-action states preserve the selected grant but wait for the app to become active again; quota, filename-collision, and unrelated provider errors are surfaced as terminal read/write failures rather than mislabeled as an offline condition.
 
 The rule across every storage type is the same: **the selected `Drawer.md` is canonical; cached widget data is never promoted to source of truth.**
 
@@ -69,7 +74,7 @@ The rule across every storage type is the same: **the selected `Drawer.md` is ca
 
 Interactive widget completion attempts the exact same canonical Markdown mutation as the app and refreshes its snapshot only after that write succeeds. This intentionally avoids optimistic widget state that could disagree with Obsidian.
 
-If a widget action cannot regain File Provider access, if iCloud is still materializing the file, or if an iCloud conflict exists, the last known-good task snapshot stays intact and the widget shows a short-lived recovery indicator instead of pretending the task changed. Disconnect removes the shared snapshot and requests an immediate WidgetKit reload.
+If a widget action cannot regain File Provider access, if iCloud is still materializing the file, or if an iCloud conflict exists, the last known-good task snapshot stays intact and the widget shows a short-lived recovery indicator instead of pretending the task changed. A staged replacement never changes widget truth: widgets continue targeting the previous canonical bookmark until the new source is promoted. Disconnect removes the shared snapshot and requests an immediate WidgetKit reload.
 
 External security-scoped bookmark behavior from a WidgetKit extension is sensitive to the selected File Provider and OS version. Validate interactive completion on a physical device with every storage provider you intend to support.
 
@@ -109,8 +114,11 @@ Simulator CI cannot prove File Provider grants, real Taptic Engine feel, lock-st
 - [ ] Pick a real `Drawer.md` under `iCloud Drive/Obsidian/<Vault>`; force-quit and relaunch; verify the bookmark reconnects without another picker prompt.
 - [ ] Reboot the iPhone and verify the same iCloud bookmark still reconnects.
 - [ ] Make the file available offline, edit it from another Apple device, and verify Drawer reads the newest cloud version rather than an older local copy.
-- [ ] If the Files UI permits it, remove the local download / allow the item to be evicted; open Drawer and verify it reports syncing, requests materialization, then recovers automatically when the file becomes current.
-- [ ] Create or simulate an unresolved iCloud document conflict if practical; verify Drawer refuses canonical writes until the conflict is resolved.
+- [ ] If the Files UI permits it, remove the local download / allow the item to be evicted; choose that file in Drawer and verify the selection is staged, materialization begins, and the file opens automatically only after it becomes current.
+- [ ] While an evicted replacement is staged over an existing working Drawer.md, verify the old source remains visible, editable, and targeted by widgets until promotion.
+- [ ] Force-quit Drawer while the replacement is still staged; relaunch and verify the old source returns immediately, the pending download/validation resumes, and the replacement is promoted without another picker prompt once current.
+- [ ] With no previous source connected, force-quit during first-time iCloud materialization; relaunch and verify Drawer resumes the staged selection rather than asking for the same file again.
+- [ ] Create or simulate an unresolved iCloud document conflict if practical; verify Drawer refuses canonical writes, retains the selected grant, and opens successfully after the conflict is resolved and Drawer becomes active again.
 - [ ] Put the device offline while the item is not current; verify Drawer keeps the bookmark and last-known-good UI rather than emptying or overwriting the source.
 - [ ] Restore connectivity and verify the app recovers without asking the user to choose the same file again.
 
@@ -124,7 +132,8 @@ Simulator CI cannot prove File Provider grants, real Taptic Engine feel, lock-st
 - [ ] Change Drawer.md to an unreadable/non-UTF-8 file and verify the previous good connection is retained and a useful error is shown.
 - [ ] Deny/revoke the widget's external-file access if the provider permits it; verify the widget keeps old truth, shows recovery UI, and never marks the task complete.
 - [ ] Test widget completion while the device is locked, immediately after unlock, and after Drawer has been force-quit.
-- [ ] Test any third-party Files provider you intend to advertise; sign out/go offline and verify Drawer keeps the bookmark/cache and reports provider recovery instead of false success.
+- [ ] Test any third-party Files provider you intend to advertise; sign out/go offline and verify Drawer preserves the selected grant/cache and reports provider recovery instead of false success.
+- [ ] For a provider that requires sign-in, choose its file, trigger authentication loss if practical, fix the account outside Drawer, and verify the same staged/active bookmark recovers without another file selection.
 - [ ] Disconnect Drawer and verify Home/Lock Screen widgets stop intentionally showing the old task snapshot.
 - [ ] Start, pause, resume, background, force-quit, and relaunch a Focus session; verify absolute remaining time is correct.
 - [ ] With notification permission allowed, verify the background Focus completion alert fires once; with permission denied, verify Drawer explicitly says notifications are off.
