@@ -8,6 +8,7 @@ struct DrawerTaskDetailSheet: View {
 
     @Environment(\.dismiss) private var dismiss
     @State private var noteDraft: String
+    @State private var recurrence: TodoRecurrence?
     @FocusState private var noteFocused: Bool
 
     init(model: DrawerMobileModel, item: TodoItem) {
@@ -23,6 +24,7 @@ struct DrawerTaskDetailSheet: View {
                     taskHeader
                     focusButton
                     noteEditor
+                    repeatControls
                     actionGrid
                     sourceContext
                     deleteButton
@@ -39,6 +41,7 @@ struct DrawerTaskDetailSheet: View {
                 }
             }
         }
+        .task { recurrence = model.recurrence(for: item) }
     }
 
     private var taskHeader: some View {
@@ -52,7 +55,12 @@ struct DrawerTaskDetailSheet: View {
                     .textCase(.uppercase)
                     .tracking(0.6)
                 Spacer()
-                if item.minutes != 25 {
+                if let recurrence {
+                    Label(recurrence.rule.title, systemImage: "repeat")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                } else if item.minutes != 25 {
                     Label("\(item.minutes)m", systemImage: "timer")
                         .font(.caption.weight(.semibold))
                         .foregroundStyle(.secondary)
@@ -63,6 +71,12 @@ struct DrawerTaskDetailSheet: View {
                 .font(.system(size: 27, weight: .bold, design: .rounded))
                 .tracking(-0.5)
                 .fixedSize(horizontal: false, vertical: true)
+
+            if recurrence != nil, item.minutes != 25 {
+                Label("\(item.minutes)m", systemImage: "timer")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+            }
         }
     }
 
@@ -95,7 +109,7 @@ struct DrawerTaskDetailSheet: View {
                 if noteDraft != (item.note ?? "") {
                     Button("Save") {
                         if model.setNote(item, noteDraft) {
-                            DrawerHaptics.shared.taskAdded()
+                            DrawerHaptics.shared.saved()
                             noteFocused = false
                         }
                     }
@@ -123,6 +137,59 @@ struct DrawerTaskDetailSheet: View {
         }
     }
 
+    private var repeatControls: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("REPEAT")
+                .font(.caption.weight(.bold))
+                .tracking(0.7)
+                .foregroundStyle(.secondary)
+
+            Menu {
+                repeatButton("Never", rule: nil)
+                Divider()
+                repeatButton("Every Day", rule: .daily)
+                repeatButton("Weekdays", rule: .weekdays(Set(1...5)))
+                repeatButton("Weekends", rule: .weekdays(Set([6, 7])))
+                repeatButton("Every 7 Days", rule: .everyDays(7))
+                repeatButton("Monthly", rule: .monthly(currentScheduledDay))
+                repeatButton("7 Days After Completion", rule: .afterCompletionDays(7))
+            } label: {
+                HStack(spacing: 12) {
+                    Image(systemName: "repeat").frame(width: 22)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Repeat")
+                            .font(.subheadline.weight(.semibold))
+                        Text(recurrence?.rule.title ?? "Never")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    Image(systemName: "chevron.up.chevron.down")
+                        .font(.caption2.weight(.bold))
+                        .foregroundStyle(.tertiary)
+                }
+                .foregroundStyle(.primary)
+                .padding(.horizontal, 14)
+                .frame(height: 54)
+                .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+            }
+            .buttonStyle(TactileButtonStyle(pressedScale: 0.99))
+            .disabled(item.isDone)
+
+            if recurrence != nil, !item.isDone {
+                Button {
+                    if model.skipRecurring(item) {
+                        DrawerHaptics.shared.skipped()
+                        dismiss()
+                    }
+                } label: {
+                    actionLabel("Skip This Occurrence", systemImage: "forward.end")
+                }
+                .buttonStyle(TactileButtonStyle(pressedScale: 0.99))
+            }
+        }
+    }
+
     private var actionGrid: some View {
         VStack(spacing: 10) {
             Button {
@@ -131,12 +198,10 @@ struct DrawerTaskDetailSheet: View {
                     dismiss()
                 }
             } label: {
-                actionLabel(
-                    item.isInProgress ? "Clear In Progress" : "Mark In Progress",
-                    systemImage: "circle.lefthalf.filled"
-                )
+                actionLabel(item.isInProgress ? "Clear In Progress" : "Mark In Progress", systemImage: "circle.lefthalf.filled")
             }
             .buttonStyle(TactileButtonStyle(pressedScale: 0.99))
+            .disabled(item.isDone)
 
             Menu {
                 moveButton(.today)
@@ -146,26 +211,19 @@ struct DrawerTaskDetailSheet: View {
                 actionLabel("Move", systemImage: "arrow.turn.down.right")
             }
             .buttonStyle(TactileButtonStyle(pressedScale: 0.99))
+            .disabled(item.isDone)
         }
     }
 
     @ViewBuilder
     private var sourceContext: some View {
-        if let link = ObsidianLink.first(in: item),
-           let url = link.url(near: model.connectedFileURL) {
-            Button {
-                UIApplication.shared.open(url)
-            } label: {
+        if let link = ObsidianLink.first(in: item), let url = link.url(near: model.connectedFileURL) {
+            Button { UIApplication.shared.open(url) } label: {
                 HStack(spacing: 12) {
-                    Image(systemName: "link")
-                        .frame(width: 22)
+                    Image(systemName: "link").frame(width: 22)
                     VStack(alignment: .leading, spacing: 2) {
-                        Text("Open in Obsidian")
-                            .font(.subheadline.weight(.semibold))
-                        Text(link.note)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
+                        Text("Open in Obsidian").font(.subheadline.weight(.semibold))
+                        Text(link.note).font(.caption).foregroundStyle(.secondary).lineLimit(1)
                     }
                     Spacer()
                     Image(systemName: "arrow.up.right")
@@ -204,10 +262,8 @@ struct DrawerTaskDetailSheet: View {
 
     private func actionLabel(_ title: String, systemImage: String) -> some View {
         HStack(spacing: 12) {
-            Image(systemName: systemImage)
-                .frame(width: 22)
-            Text(title)
-                .font(.subheadline.weight(.semibold))
+            Image(systemName: systemImage).frame(width: 22)
+            Text(title).font(.subheadline.weight(.semibold))
             Spacer()
             Image(systemName: "chevron.right")
                 .font(.caption2.weight(.bold))
@@ -229,14 +285,25 @@ struct DrawerTaskDetailSheet: View {
         .disabled(isAlready(in: destination))
     }
 
+    private func repeatButton(_ title: String, rule: TodoRecurrenceRule?) -> some View {
+        Button(title) {
+            if model.setRecurrence(item, rule: rule) {
+                recurrence = model.recurrence(for: item)
+                DrawerHaptics.shared.recurrenceChanged()
+            }
+        }
+    }
+
+    private var currentScheduledDay: Int {
+        let parts = item.sectionDate.split(separator: "-")
+        return parts.count == 3 ? min(31, max(1, Int(parts[2]) ?? 1)) : Calendar.current.component(.day, from: Date())
+    }
+
     private func isAlready(in destination: DrawerTaskDestination) -> Bool {
         switch destination {
-        case .today:
-            item.sectionDate == DrawerDate.todayKey()
-        case .tomorrow:
-            item.sectionDate == DrawerDate.tomorrowKey()
-        case .backlog:
-            item.sectionDate == TodoParser.backlogKey
+        case .today: item.sectionDate == DrawerDate.todayKey()
+        case .tomorrow: item.sectionDate == DrawerDate.tomorrowKey()
+        case .backlog: item.sectionDate == TodoParser.backlogKey
         }
     }
 }
