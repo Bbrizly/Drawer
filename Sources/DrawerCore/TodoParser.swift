@@ -24,9 +24,17 @@ public enum TodoParser {
         return (marker, line[line.index(close, offsetBy: 2)...])
     }
 
-    /// A ``` line, front-trimmed without allocating a trimmed copy per line.
+    /// Markdown fenced-code marker, front-trimmed without allocating a full
+    /// trimmed copy per line. Both CommonMark fence forms are recognized.
+    static func fenceMarker(_ line: some StringProtocol) -> Character? {
+        let trimmed = line.drop { $0 == " " || $0 == "\t" }
+        if trimmed.hasPrefix("```") { return "`" }
+        if trimmed.hasPrefix("~~~") { return "~" }
+        return nil
+    }
+
     static func isFenceLine(_ line: some StringProtocol) -> Bool {
-        line.drop { $0 == " " || $0 == "\t" }.hasPrefix("```")
+        fenceMarker(line) != nil
     }
 
     /// A trailing "(25m)" focus length: the minutes and where the title ends.
@@ -84,12 +92,17 @@ public enum TodoParser {
 
     /// True for a description line: indented (leading space or tab), not
     /// blank, and not itself a checkbox task. These lines, sitting directly
-    /// under a task, form that task's note. Shared with TodoWriteback so
-    /// reading and editing agree on where a note starts and ends.
+    /// under a task, form that task's complete child block. Reserved Drawer
+    /// metadata remains part of the block for lossless move/delete/archive,
+    /// but is filtered from the human-facing note below.
     static func isDescriptionLine(_ text: String) -> Bool {
         guard let first = text.first, first == " " || first == "\t" else { return false }
         if text.allSatisfy(\.isWhitespace) { return false }
         return taskParts(text) == nil
+    }
+
+    static func isDrawerMetadataLine(_ text: String) -> Bool {
+        text.trimmingCharacters(in: .whitespaces).hasPrefix("<!-- drawer:")
     }
 
     /// Per-line classification, produced with the exact fence and
@@ -99,28 +112,36 @@ public enum TodoParser {
     /// fence, for example -- treating it as a fence once let a replace run
     /// past the next heading and delete another day's tasks).
     enum LineRole: Equatable {
-        case fence   // a ``` line that toggles fence state
-        case fenced  // inside an open fence
-        case heading // a "## " section heading
-        case task    // a checkbox line in a keyed (date/backlog/archive) section
-        case note    // indented description line consumed by the task above
-        case plain   // anything else
+        case fence
+        case fenced
+        case heading
+        case task
+        case note
+        case plain
     }
 
     static func lineRoles(_ lines: [String]) -> [LineRole] {
         var roles = [LineRole](repeating: .plain, count: lines.count)
         var currentKey: String?
-        var inFence = false
+        var activeFence: Character?
         var i = 0
         while i < lines.count {
             let line = lines[i]
-            if isFenceLine(line) {
-                roles[i] = .fence
-                inFence.toggle()
-                i += 1
-                continue
+            if let marker = fenceMarker(line) {
+                if activeFence == nil {
+                    activeFence = marker
+                    roles[i] = .fence
+                    i += 1
+                    continue
+                }
+                if activeFence == marker {
+                    activeFence = nil
+                    roles[i] = .fence
+                    i += 1
+                    continue
+                }
             }
-            if inFence { roles[i] = .fenced; i += 1; continue }
+            if activeFence != nil { roles[i] = .fenced; i += 1; continue }
             if line.hasPrefix("## ") {
                 roles[i] = .heading
                 currentKey = sectionKey(fromHeading: line)
@@ -155,26 +176,31 @@ public enum TodoParser {
     public static func parse(_ text: String) -> [DaySection] {
         var itemsByDate: [String: [TodoItem]] = [:]
         var order: [String] = []
-        var occurrences: [String: Int] = [:] // date + "|" + rawLine
+        var occurrences: [String: Int] = [:]
         var currentDate: String?
         var currentSubsection: String?
-        var inFence = false
+        var activeFence: Character?
 
-        // Split on Character.isNewline: "\r\n" is a single grapheme in Swift,
-        // so splitting on "\n" alone would never split CRLF files.
         let lines = text.split(omittingEmptySubsequences: false, whereSeparator: \.isNewline)
             .map(String.init)
         var i = 0
         while i < lines.count {
             let line = lines[i]
-            if isFenceLine(line) {
-                inFence.toggle()
-                i += 1
-                continue
+            if let marker = fenceMarker(line) {
+                if activeFence == nil {
+                    activeFence = marker
+                    i += 1
+                    continue
+                }
+                if activeFence == marker {
+                    activeFence = nil
+                    i += 1
+                    continue
+                }
             }
-            if inFence { i += 1; continue }
+            if activeFence != nil { i += 1; continue }
             if line.hasPrefix("## ") {
-                currentSubsection = nil // subheadings don't outlive their section
+                currentSubsection = nil
                 if let key = sectionKey(fromHeading: line) {
                     currentDate = key
                     if itemsByDate[key] == nil {
@@ -182,7 +208,7 @@ public enum TodoParser {
                         order.append(key)
                     }
                 } else {
-                    currentDate = nil // non-date section: tasks below are not day tasks
+                    currentDate = nil
                 }
                 i += 1
                 continue
@@ -205,11 +231,12 @@ public enum TodoParser {
                 minutes = d.minutes
                 title = String(m.title[..<d.titleEnd]).trimmingCharacters(in: .whitespaces)
             }
-            // Indented lines right below the task are its description.
             var noteLines: [String] = []
             var j = i + 1
             while j < lines.count, isDescriptionLine(lines[j]) {
-                noteLines.append(lines[j].trimmingCharacters(in: .whitespaces))
+                if !isDrawerMetadataLine(lines[j]) {
+                    noteLines.append(lines[j].trimmingCharacters(in: .whitespaces))
+                }
                 j += 1
             }
             let note = noteLines.isEmpty ? nil : noteLines.joined(separator: "\n")
@@ -222,7 +249,7 @@ public enum TodoParser {
                 minutes: minutes, sectionDate: date, occurrence: occurrence,
                 subsection: currentSubsection, note: note
             ))
-            i = j // skip the consumed description lines
+            i = j
         }
         return order.map { DaySection(date: $0, items: itemsByDate[$0] ?? []) }
     }
@@ -234,26 +261,16 @@ public enum TodoParser {
         upcoming: [TodoItem], upcomingDate: String?,
         backlog: [TodoItem], archive: [TodoItem]
     ) {
-        // Backlog/Archive are not days; keep them out of the date
-        // comparisons below ("backlog" > "2026-..." as a string and would
-        // fake a Tomorrow).
         let days = sections.filter { isValidDate($0.date) }
         let backlog = sections.filter { $0.date == backlogKey }.flatMap(\.items)
         let archive = sections.filter { $0.date == archiveKey }.flatMap(\.items)
 
         let todayItems = days.filter { $0.date == today }.flatMap(\.items)
-        // Carry every unfinished task from ALL earlier days, oldest first.
-        // Taking only the nearest earlier day silently dropped anything left
-        // open on older days the moment a newer day section appeared.
-        // ISO dates compare and sort correctly as strings.
         let carried = days
             .filter { $0.date < today }
             .sorted { $0.date < $1.date }
             .flatMap(\.items)
             .filter { !$0.isDone }
-        // Next planned day, so an evening glance shows tomorrow's list.
-        // Includes checked items: hiding completed is the view's job
-        // (the "Hide completed" toggle), not a display-rule decision.
         let nearestUpcoming = days.map(\.date).filter { $0 > today }.min()
         let upcoming = nearestUpcoming.map { next in
             days.filter { $0.date == next }.flatMap(\.items)

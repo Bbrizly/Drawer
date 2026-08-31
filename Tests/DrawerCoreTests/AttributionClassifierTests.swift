@@ -98,13 +98,30 @@ final class AttributionClassifierTests: XCTestCase {
 
     func testStrongRuleSkipsMatcher() async {
         let store = RuleStore(rules: [])
-        var called = false
-        let spy = SpyMatcher { called = true }
+        let called = ThreadSafeFlag()
+        let spy = SpyMatcher { called.set() }
         let classifier = TaskAttributionClassifier(ruleStore: store, matcher: spy)
         _ = await classifier.classify(
             block: block(app: "Xcode", bundle: "com.apple.dt.Xcode", titles: ["TodoParser.swift"]),
             candidates: [candidate("t1", "Fix parser")])
-        XCTAssertFalse(called, "a confident rule match must not consult the model")
+        XCTAssertFalse(called.value, "a confident rule match must not consult the model")
+    }
+}
+
+private final class ThreadSafeFlag: @unchecked Sendable {
+    private let lock = NSLock()
+    private var storage = false
+
+    var value: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return storage
+    }
+
+    func set() {
+        lock.lock()
+        storage = true
+        lock.unlock()
     }
 }
 

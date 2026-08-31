@@ -38,7 +38,7 @@ public enum TodoArchiver {
         let newline = text.contains("\r\n") ? "\r\n" : "\n"
         // omittingEmptySubsequences:false keeps blank lines and any trailing
         // empty line, so a join with `newline` reproduces the file exactly.
-        var lines = text.split(omittingEmptySubsequences: false, whereSeparator: \.isNewline)
+        let lines = text.split(omittingEmptySubsequences: false, whereSeparator: \.isNewline)
             .map(String.init)
 
         // Phase 1: find done-task blocks under dated sections older than cutoff.
