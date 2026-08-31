@@ -6,6 +6,7 @@ struct QuickCaptureBar: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @SceneStorage("drawer.capture.draft.v1") private var text = ""
     @SceneStorage("drawer.capture.destination.v1") private var destinationRawValue = DrawerTaskDestination.today.rawValue
+    @SceneStorage("drawer.capture.handled-token.v1") private var handledCaptureToken = 0
     @State private var actionFeedback: DrawerActionFeedbackPayload?
     @FocusState private var focused: Bool
 
@@ -82,8 +83,9 @@ struct QuickCaptureBar: View {
         .padding(.top, 7)
         .padding(.bottom, 8)
         .background(.clear)
-        .onChange(of: model.captureRequestToken) { _, _ in
-            focused = true
+        .onAppear { handleCaptureRequest(model.captureRequestToken) }
+        .onChange(of: model.captureRequestToken) { _, token in
+            handleCaptureRequest(token)
         }
         .onReceive(NotificationCenter.default.publisher(for: .drawerActionFeedback)) { notification in
             guard let payload = notification.object as? DrawerActionFeedbackPayload else { return }
@@ -140,6 +142,14 @@ struct QuickCaptureBar: View {
         .shadow(color: .black.opacity(0.08), radius: 14, y: 6)
         .padding(.horizontal, 18)
         .accessibilityElement(children: .combine)
+    }
+
+    private func handleCaptureRequest(_ token: Int) {
+        guard token > 0, token != handledCaptureToken else { return }
+        handledCaptureToken = token
+        // Dispatch one turn so a cold-launch deep link can create the field
+        // before asking the system to present the keyboard.
+        DispatchQueue.main.async { focused = true }
     }
 
     private func save() {
