@@ -23,15 +23,39 @@ struct DrawerWidgetProvider: TimelineProvider {
     }
 
     func getTimeline(in context: Context, completion: @escaping (Timeline<DrawerWidgetEntry>) -> Void) {
+        let now = Date()
+        let feedback = WidgetInteractionFeedbackStore.current(now: now)
         let entry = DrawerWidgetEntry(
-            date: Date(),
+            date: now,
             snapshot: WidgetSnapshotStore.current(),
-            interactionFeedback: WidgetInteractionFeedbackStore.current()
+            interactionFeedback: feedback
         )
         completion(Timeline(
             entries: [entry],
-            policy: .after(Date().addingTimeInterval(15 * 60))
+            policy: .after(nextRefreshDate(after: now, feedback: feedback))
         ))
+    }
+
+    private func nextRefreshDate(
+        after now: Date,
+        feedback: WidgetInteractionFeedback?
+    ) -> Date {
+        var candidates = [now.addingTimeInterval(15 * 60)]
+        let calendar = Calendar.current
+
+        if let nextDay = calendar.date(
+            byAdding: .day,
+            value: 1,
+            to: calendar.startOfDay(for: now)
+        ) {
+            candidates.append(nextDay.addingTimeInterval(1))
+        }
+
+        if let feedback {
+            candidates.append(feedback.occurredAt.addingTimeInterval(5 * 60 + 1))
+        }
+
+        return candidates.filter { $0 > now }.min() ?? now.addingTimeInterval(15 * 60)
     }
 }
 
@@ -51,6 +75,7 @@ struct DrawerWidget: Widget {
         .configurationDisplayName("Drawer")
         .description("Your day, straight from Drawer.md.")
         .supportedFamilies([
+            .systemSmall,
             .systemMedium,
             .systemLarge,
             .accessoryRectangular,
@@ -66,6 +91,8 @@ private struct DrawerWidgetView: View {
 
     var body: some View {
         switch family {
+        case .systemSmall:
+            smallWidget
         case .accessoryCircular:
             accessoryCircular
         case .accessoryRectangular:
@@ -75,6 +102,88 @@ private struct DrawerWidgetView: View {
         default:
             homeWidget(maxTasks: 4, large: false)
         }
+    }
+
+    private var smallWidget: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .firstTextBaseline, spacing: 5) {
+                Text("DRAWER")
+                    .font(.caption2.weight(.heavy))
+                    .tracking(0.8)
+                    .foregroundStyle(.secondary)
+                Spacer(minLength: 4)
+                if interactionFeedback != nil {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .font(.caption2.weight(.bold))
+                        .foregroundStyle(.orange)
+                }
+                if !snapshot.todayKey.isEmpty {
+                    Text("\(snapshot.remaining)")
+                        .font(.caption.weight(.bold))
+                        .monospacedDigit()
+                        .foregroundStyle(.secondary)
+                        .invalidatableContent()
+                }
+            }
+
+            if snapshot.todayKey.isEmpty {
+                Spacer(minLength: 0)
+                Image(systemName: "doc.badge.plus")
+                    .font(.title2)
+                    .foregroundStyle(.secondary)
+                Text("Connect Drawer.md")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+                Spacer(minLength: 0)
+            } else if let next = snapshot.actionableTasks.first {
+                Text(next.title)
+                    .font(.headline.weight(next.isInProgress ? .semibold : .medium))
+                    .lineLimit(3)
+                    .privacySensitive()
+                    .invalidatableContent()
+
+                Spacer(minLength: 0)
+
+                HStack(alignment: .center, spacing: 8) {
+                    if next.minutes != 25 {
+                        Text("\(next.minutes)m")
+                            .font(.caption2.weight(.bold))
+                            .monospacedDigit()
+                            .foregroundStyle(.tertiary)
+                    } else {
+                        Text(next.bucket == .carried ? "Carried" : "Next")
+                            .font(.caption2.weight(.semibold))
+                            .foregroundStyle(.tertiary)
+                    }
+
+                    Spacer(minLength: 2)
+
+                    Button(intent: ToggleDrawerTaskIntent(task: next)) {
+                        Image(systemName: next.isInProgress ? "circle.lefthalf.filled" : "circle")
+                            .font(.system(size: 18, weight: .semibold))
+                            .symbolRenderingMode(.hierarchical)
+                            .foregroundStyle(next.isInProgress ? AnyShapeStyle(.tint) : AnyShapeStyle(.secondary))
+                            .frame(width: 34, height: 34)
+                            .background(.quaternary.opacity(0.55), in: Circle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Complete \(next.title)")
+                }
+            } else {
+                Spacer(minLength: 0)
+                Image(systemName: "checkmark.circle.fill")
+                    .font(.title2)
+                    .foregroundStyle(.tint)
+                Text("You're clear.")
+                    .font(.headline.weight(.semibold))
+                Text("Nothing left today")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                Spacer(minLength: 0)
+            }
+        }
+        .widgetURL(URL(string: "drawer://today"))
     }
 
     private func homeWidget(maxTasks: Int, large: Bool) -> some View {
