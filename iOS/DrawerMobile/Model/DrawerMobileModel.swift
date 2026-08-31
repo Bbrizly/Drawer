@@ -88,18 +88,12 @@ final class DrawerMobileModel: ObservableObject {
         guard let document else { return }
         if active {
             startObserving(document)
-            // Date-derived buckets can change while the app is backgrounded
-            // even when Drawer.md itself has not changed.
             reload()
         } else {
             document.stopObserving()
         }
     }
 
-    /// Re-evaluates all date-derived state after midnight, a timezone change,
-    /// or a significant system-clock change. The data cache deliberately keys
-    /// on both canonical bytes and the local day so unchanged Markdown cannot
-    /// leave Today/Carried stale.
     func handleSignificantTimeChange() {
         reload()
     }
@@ -115,17 +109,20 @@ final class DrawerMobileModel: ObservableObject {
             let today = DrawerDate.todayKey()
             if data == lastAppliedData, today == lastAppliedDayKey { return }
 
-            // Keep parity with the desktop store's small automatic cleanup.
-            if let text = String(data: data, encoding: .utf8) {
-                let swept = TodoArchiver.archiveCompleted(
-                    in: text,
-                    today: today
-                )
+            // Canonical normalization is one coordinated write: first repair
+            // externally-completed recurring series, then run the same small
+            // completed-task archive sweep used by desktop Drawer.
+            var normalized = try TodoRecurrenceWriteback.reconcile(in: data, today: today)
+            if let text = String(data: normalized, encoding: .utf8) {
+                let swept = TodoArchiver.archiveCompleted(in: text, today: today)
                 if swept != text, let sweptData = swept.data(using: .utf8) {
-                    try document.write(sweptData)
-                    apply(try document.read())
-                    return
+                    normalized = sweptData
                 }
+            }
+            if normalized != data {
+                try document.write(normalized)
+                apply(try document.read())
+                return
             }
             apply(data)
         } catch {
@@ -135,11 +132,60 @@ final class DrawerMobileModel: ObservableObject {
 
     @discardableResult
     func toggle(_ item: TodoItem) -> Bool {
-        commit { data in
-            try TodoWriteback.toggle(
+        // A completed recurring occurrence already has a successor. Reopening
+        // it would create two active members of one series, so history stays
+        // immutable until a dedicated series-history editor exists.
+        if item.isDone, recurrence(for: item) != nil {
+            statusMessage = "Completed repeating occurrences stay in history. Edit the active copy instead."
+            DrawerHaptics.shared.error()
+            return false
+        }
+
+        return commit { data in
+            if try TodoRecurrenceWriteback.recurrence(for: item, in: data) != nil {
+                return try TodoRecurrenceWriteback.completeAndAdvance(
+                    item: item,
+                    today: DrawerDate.todayKey(),
+                    in: data
+                )
+            }
+            return try TodoWriteback.toggle(
                 line: item.rawLine,
                 sectionDate: item.sectionDate,
                 occurrence: item.occurrence,
+                in: data
+            )
+        } != nil
+    }
+
+    func recurrence(for item: TodoItem) -> TodoRecurrence? {
+        guard let document else { return nil }
+        do {
+            return try TodoRecurrenceWriteback.recurrence(for: item, in: document.read())
+        } catch {
+            return nil
+        }
+    }
+
+    @discardableResult
+    func setRecurrence(_ item: TodoItem, rule: TodoRecurrenceRule?) -> Bool {
+        commit { data in
+            try TodoRecurrenceWriteback.setRecurrence(
+                for: item,
+                rule: rule,
+                today: DrawerDate.todayKey(),
+                in: data
+            )
+        } != nil
+    }
+
+    @discardableResult
+    func skipRecurring(_ item: TodoItem) -> Bool {
+        guard recurrence(for: item) != nil, !item.isDone else { return false }
+        return commit { data in
+            try TodoRecurrenceWriteback.skipAndAdvance(
+                item: item,
+                today: DrawerDate.todayKey(),
                 in: data
             )
         } != nil
@@ -189,7 +235,7 @@ final class DrawerMobileModel: ObservableObject {
     @discardableResult
     func setNote(_ item: TodoItem, _ note: String) -> Bool {
         commit { data in
-            try TodoWriteback.setNote(
+            try TodoMetadataWriteback.setNote(
                 line: item.rawLine,
                 sectionDate: item.sectionDate,
                 occurrence: item.occurrence,
@@ -240,11 +286,7 @@ final class DrawerMobileModel: ObservableObject {
             )
         }) else { return false }
 
-        armUndo(
-            label: "Moved to \(destination.title)",
-            original: result.before,
-            expectedCurrent: result.after
-        )
+        armUndo(label: "Moved to \(destination.title)", original: result.before, expectedCurrent: result.after)
         return true
     }
 
@@ -259,11 +301,7 @@ final class DrawerMobileModel: ObservableObject {
             )
         }) else { return false }
 
-        armUndo(
-            label: "Deleted \(item.title)",
-            original: result.before,
-            expectedCurrent: result.after
-        )
+        armUndo(label: "Deleted \(item.title)", original: result.before, expectedCurrent: result.after)
         return true
     }
 
@@ -281,9 +319,7 @@ final class DrawerMobileModel: ObservableObject {
             }
             try document.write(payload.originalData)
             let canonical = try document.read()
-            guard canonical == payload.originalData else {
-                throw CocoaError(.fileWriteUnknown)
-            }
+            guard canonical == payload.originalData else { throw CocoaError(.fileWriteUnknown) }
             clearUndo()
             apply(canonical)
             return true
@@ -360,10 +396,7 @@ final class DrawerMobileModel: ObservableObject {
             return
         }
         let today = DrawerDate.todayKey()
-        let display = TodoParser.display(
-            sections: TodoParser.parse(text),
-            today: today
-        )
+        let display = TodoParser.display(sections: TodoParser.parse(text), today: today)
         carriedItems = display.carried
         todayItems = display.today
         upcomingItems = display.upcoming
@@ -385,16 +418,13 @@ final class DrawerMobileModel: ObservableObject {
             WidgetCenter.shared.reloadAllTimelines()
         } catch {
             // Widget cache failure must never block canonical Markdown writes.
-            // The next successful app refresh tries again.
         }
     }
 
     private func openStoredDocument() {
         do {
             document?.stopObserving()
-            let newDocument = CoordinatedDrawerDocument(
-                session: try DrawerBookmarkStore.openSession()
-            )
+            let newDocument = CoordinatedDrawerDocument(session: try DrawerBookmarkStore.openSession())
             document = newDocument
             sourceName = newDocument.url.lastPathComponent
             connectionState = .connected
@@ -426,11 +456,7 @@ final class DrawerMobileModel: ObservableObject {
 
     private func armUndo(label: String, original: Data, expectedCurrent: Data) {
         undoExpiryTask?.cancel()
-        undoPayload = UndoPayload(
-            label: label,
-            originalData: original,
-            expectedCurrentData: expectedCurrent
-        )
+        undoPayload = UndoPayload(label: label, originalData: original, expectedCurrentData: expectedCurrent)
         undoLabel = label
         undoExpiryTask = Task { [weak self] in
             try? await Task.sleep(for: .seconds(6))
