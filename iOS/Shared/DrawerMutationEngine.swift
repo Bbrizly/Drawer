@@ -14,8 +14,20 @@ enum DrawerMutationEngine {
 
     @discardableResult
     static func toggle(_ task: WidgetTask) throws -> WidgetSnapshot {
-        try mutate { data in
-            try TodoWriteback.toggle(
+        let item = task.todoItem
+        return try mutate { data in
+            if try TodoRecurrenceWriteback.recurrence(for: item, in: data) != nil {
+                // Widget and Shortcut completion must obey the same series
+                // invariant as the app: complete the current occurrence and
+                // create exactly one successor in the canonical Markdown.
+                if item.isDone { return data }
+                return try TodoRecurrenceWriteback.completeAndAdvance(
+                    item: item,
+                    today: DrawerDate.todayKey(),
+                    in: data
+                )
+            }
+            return try TodoWriteback.toggle(
                 line: task.rawLine,
                 sectionDate: task.sectionDate,
                 occurrence: task.occurrence,
@@ -87,5 +99,19 @@ enum DrawerMutationEngine {
         let snapshot = WidgetSnapshot.make(from: canonical, todayKey: todayKey)
         try WidgetSnapshotStore.write(snapshot)
         return snapshot
+    }
+}
+
+private extension WidgetTask {
+    var todoItem: TodoItem {
+        TodoItem(
+            rawLine: rawLine,
+            title: title,
+            isDone: isDone,
+            isInProgress: isInProgress,
+            minutes: minutes,
+            sectionDate: sectionDate,
+            occurrence: occurrence
+        )
     }
 }
