@@ -19,12 +19,17 @@ enum DrawerBookmarkError: LocalizedError {
 
 enum DrawerBookmarkStore {
     static var hasBookmark: Bool {
-        DrawerShared.defaults.data(forKey: DrawerShared.bookmarkKey) != nil
+        guard DrawerShared.containerURL != nil else { return false }
+        return DrawerShared.defaults.data(forKey: DrawerShared.bookmarkKey) != nil
     }
 
     /// Persist the document picker grant. On iOS the bookmark itself uses the
     /// normal bookmark format; the picker URL carries the user-granted scope.
     static func save(_ pickedURL: URL) throws {
+        guard DrawerShared.containerURL != nil else {
+            throw DrawerBookmarkError.appGroupUnavailable
+        }
+
         let started = pickedURL.startAccessingSecurityScopedResource()
         defer {
             if started { pickedURL.stopAccessingSecurityScopedResource() }
@@ -46,6 +51,9 @@ enum DrawerBookmarkStore {
     }
 
     static func openSession() throws -> DrawerFileSession {
+        guard DrawerShared.containerURL != nil else {
+            throw DrawerBookmarkError.appGroupUnavailable
+        }
         guard let data = DrawerShared.defaults.data(forKey: DrawerShared.bookmarkKey) else {
             throw DrawerBookmarkError.missingBookmark
         }
