@@ -98,17 +98,31 @@ final class DrawerMobileSharedTests: XCTestCase {
         XCTAssertEqual(try session.read(), updated)
     }
 
-    func testProviderErrorsKeepUsefulRecoverySemantics() {
-        let transient = DrawerFileAccessError.providerUnavailable(.files)
-        XCTAssertTrue(transient.isTransient)
+    func testProviderErrorsDistinguishAutomaticRetryFromGrantPreservation() {
+        let unavailable = DrawerFileAccessError.providerUnavailable(.files)
+        XCTAssertTrue(unavailable.isTransient)
+        XCTAssertTrue(unavailable.preservesSelectedGrant)
         XCTAssertEqual(
-            transient.widgetMessage,
+            unavailable.widgetMessage,
             "Drawer.md's Files provider is unavailable. Open Drawer to retry."
         )
 
+        let authentication = DrawerFileAccessError.authenticationRequired(.files)
+        XCTAssertFalse(authentication.isTransient)
+        XCTAssertTrue(authentication.preservesSelectedGrant)
+
+        let conflict = DrawerFileAccessError.iCloudConflict
+        XCTAssertFalse(conflict.isTransient)
+        XCTAssertTrue(conflict.preservesSelectedGrant)
+
         let permission = DrawerFileAccessError.permissionDenied
         XCTAssertFalse(permission.isTransient)
+        XCTAssertFalse(permission.preservesSelectedGrant)
         XCTAssertEqual(permission.widgetMessage, "Open Drawer to reconnect Drawer.md.")
+
+        let missing = DrawerFileAccessError.itemMissing
+        XCTAssertFalse(missing.isTransient)
+        XCTAssertFalse(missing.preservesSelectedGrant)
     }
 
     func testObsidianLinkStripsAlias() {
