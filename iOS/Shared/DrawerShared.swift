@@ -53,7 +53,6 @@ struct DrawerFocusActivityAttributes: ActivityAttributes {
 
     let sessionID: UUID
     let taskTitle: String
-    let targetDuration: TimeInterval
 }
 
 enum DrawerFocusStore {
