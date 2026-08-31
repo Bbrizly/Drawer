@@ -152,8 +152,9 @@ enum WidgetSnapshotStore {
     /// Best-effort canonical refresh for WidgetKit and App Intent queries.
     /// External Obsidian/iCloud edits and a new local day should appear even if
     /// the Drawer app itself has not launched. If the provider refuses access,
-    /// or if the external file is temporarily invalid UTF-8, preserve the last
-    /// known-good cache rather than manufacturing an empty task state.
+    /// if iCloud is still materializing the canonical file, or if the external
+    /// file is temporarily invalid UTF-8, preserve the last known-good cache
+    /// rather than manufacturing an empty or stale task state.
     static func current(todayKey: String = DrawerDate.todayKey()) -> WidgetSnapshot {
         let cached = read()
         do {
@@ -190,9 +191,10 @@ struct WidgetInteractionFeedback: Equatable, Sendable {
 }
 
 /// A widget mutation may fail even while its last snapshot remains valid—for
-/// example when a File Provider temporarily refuses the extension's bookmark.
-/// Keep failure UI separate from task truth so the widget can say "still old"
-/// without ever pretending the Markdown mutation succeeded.
+/// example when iCloud has evicted Drawer.md or a File Provider temporarily
+/// refuses the extension's bookmark. Keep failure UI separate from task truth
+/// so the widget can say "still old" without ever pretending the Markdown
+/// mutation succeeded.
 enum WidgetInteractionFeedbackStore {
     private static let messageKey = "drawer.widget.interaction-error.message.v1"
     private static let dateKey = "drawer.widget.interaction-error.date.v1"
@@ -200,7 +202,9 @@ enum WidgetInteractionFeedbackStore {
 
     static func recordFailure(_ error: Error) {
         let message: String
-        if error is DrawerBookmarkError {
+        if let accessError = error as? DrawerFileAccessError {
+            message = accessError.widgetMessage
+        } else if error is DrawerBookmarkError {
             message = "Open Drawer to reconnect Drawer.md."
         } else {
             message = "Update failed. Open Drawer and try again."

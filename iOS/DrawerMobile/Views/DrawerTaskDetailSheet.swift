@@ -16,6 +16,7 @@ struct DrawerTaskDetailSheet: View {
     @State private var savedNote: String
     @State private var noteFeedback: NoteFeedback?
     @State private var recurrence: TodoRecurrence?
+    @State private var showingEditor = false
     @FocusState private var noteFocused: Bool
 
     init(model: DrawerMobileModel, item: TodoItem) {
@@ -55,6 +56,21 @@ struct DrawerTaskDetailSheet: View {
         .onChange(of: noteDraft) { _, _ in
             if noteDraft != savedNote { noteFeedback = nil }
         }
+        .sheet(isPresented: $showingEditor) {
+            DrawerTaskEditSheet(
+                model: model,
+                item: item,
+                initialNote: noteDraft
+            ) {
+                // Editing the title or duration changes TodoItem's raw-line
+                // identity. Close this stale detail surface immediately after
+                // the single canonical transaction succeeds.
+                dismiss()
+            }
+            .presentationDetents([.large])
+            .presentationDragIndicator(.visible)
+            .presentationCornerRadius(30)
+        }
     }
 
     private var taskHeader: some View {
@@ -80,10 +96,25 @@ struct DrawerTaskDetailSheet: View {
                 }
             }
 
-            Text(item.title)
-                .font(.system(size: 27, weight: .bold, design: .rounded))
-                .tracking(-0.5)
-                .fixedSize(horizontal: false, vertical: true)
+            HStack(alignment: .top, spacing: 10) {
+                Text(item.title)
+                    .font(.system(.title2, design: .rounded, weight: .bold))
+                    .tracking(-0.3)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+
+                Button {
+                    showingEditor = true
+                } label: {
+                    Image(systemName: "pencil")
+                        .font(.system(size: 14, weight: .bold))
+                        .foregroundStyle(.secondary)
+                        .frame(width: 44, height: 44)
+                        .background(.quaternary.opacity(0.55), in: Circle())
+                }
+                .buttonStyle(TactileButtonStyle(pressedScale: 0.92))
+                .accessibilityLabel("Edit task")
+            }
 
             if recurrence != nil, item.minutes != 25 {
                 Label("\(item.minutes)m", systemImage: "timer")
@@ -102,7 +133,7 @@ struct DrawerTaskDetailSheet: View {
             Label("Focus for \(item.minutes) min", systemImage: "timer")
                 .font(.headline)
                 .frame(maxWidth: .infinity)
-                .frame(height: 52)
+                .frame(minHeight: 52)
                 .foregroundStyle(.white)
                 .background(.tint, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
         }
@@ -128,6 +159,7 @@ struct DrawerTaskDetailSheet: View {
                     }
                     Button(noteFeedback == .failed ? "Retry" : "Save") { saveNote() }
                         .font(.subheadline.weight(.semibold))
+                        .frame(minHeight: 44)
                 } else if noteFeedback == .saved {
                     Label("Saved", systemImage: "checkmark.circle.fill")
                         .font(.caption.weight(.semibold))
@@ -152,6 +184,7 @@ struct DrawerTaskDetailSheet: View {
                             .allowsHitTesting(false)
                     }
                 }
+                .accessibilityLabel("Task note")
         }
     }
 
@@ -188,7 +221,7 @@ struct DrawerTaskDetailSheet: View {
                 }
                 .foregroundStyle(.primary)
                 .padding(.horizontal, 14)
-                .frame(height: 54)
+                .frame(minHeight: 54)
                 .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
             }
             .buttonStyle(TactileButtonStyle(pressedScale: 0.99))
@@ -254,6 +287,7 @@ struct DrawerTaskDetailSheet: View {
                         .foregroundStyle(.tertiary)
                 }
                 .padding(14)
+                .frame(minHeight: 50)
                 .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
             }
             .buttonStyle(TactileButtonStyle(pressedScale: 0.99))
@@ -277,7 +311,7 @@ struct DrawerTaskDetailSheet: View {
             Label("Delete Task", systemImage: "trash")
                 .font(.subheadline.weight(.semibold))
                 .frame(maxWidth: .infinity)
-                .frame(height: 48)
+                .frame(minHeight: 50)
                 .background(Color.red.opacity(0.10), in: RoundedRectangle(cornerRadius: 15, style: .continuous))
         }
         .buttonStyle(TactileButtonStyle(pressedScale: 0.99))
@@ -294,7 +328,7 @@ struct DrawerTaskDetailSheet: View {
         }
         .foregroundStyle(.primary)
         .padding(.horizontal, 14)
-        .frame(height: 50)
+        .frame(minHeight: 50)
         .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
     }
 
@@ -348,6 +382,170 @@ struct DrawerTaskDetailSheet: View {
         case .today: item.sectionDate == DrawerDate.todayKey()
         case .tomorrow: item.sectionDate == DrawerDate.tomorrowKey()
         case .backlog: item.sectionDate == TodoParser.backlogKey
+        }
+    }
+}
+
+private struct DrawerTaskEditSheet: View {
+    @ObservedObject var model: DrawerMobileModel
+    let item: TodoItem
+    let onSaved: () -> Void
+
+    @Environment(\.dismiss) private var dismiss
+    @State private var title: String
+    @State private var minutes: Int
+    @State private var note: String
+    @FocusState private var titleFocused: Bool
+
+    private let durationChoices = [15, 25, 30, 45, 60, 90, 120]
+
+    init(
+        model: DrawerMobileModel,
+        item: TodoItem,
+        initialNote: String,
+        onSaved: @escaping () -> Void
+    ) {
+        self.model = model
+        self.item = item
+        self.onSaved = onSaved
+        _title = State(initialValue: item.title)
+        _minutes = State(initialValue: item.minutes)
+        _note = State(initialValue: initialNote)
+    }
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 24) {
+                    editSection("TITLE") {
+                        TextField("Task title", text: $title, axis: .vertical)
+                            .focused($titleFocused)
+                            .font(.title3.weight(.semibold))
+                            .textInputAutocapitalization(.sentences)
+                            .submitLabel(.done)
+                            .padding(14)
+                            .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                            .accessibilityLabel("Task title")
+                    }
+
+                    editSection("FOCUS LENGTH") {
+                        Menu {
+                            ForEach(durationChoices, id: \.self) { choice in
+                                Button {
+                                    minutes = choice
+                                    DrawerHaptics.shared.progressChanged()
+                                } label: {
+                                    if minutes == choice {
+                                        Label("\(choice) minutes", systemImage: "checkmark")
+                                    } else {
+                                        Text("\(choice) minutes")
+                                    }
+                                }
+                            }
+                        } label: {
+                            HStack(spacing: 12) {
+                                Image(systemName: "timer")
+                                    .frame(width: 22)
+                                Text("\(minutes) min")
+                                    .font(.headline)
+                                    .monospacedDigit()
+                                Spacer()
+                                Image(systemName: "chevron.up.chevron.down")
+                                    .font(.caption2.weight(.bold))
+                                    .foregroundStyle(.tertiary)
+                            }
+                            .foregroundStyle(.primary)
+                            .padding(.horizontal, 14)
+                            .frame(minHeight: 54)
+                            .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                        }
+                        .buttonStyle(TactileButtonStyle(pressedScale: 0.99))
+                        .accessibilityLabel("Focus length, \(minutes) minutes")
+
+                        if !durationChoices.contains(minutes) {
+                            Text("Keeping the custom \(minutes)-minute length from Drawer.md. Choose a preset to change it.")
+                                .font(.caption)
+                                .foregroundStyle(.tertiary)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                    }
+
+                    editSection("NOTE") {
+                        TextEditor(text: $note)
+                            .font(.body)
+                            .scrollContentBackground(.hidden)
+                            .frame(minHeight: 150)
+                            .padding(10)
+                            .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                            .accessibilityLabel("Task note")
+                    }
+
+                    HStack(spacing: 8) {
+                        Image(systemName: "doc.text")
+                        Text("Save writes this edit directly to \(model.sourceName) in one transaction.")
+                    }
+                    .font(.caption)
+                    .foregroundStyle(.tertiary)
+                }
+                .padding(.horizontal, 20)
+                .padding(.top, 12)
+                .padding(.bottom, 36)
+            }
+            .navigationTitle("Edit Task")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Save") { save() }
+                        .fontWeight(.semibold)
+                        .disabled(!canSave)
+                }
+            }
+        }
+        .interactiveDismissDisabled(hasChanges)
+    }
+
+    private var cleanTitle: String {
+        title.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private var cleanNote: String {
+        note.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private var hasChanges: Bool {
+        cleanTitle != item.title ||
+            minutes != item.minutes ||
+            cleanNote != (item.note ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private var canSave: Bool {
+        !cleanTitle.isEmpty && (1...480).contains(minutes) && hasChanges
+    }
+
+    @ViewBuilder
+    private func editSection<Content: View>(
+        _ title: String,
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 9) {
+            Text(title)
+                .font(.caption.weight(.bold))
+                .tracking(0.7)
+                .foregroundStyle(.secondary)
+            content()
+        }
+    }
+
+    private func save() {
+        guard canSave else { return }
+        if model.updateTask(item, title: cleanTitle, minutes: minutes, note: note) {
+            DrawerHaptics.shared.saved()
+            DrawerActionFeedbackCenter.success("Task updated", systemImage: "checkmark.circle.fill")
+            dismiss()
+            DispatchQueue.main.async(execute: onSaved)
         }
     }
 }

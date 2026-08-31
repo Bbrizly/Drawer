@@ -20,6 +20,7 @@ struct FocusStrip: View {
                     .font(.system(size: 17, weight: .bold))
                     .foregroundStyle(.tint)
             }
+            .accessibilityHidden(true)
 
             VStack(alignment: .leading, spacing: 3) {
                 Text(timer.phase == .finished ? "Focus complete" : timer.taskTitle)
@@ -35,13 +36,16 @@ struct FocusStrip: View {
             Spacer(minLength: 8)
 
             if timer.phase == .finished {
-                Button("Done") {
+                Button("Close") {
                     model.resetFocus()
                     DrawerHaptics.shared.focusDismissed()
+                    DrawerActionFeedbackCenter.announce("Focus session closed")
                 }
                 .font(.subheadline.weight(.bold))
                 .buttonStyle(.borderedProminent)
                 .buttonBorderShape(.capsule)
+                .frame(minHeight: 44)
+                .accessibilityHint("Closes the timer without changing the task")
             } else {
                 Button {
                     switch timer.phase {
@@ -57,23 +61,27 @@ struct FocusStrip: View {
                 } label: {
                     Image(systemName: timer.phase == .running ? "pause.fill" : "play.fill")
                         .font(.system(size: 14, weight: .bold))
-                        .frame(width: 36, height: 36)
+                        .frame(width: 44, height: 44)
                         .background(.quaternary.opacity(0.6), in: Circle())
+                        .contentShape(Circle())
                 }
-                .buttonStyle(TactileButtonStyle(pressedScale: 0.91))
+                .buttonStyle(TactileButtonStyle(pressedScale: 0.91, pressedOpacity: 0.96))
                 .accessibilityLabel(timer.phase == .running ? "Pause focus" : "Resume focus")
 
                 Button {
                     model.resetFocus()
-                    DrawerHaptics.shared.progressChanged()
+                    DrawerHaptics.shared.focusDismissed()
+                    DrawerActionFeedbackCenter.announce("Focus ended")
                 } label: {
                     Image(systemName: "xmark")
                         .font(.system(size: 12, weight: .bold))
                         .foregroundStyle(.secondary)
-                        .frame(width: 32, height: 32)
+                        .frame(width: 44, height: 44)
+                        .contentShape(Circle())
                 }
-                .buttonStyle(TactileButtonStyle(pressedScale: 0.91))
+                .buttonStyle(TactileButtonStyle(pressedScale: 0.91, pressedOpacity: 0.96))
                 .accessibilityLabel("End focus")
+                .accessibilityHint("Stops the timer without changing the task")
             }
         }
         .padding(.horizontal, 13)

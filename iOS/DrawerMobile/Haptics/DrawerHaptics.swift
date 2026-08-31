@@ -165,18 +165,21 @@ final class DrawerHaptics {
     }
 }
 
+/// Press treatment should read as physical depth, not as a disabled/faded
+/// control. The scale change carries most of the tactile illusion; opacity only
+/// softens very slightly so text/icons remain crisp through rapid repeated taps.
 struct TactileButtonStyle: ButtonStyle {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var pressedScale: CGFloat = 0.975
-    var pressedOpacity: Double = 0.9
+    var pressedOpacity: Double = 0.96
 
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .scaleEffect(configuration.isPressed ? pressedScale : 1)
             .opacity(configuration.isPressed ? pressedOpacity : 1)
             .animation(
-                reduceMotion ? nil : .spring(response: 0.18, dampingFraction: 0.72),
+                reduceMotion ? nil : .spring(response: 0.15, dampingFraction: 0.78),
                 value: configuration.isPressed
             )
     }

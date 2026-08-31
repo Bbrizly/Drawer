@@ -5,5 +5,6 @@ import WidgetKit
 struct DrawerWidgetsBundle: WidgetBundle {
     var body: some Widget {
         DrawerWidget()
+        DrawerFocusLiveActivity()
     }
 }

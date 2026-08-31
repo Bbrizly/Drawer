@@ -29,7 +29,7 @@ struct DrawerHomeView: View {
                     }
 
                     if let status = model.statusMessage, !status.isEmpty {
-                        statusBanner(status)
+                        statusBanner(status, tone: model.statusTone)
                     }
 
                     if !visibleCarried.isEmpty {
@@ -38,7 +38,7 @@ struct DrawerHomeView: View {
 
                     todaySection
 
-                    if !model.upcomingItems.isEmpty {
+                    if !visibleUpcoming.isEmpty {
                         collapsibleSection(
                             title: model.upcomingLabel.isEmpty ? "Next" : model.upcomingLabel,
                             count: visibleUpcoming.count,
@@ -47,7 +47,7 @@ struct DrawerHomeView: View {
                         )
                     }
 
-                    if !model.backlogItems.isEmpty {
+                    if !visibleBacklog.isEmpty {
                         collapsibleSection(title: "Backlog", count: visibleBacklog.count, isExpanded: $showBacklog, items: visibleBacklog)
                     }
 
@@ -72,7 +72,7 @@ struct DrawerHomeView: View {
                     } label: {
                         Image(systemName: "ellipsis")
                             .font(.system(size: 17, weight: .semibold))
-                            .frame(width: 36, height: 36)
+                            .frame(width: 44, height: 44)
                     }
                     .accessibilityLabel("Drawer options")
                 }
@@ -92,28 +92,53 @@ struct DrawerHomeView: View {
     }
 
     private var dayHeader: some View {
-        HStack(alignment: .bottom, spacing: 16) {
-            VStack(alignment: .leading, spacing: 3) {
-                Text(Date.now.formatted(.dateTime.weekday(.wide)))
-                    .font(.system(size: 34, weight: .bold, design: .rounded))
-                    .tracking(-1.1)
-                Text(Date.now.formatted(.dateTime.month(.wide).day()))
-                    .font(.subheadline.weight(.medium))
-                    .foregroundStyle(.secondary)
+        ViewThatFits(in: .horizontal) {
+            HStack(alignment: .bottom, spacing: 16) {
+                dayIdentity
+                Spacer(minLength: 10)
+                remainingBadge
             }
-            Spacer(minLength: 10)
-            VStack(alignment: .trailing, spacing: 2) {
-                Text("\(model.remainingCount)")
-                    .font(.system(size: 28, weight: .semibold, design: .rounded))
-                    .monospacedDigit()
-                Text("left").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+
+            VStack(alignment: .leading, spacing: 10) {
+                dayIdentity
+                HStack(spacing: 5) {
+                    Text("\(model.remainingCount)")
+                        .font(.system(.title2, design: .rounded, weight: .semibold))
+                        .monospacedDigit()
+                    Text("left")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                }
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel("\(model.remainingCount) tasks remaining")
             }
-            .accessibilityElement(children: .ignore)
-            .accessibilityLabel("\(model.remainingCount) tasks remaining")
         }
         .padding(.horizontal, 4)
         .padding(.top, 8)
         .padding(.bottom, 2)
+    }
+
+    private var dayIdentity: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text(Date.now.formatted(.dateTime.weekday(.wide)))
+                .font(.system(.largeTitle, design: .rounded, weight: .bold))
+                .tracking(-0.8)
+                .fixedSize(horizontal: false, vertical: true)
+            Text(Date.now.formatted(.dateTime.month(.wide).day()))
+                .font(.subheadline.weight(.medium))
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    private var remainingBadge: some View {
+        VStack(alignment: .trailing, spacing: 2) {
+            Text("\(model.remainingCount)")
+                .font(.system(.title, design: .rounded, weight: .semibold))
+                .monospacedDigit()
+            Text("left").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("\(model.remainingCount) tasks remaining")
     }
 
     private var todaySection: some View {
@@ -147,6 +172,8 @@ struct DrawerHomeView: View {
                             } label: {
                                 Label("Start", systemImage: "play.fill")
                                     .font(.caption.weight(.bold))
+                                    .frame(minHeight: 44)
+                                    .contentShape(Rectangle())
                             }
                             .buttonStyle(.borderless)
                             .accessibilityLabel("Start \(routine.title) routine")
@@ -154,7 +181,7 @@ struct DrawerHomeView: View {
                     }
                     .padding(.horizontal, 4)
 
-                    TaskTray(items: filtered(routine.items), model: model) { selectedTask = $0 }
+                    TaskTray(items: routine.items, model: model) { selectedTask = $0 }
                 }
             }
         }
@@ -163,7 +190,7 @@ struct DrawerHomeView: View {
     private var todayRoutines: [DrawerRoutine] {
         var order: [String] = []
         var buckets: [String: [TodoItem]] = [:]
-        for item in model.todayItems {
+        for item in visibleToday {
             guard let title = item.subsection, !title.isEmpty else { continue }
             if buckets[title] == nil { order.append(title) }
             buckets[title, default: []].append(item)
@@ -209,9 +236,10 @@ struct DrawerHomeView: View {
                 .foregroundStyle(.secondary)
                 .contentShape(Rectangle())
                 .padding(.horizontal, 4)
-                .frame(minHeight: 36)
+                .frame(minHeight: 44)
             }
             .buttonStyle(TactileButtonStyle(pressedScale: 0.99))
+            .accessibilityValue(isExpanded.wrappedValue ? "Expanded" : "Collapsed")
 
             if isExpanded.wrappedValue {
                 TaskTray(items: items, model: model) { selectedTask = $0 }
@@ -220,15 +248,48 @@ struct DrawerHomeView: View {
         }
     }
 
-    @ViewBuilder
-    private func statusBanner(_ status: String) -> some View {
+    private func statusBanner(_ status: String, tone: DrawerMobileModel.StatusTone) -> some View {
         HStack(alignment: .top, spacing: 10) {
-            Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
-            Text(status).font(.footnote).foregroundStyle(.secondary)
+            Image(systemName: statusIcon(tone))
+                .foregroundStyle(statusStyle(tone))
+            Text(status)
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
             Spacer(minLength: 0)
         }
         .padding(13)
         .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .stroke(statusStyle(tone).opacity(0.15), lineWidth: 0.75)
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(statusAccessibilityPrefix(tone) + status)
+    }
+
+    private func statusIcon(_ tone: DrawerMobileModel.StatusTone) -> String {
+        switch tone {
+        case .info: "arrow.triangle.2.circlepath"
+        case .warning: "exclamationmark.triangle.fill"
+        case .error: "xmark.octagon.fill"
+        }
+    }
+
+    private func statusStyle(_ tone: DrawerMobileModel.StatusTone) -> Color {
+        switch tone {
+        case .info: .accentColor
+        case .warning: .orange
+        case .error: .red
+        }
+    }
+
+    private func statusAccessibilityPrefix(_ tone: DrawerMobileModel.StatusTone) -> String {
+        switch tone {
+        case .info: "Status. "
+        case .warning: "Attention. "
+        case .error: "Error. "
+        }
     }
 
     private func filtered(_ items: [TodoItem]) -> [TodoItem] {
@@ -264,8 +325,9 @@ private struct DrawerRoutineSession: View {
 
                 VStack(spacing: 7) {
                     Text(title)
-                        .font(.system(size: 30, weight: .bold, design: .rounded))
-                        .tracking(-0.8)
+                        .font(.system(.title, design: .rounded, weight: .bold))
+                        .tracking(-0.5)
+                        .multilineTextAlignment(.center)
                     Text("\(completedCount) of \(allItems.count)")
                         .font(.subheadline.weight(.semibold))
                         .foregroundStyle(.secondary)
@@ -279,9 +341,10 @@ private struct DrawerRoutineSession: View {
                         Image(systemName: current.isInProgress ? "circle.lefthalf.filled" : "circle")
                             .font(.system(size: 30, weight: .medium))
                             .foregroundStyle(.tint)
+                            .accessibilityHidden(true)
 
                         Text(current.title)
-                            .font(.system(size: 30, weight: .bold, design: .rounded))
+                            .font(.system(.title, design: .rounded, weight: .bold))
                             .multilineTextAlignment(.center)
                             .fixedSize(horizontal: false, vertical: true)
 
@@ -292,37 +355,15 @@ private struct DrawerRoutineSession: View {
                                 .monospacedDigit()
                         }
 
-                        HStack(spacing: 12) {
-                            Button {
-                                model.startFocus(on: current)
-                                DrawerHaptics.shared.focusStarted()
-                            } label: {
-                                Label("Focus", systemImage: "timer")
-                                    .font(.headline)
-                                    .frame(maxWidth: .infinity)
-                                    .frame(height: 52)
+                        ViewThatFits(in: .horizontal) {
+                            HStack(spacing: 12) {
+                                routineFocusButton(current)
+                                routineDoneButton(current)
                             }
-                            .buttonStyle(.bordered)
-                            .buttonBorderShape(.roundedRectangle(radius: 16))
-
-                            Button {
-                                if model.toggle(current) {
-                                    DrawerHaptics.shared.taskCompleted()
-                                    if remaining.count == 1 {
-                                        DrawerHaptics.shared.groupFinished()
-                                        DispatchQueue.main.asyncAfter(deadline: .now() + (reduceMotion ? 0.12 : 0.35)) {
-                                            dismiss()
-                                        }
-                                    }
-                                }
-                            } label: {
-                                Label("Done", systemImage: "checkmark")
-                                    .font(.headline)
-                                    .frame(maxWidth: .infinity)
-                                    .frame(height: 52)
+                            VStack(spacing: 10) {
+                                routineFocusButton(current)
+                                routineDoneButton(current)
                             }
-                            .buttonStyle(.borderedProminent)
-                            .buttonBorderShape(.roundedRectangle(radius: 16))
                         }
                     }
                     .padding(.horizontal, 28)
@@ -336,6 +377,8 @@ private struct DrawerRoutineSession: View {
                         Text("Done")
                             .font(.title2.bold())
                     }
+                    .accessibilityElement(children: .combine)
+                    .accessibilityLabel("Routine complete")
                 }
 
                 Spacer()
@@ -358,6 +401,45 @@ private struct DrawerRoutineSession: View {
             }
         }
     }
+
+    private func routineFocusButton(_ item: TodoItem) -> some View {
+        Button {
+            model.startFocus(on: item)
+            DrawerHaptics.shared.focusStarted()
+        } label: {
+            Label("Focus", systemImage: "timer")
+                .font(.headline)
+                .frame(maxWidth: .infinity)
+                .frame(minHeight: 52)
+        }
+        .buttonStyle(.bordered)
+        .buttonBorderShape(.roundedRectangle(radius: 16))
+    }
+
+    private func routineDoneButton(_ item: TodoItem) -> some View {
+        Button {
+            if model.toggle(item) {
+                DrawerHaptics.shared.taskCompleted()
+                DrawerActionFeedbackCenter.success(
+                    "Completed \(item.title)",
+                    systemImage: "checkmark.circle.fill"
+                )
+                if remaining.count == 1 {
+                    DrawerHaptics.shared.groupFinished()
+                    DispatchQueue.main.asyncAfter(deadline: .now() + (reduceMotion ? 0.12 : 0.35)) {
+                        dismiss()
+                    }
+                }
+            }
+        } label: {
+            Label("Done", systemImage: "checkmark")
+                .font(.headline)
+                .frame(maxWidth: .infinity)
+                .frame(minHeight: 52)
+        }
+        .buttonStyle(.borderedProminent)
+        .buttonBorderShape(.roundedRectangle(radius: 16))
+    }
 }
 
 private struct TaskTray: View {
@@ -376,6 +458,7 @@ private struct TaskTray: View {
                 .foregroundStyle(.tertiary)
                 .padding(.horizontal, 17)
                 .frame(minHeight: 58)
+                .accessibilityElement(children: .combine)
             } else {
                 ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
                     MobileTaskRow(model: model, item: item) { openTask(item) }

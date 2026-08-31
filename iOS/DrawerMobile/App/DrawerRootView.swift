@@ -21,14 +21,23 @@ struct DrawerRootView: View {
             case .loading:
                 ProgressView()
                     .controlSize(.large)
+                    .accessibilityLabel("Opening Drawer")
             case .connected:
                 DrawerHomeView(
                     model: model,
                     changeFile: { showingImporter = true }
                 )
+            case .waitingForProvider:
+                DrawerConnectionView(
+                    needsPermission: false,
+                    waitingForProvider: true,
+                    message: model.statusMessage,
+                    chooseFile: { showingImporter = true }
+                )
             case .disconnected, .needsPermission:
                 DrawerConnectionView(
                     needsPermission: model.connectionState == .needsPermission,
+                    waitingForProvider: false,
                     message: model.statusMessage,
                     chooseFile: { showingImporter = true }
                 )
@@ -48,8 +57,7 @@ struct DrawerRootView: View {
                    nsError.code == CocoaError.userCancelled.rawValue {
                     return
                 }
-                model.statusMessage = error.localizedDescription
-                DrawerHaptics.shared.error()
+                model.reportError(error)
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: .NSCalendarDayChanged)) { _ in

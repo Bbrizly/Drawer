@@ -9,7 +9,14 @@ final class DrawerMobileModel: ObservableObject {
         case loading
         case disconnected
         case connected
+        case waitingForProvider
         case needsPermission
+    }
+
+    enum StatusTone: Equatable {
+        case info
+        case warning
+        case error
     }
 
     struct UndoPayload {
@@ -25,26 +32,36 @@ final class DrawerMobileModel: ObservableObject {
     @Published private(set) var backlogItems: [TodoItem] = []
     @Published private(set) var upcomingLabel = ""
     @Published private(set) var sourceName = "Drawer.md"
-    @Published var statusMessage: String?
+    @Published private(set) var statusMessage: String?
+    @Published private(set) var statusTone: StatusTone = .info
     @Published private(set) var undoLabel: String?
     @Published private(set) var captureRequestToken = 0
 
     let focusTimer = FocusTimer()
 
     private var document: CoordinatedDrawerDocument?
+    private var pendingDocument: CoordinatedDrawerDocument?
     private var lastAppliedData: Data?
     private var lastAppliedDayKey: String?
     private var undoPayload: UndoPayload?
     private var undoExpiryTask: Task<Void, Never>?
+    private var providerRetryTask: Task<Void, Never>?
+    private var pendingRetryTask: Task<Void, Never>?
+    private var pendingStatusMessage: String?
+    private var pendingStatusTone: StatusTone = .info
+    private var hasTransientAccessFailure = false
     private var isSceneActive = true
     private var focusSessionID: UUID?
     private var focusCreatedAt: Date?
 
     init() {
         focusTimer.onComplete = { [weak self] _ in
+            // The timer has already entered .finished here. Persist that truth
+            // first, then let the scheduler reconcile the same stored state to
+            // ActivityKit while removing the pending completion notification.
+            self?.persistFocusState()
             FocusNotificationScheduler.cancel()
             DrawerHaptics.shared.focusFinished()
-            self?.persistFocusState()
         }
         restoreFocusState()
     }
@@ -52,6 +69,14 @@ final class DrawerMobileModel: ObservableObject {
     var connectedFileURL: URL? { document?.url }
 
     func bootstrap() {
+        if DrawerBookmarkStore.hasPendingBookmark {
+            if DrawerBookmarkStore.hasBookmark {
+                openStoredDocument()
+            }
+            beginPendingSelection()
+            return
+        }
+
         guard DrawerBookmarkStore.hasBookmark else {
             WidgetInteractionFeedbackStore.clear()
             connectionState = .disconnected
@@ -62,14 +87,17 @@ final class DrawerMobileModel: ObservableObject {
 
     func connect(to pickedURL: URL) {
         do {
-            try DrawerBookmarkStore.save(pickedURL)
-            openStoredDocument()
+            switch try DrawerBookmarkStore.save(pickedURL) {
+            case .ready:
+                openStoredDocument()
+            case .staged:
+                beginPendingSelection()
+            }
         } catch {
-            // Change Drawer.md is transactional: if a new selection fails
-            // validation, keep the already-open source usable rather than
-            // replacing the whole app with a reconnect screen.
             if document != nil {
                 connectionState = .connected
+            } else if pendingDocument != nil || DrawerBookmarkStore.hasPendingBookmark {
+                connectionState = .waitingForProvider
             } else {
                 connectionState = DrawerBookmarkStore.hasBookmark ? .needsPermission : .disconnected
             }
@@ -77,10 +105,17 @@ final class DrawerMobileModel: ObservableObject {
         }
     }
 
+    func reportError(_ error: Error) {
+        fail(error)
+    }
+
     func disconnect() {
         document?.stopObserving()
         document = nil
         clearUndo()
+        cancelProviderRetry()
+        clearPendingRuntime()
+        hasTransientAccessFailure = false
         lastAppliedData = nil
         lastAppliedDayKey = nil
         carriedItems = []
@@ -88,7 +123,7 @@ final class DrawerMobileModel: ObservableObject {
         upcomingItems = []
         backlogItems = []
         upcomingLabel = ""
-        statusMessage = nil
+        clearStatus()
         DrawerBookmarkStore.clear()
         WidgetInteractionFeedbackStore.clear()
         if let snapshotURL = WidgetSnapshotStore.snapshotURL {
@@ -101,13 +136,23 @@ final class DrawerMobileModel: ObservableObject {
     func setSceneActive(_ active: Bool) {
         isSceneActive = active
         focusTimer.setDisplayActive(active)
-        if !active { persistFocusState() }
-        guard let document else { return }
-        if active {
-            startObserving(document)
-            reload()
-        } else {
-            document.stopObserving()
+        if !active {
+            persistFocusState()
+            cancelProviderRetry()
+            cancelPendingRetry()
+        }
+
+        if let document {
+            if active {
+                startObserving(document)
+                reload()
+            } else {
+                document.stopObserving()
+            }
+        }
+
+        if active, pendingDocument != nil {
+            attemptPendingSelection()
         }
     }
 
@@ -126,12 +171,15 @@ final class DrawerMobileModel: ObservableObject {
         do {
             let today = DrawerDate.todayKey()
             var base = try document.read()
-            if base == lastAppliedData, today == lastAppliedDayKey { return }
+            if base == lastAppliedData, today == lastAppliedDayKey {
+                if hasTransientAccessFailure {
+                    hasTransientAccessFailure = false
+                }
+                cancelProviderRetry()
+                restorePendingStatus()
+                return
+            }
 
-            // Automatic recurrence/archive normalization is a canonical write,
-            // so it follows the same one-retry content-CAS rule as a user
-            // mutation. If Obsidian/iCloud changed Drawer.md after the first
-            // read, recompute against those fresh bytes before writing.
             var normalized = try normalizedData(base, today: today)
             if normalized != base {
                 let fresh = try document.read()
@@ -157,11 +205,11 @@ final class DrawerMobileModel: ObservableObject {
 
     @discardableResult
     func toggle(_ item: TodoItem) -> Bool {
-        // A completed recurring occurrence already has a successor. Reopening
-        // it would create two active members of one series, so history stays
-        // immutable until a dedicated series-history editor exists.
         if item.isDone, recurrence(for: item) != nil {
-            statusMessage = "Completed repeating occurrences stay in history. Edit the active copy instead."
+            setStatus(
+                "Completed repeating occurrences stay in history. Edit the active copy instead.",
+                tone: .warning
+            )
             DrawerHaptics.shared.error()
             return false
         }
@@ -274,14 +322,63 @@ final class DrawerMobileModel: ObservableObject {
     func rename(_ item: TodoItem, to newTitle: String) -> Bool {
         let title = newTitle.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !title.isEmpty else { return false }
+        let markdownTitle = item.minutes == 25 ? title : "\(title) (\(item.minutes)m)"
         return commit { data in
             try TodoWriteback.rename(
                 line: item.rawLine,
                 sectionDate: item.sectionDate,
                 occurrence: item.occurrence,
-                to: title,
+                to: markdownTitle,
                 in: data
             )
+        } != nil
+    }
+
+    @discardableResult
+    func updateTask(
+        _ item: TodoItem,
+        title newTitle: String,
+        minutes: Int,
+        note: String
+    ) -> Bool {
+        let title = newTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !title.isEmpty else {
+            setStatus("Task title can't be empty.", tone: .warning)
+            return false
+        }
+        guard (1...480).contains(minutes) else {
+            setStatus("Focus length must be between 1 and 480 minutes.", tone: .warning)
+            return false
+        }
+
+        let cleanNote = note.trimmingCharacters(in: .whitespacesAndNewlines)
+        let oldNote = (item.note ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        let titleChanged = title != item.title || minutes != item.minutes
+        let noteChanged = cleanNote != oldNote
+        guard titleChanged || noteChanged else { return true }
+
+        return commit { data in
+            var output = data
+            if noteChanged {
+                output = try TodoMetadataWriteback.setNote(
+                    line: item.rawLine,
+                    sectionDate: item.sectionDate,
+                    occurrence: item.occurrence,
+                    note: cleanNote,
+                    in: output
+                )
+            }
+            if titleChanged {
+                let markdownTitle = minutes == 25 ? title : "\(title) (\(minutes)m)"
+                output = try TodoWriteback.rename(
+                    line: item.rawLine,
+                    sectionDate: item.sectionDate,
+                    occurrence: item.occurrence,
+                    to: markdownTitle,
+                    in: output
+                )
+            }
+            return output
         } != nil
     }
 
@@ -311,7 +408,7 @@ final class DrawerMobileModel: ObservableObject {
             )
         }) else { return false }
 
-        armUndo(label: "Moved to \(destination.title)", original: result.before, expectedCurrent: result.after)
+        armUndoIfExact(label: "Moved to \(destination.title)", result: result)
         return true
     }
 
@@ -326,7 +423,7 @@ final class DrawerMobileModel: ObservableObject {
             )
         }) else { return false }
 
-        armUndo(label: "Deleted \(item.title)", original: result.before, expectedCurrent: result.after)
+        armUndoIfExact(label: "Deleted \(item.title)", result: result)
         return true
     }
 
@@ -337,7 +434,7 @@ final class DrawerMobileModel: ObservableObject {
             let current = try document.read()
             guard current == payload.expectedCurrentData else {
                 clearUndo()
-                statusMessage = "Couldn't undo because Drawer.md changed elsewhere."
+                setStatus("Couldn't undo because Drawer.md changed elsewhere.", tone: .warning)
                 DrawerHaptics.shared.error()
                 reload()
                 return false
@@ -399,7 +496,10 @@ final class DrawerMobileModel: ObservableObject {
 
     private struct CommitResult {
         let before: Data
-        let after: Data
+        let attempted: Data
+        let canonical: Data
+
+        var canonicalMatchesAttempt: Bool { attempted == canonical }
     }
 
     private func commit(_ transform: (Data) throws -> Data) -> CommitResult? {
@@ -421,10 +521,12 @@ final class DrawerMobileModel: ObservableObject {
             try document.write(output)
             let canonical = try document.read()
             apply(canonical)
-            return CommitResult(before: base, after: canonical)
+            return CommitResult(before: base, attempted: output, canonical: canonical)
         } catch {
             fail(error)
-            reload()
+            if (error as? DrawerFileAccessError)?.isTransient != true {
+                reload()
+            }
             return nil
         }
     }
@@ -436,8 +538,6 @@ final class DrawerMobileModel: ObservableObject {
 
         var normalized = try TodoRecurrenceWriteback.reconcile(in: data, today: today)
         guard let normalizedText = String(data: normalized, encoding: .utf8) else {
-            // A deterministic transform must never turn valid canonical input
-            // into invalid text; treat it as a hard failure if it does.
             throw DrawerBookmarkError.invalidEncoding
         }
         let swept = TodoArchiver.archiveCompleted(in: normalizedText, today: today)
@@ -449,7 +549,7 @@ final class DrawerMobileModel: ObservableObject {
 
     private func apply(_ data: Data) {
         guard let text = String(data: data, encoding: .utf8) else {
-            statusMessage = "Drawer.md isn't UTF-8 text."
+            setStatus("Drawer.md isn't UTF-8 text.", tone: .error)
             return
         }
         let today = DrawerDate.todayKey()
@@ -463,7 +563,9 @@ final class DrawerMobileModel: ObservableObject {
         } else {
             upcomingLabel = ""
         }
-        statusMessage = nil
+        hasTransientAccessFailure = false
+        cancelProviderRetry()
+        restorePendingStatus()
         lastAppliedData = data
         lastAppliedDayKey = today
         publishWidgetSnapshot(data, today: today)
@@ -475,7 +577,10 @@ final class DrawerMobileModel: ObservableObject {
             WidgetInteractionFeedbackStore.clear()
             WidgetCenter.shared.reloadAllTimelines()
         } catch {
-            statusMessage = "Drawer.md is safe, but widgets couldn't refresh. Check the App Group setup."
+            setStatus(
+                "Drawer.md is safe, but widgets couldn't refresh. Check the App Group setup.",
+                tone: .warning
+            )
             DrawerActionFeedbackCenter.notice(
                 "Saved to Drawer.md, but widgets couldn't refresh.",
                 systemImage: "rectangle.stack.badge.exclamationmark"
@@ -488,6 +593,9 @@ final class DrawerMobileModel: ObservableObject {
             let newDocument = CoordinatedDrawerDocument(session: try DrawerBookmarkStore.openSession())
             document?.stopObserving()
             clearUndo()
+            cancelProviderRetry()
+            clearPendingRuntime()
+            hasTransientAccessFailure = false
             document = newDocument
             sourceName = newDocument.url.lastPathComponent
             connectionState = .connected
@@ -502,14 +610,128 @@ final class DrawerMobileModel: ObservableObject {
         }
     }
 
+    private func beginPendingSelection() {
+        do {
+            let candidate = CoordinatedDrawerDocument(session: try DrawerBookmarkStore.openPendingSession())
+            pendingDocument = candidate
+            pendingStatusMessage = "Getting the new Drawer.md ready."
+            pendingStatusTone = .info
+            sourceName = document?.url.lastPathComponent ?? candidate.url.lastPathComponent
+
+            if document == nil {
+                connectionState = .waitingForProvider
+                carriedItems = []
+                todayItems = []
+                upcomingItems = []
+                backlogItems = []
+                upcomingLabel = ""
+            } else {
+                connectionState = .connected
+                restorePendingStatus()
+            }
+
+            attemptPendingSelection()
+        } catch {
+            handlePendingSelectionFailure(error)
+        }
+    }
+
+    private func attemptPendingSelection() {
+        guard let candidate = pendingDocument else { return }
+
+        do {
+            let data = try candidate.read()
+            guard String(data: data, encoding: .utf8) != nil else {
+                throw DrawerBookmarkError.invalidEncoding
+            }
+
+            try DrawerBookmarkStore.promotePending()
+
+            document?.stopObserving()
+            clearUndo()
+            cancelProviderRetry()
+            cancelPendingRetry()
+            pendingStatusMessage = nil
+            pendingStatusTone = .info
+            hasTransientAccessFailure = false
+            document = candidate
+            pendingDocument = nil
+            sourceName = candidate.url.lastPathComponent
+            connectionState = .connected
+            lastAppliedData = nil
+            lastAppliedDayKey = nil
+            clearStatus()
+            if isSceneActive { startObserving(candidate) }
+            reload()
+        } catch let accessError as DrawerFileAccessError where accessError.preservesSelectedGrant {
+            pendingStatusMessage = pendingMessage(for: accessError)
+            pendingStatusTone = tone(for: accessError)
+            restorePendingStatus()
+            if document == nil {
+                connectionState = .waitingForProvider
+            } else {
+                connectionState = .connected
+            }
+
+            if accessError.isTransient {
+                schedulePendingRetry()
+            } else {
+                cancelPendingRetry()
+            }
+        } catch {
+            handlePendingSelectionFailure(error)
+        }
+    }
+
+    private func handlePendingSelectionFailure(_ error: Error) {
+        let detail = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+        DrawerBookmarkStore.discardPending()
+        clearPendingRuntime()
+
+        if document != nil {
+            connectionState = .connected
+            setStatus(
+                "Couldn't switch Drawer.md. \(detail) Your current file is still connected.",
+                tone: .error
+            )
+            DrawerHaptics.shared.error()
+            return
+        }
+
+        if DrawerBookmarkStore.hasBookmark {
+            openStoredDocument()
+            if document != nil {
+                setStatus(
+                    "Couldn't switch Drawer.md. \(detail) Your previous file is still connected.",
+                    tone: .error
+                )
+                DrawerHaptics.shared.error()
+                return
+            }
+        }
+
+        connectionState = DrawerBookmarkStore.hasBookmark ? .needsPermission : .disconnected
+        fail(error)
+    }
+
+    private func pendingMessage(for error: DrawerFileAccessError) -> String {
+        let base = error.errorDescription ?? "Drawer.md isn't available yet."
+        guard document != nil else { return base }
+        return "\(base) Your current Drawer.md stays active until the new file is ready."
+    }
+
     private func startObserving(_ document: CoordinatedDrawerDocument) {
         document.startObserving(
             onChange: { [weak self] in self?.reload() },
             onMove: { [weak self] newURL in
                 guard let self else { return }
                 do {
-                    try DrawerBookmarkStore.save(newURL)
-                    self.openStoredDocument()
+                    switch try DrawerBookmarkStore.save(newURL) {
+                    case .ready:
+                        self.openStoredDocument()
+                    case .staged:
+                        self.beginPendingSelection()
+                    }
                 } catch {
                     self.fail(error)
                 }
@@ -520,8 +742,6 @@ final class DrawerMobileModel: ObservableObject {
     private func restoreFocusState() {
         guard let saved = DrawerFocusStore.load() else { return }
 
-        // A finished timer is useful briefly if the app was killed around the
-        // completion boundary, but it must not resurrect stale UI days later.
         let age = Date().timeIntervalSince(saved.createdAt)
         guard age >= 0, age < 24 * 60 * 60 else {
             DrawerFocusStore.clear()
@@ -537,10 +757,12 @@ final class DrawerMobileModel: ObservableObject {
                 DrawerFocusStore.clear()
                 focusSessionID = nil
                 focusCreatedAt = nil
+                FocusNotificationScheduler.cancel()
                 return
             }
             focusTimer.restoreRunning(taskTitle: saved.taskTitle, endDate: endDate)
             if focusTimer.phase == .running {
+                persistFocusState()
                 FocusNotificationScheduler.schedule(
                     taskTitle: saved.taskTitle,
                     seconds: focusTimer.remaining
@@ -555,6 +777,7 @@ final class DrawerMobileModel: ObservableObject {
             FocusNotificationScheduler.cancel()
         case .finished:
             focusTimer.restoreFinished(taskTitle: saved.taskTitle)
+            persistFocusState()
             FocusNotificationScheduler.cancel()
         }
     }
@@ -594,6 +817,18 @@ final class DrawerMobileModel: ObservableObject {
         )
     }
 
+    private func armUndoIfExact(label: String, result: CommitResult) {
+        guard result.canonicalMatchesAttempt else {
+            clearUndo()
+            return
+        }
+        armUndo(
+            label: label,
+            original: result.before,
+            expectedCurrent: result.canonical
+        )
+    }
+
     private func armUndo(label: String, original: Data, expectedCurrent: Data) {
         undoExpiryTask?.cancel()
         undoPayload = UndoPayload(label: label, originalData: original, expectedCurrentData: expectedCurrent)
@@ -612,8 +847,134 @@ final class DrawerMobileModel: ObservableObject {
         undoLabel = nil
     }
 
+    private func scheduleProviderRetry() {
+        guard isSceneActive, document != nil, providerRetryTask == nil else { return }
+
+        providerRetryTask = Task { [weak self] in
+            let initialDelays: [Duration] = [
+                .milliseconds(500),
+                .seconds(1),
+                .seconds(2),
+                .seconds(3),
+            ]
+            var attempt = 0
+
+            while !Task.isCancelled {
+                let delay = attempt < initialDelays.count ? initialDelays[attempt] : .seconds(5)
+                attempt += 1
+
+                do {
+                    try await Task.sleep(for: delay)
+                } catch {
+                    return
+                }
+
+                guard let self,
+                      self.isSceneActive,
+                      self.document != nil,
+                      self.hasTransientAccessFailure
+                else { return }
+
+                self.reload()
+                if !self.hasTransientAccessFailure { return }
+            }
+        }
+    }
+
+    private func schedulePendingRetry() {
+        guard isSceneActive, pendingDocument != nil, pendingRetryTask == nil else { return }
+
+        pendingRetryTask = Task { [weak self] in
+            let initialDelays: [Duration] = [
+                .milliseconds(500),
+                .seconds(1),
+                .seconds(2),
+                .seconds(3),
+            ]
+            var attempt = 0
+
+            while !Task.isCancelled {
+                let delay = attempt < initialDelays.count ? initialDelays[attempt] : .seconds(5)
+                attempt += 1
+
+                do {
+                    try await Task.sleep(for: delay)
+                } catch {
+                    return
+                }
+
+                guard let self,
+                      self.isSceneActive,
+                      self.pendingDocument != nil
+                else { return }
+
+                self.attemptPendingSelection()
+                if self.pendingDocument == nil { return }
+            }
+        }
+    }
+
+    private func cancelProviderRetry() {
+        providerRetryTask?.cancel()
+        providerRetryTask = nil
+    }
+
+    private func cancelPendingRetry() {
+        pendingRetryTask?.cancel()
+        pendingRetryTask = nil
+    }
+
+    private func clearPendingRuntime() {
+        cancelPendingRetry()
+        pendingDocument = nil
+        pendingStatusMessage = nil
+        pendingStatusTone = .info
+    }
+
     private func fail(_ error: Error) {
-        statusMessage = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
-        DrawerHaptics.shared.error()
+        let message = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+        let nextTone = tone(for: error)
+        let changed = statusMessage != message || statusTone != nextTone
+        setStatus(message, tone: nextTone)
+
+        if let accessError = error as? DrawerFileAccessError {
+            hasTransientAccessFailure = accessError.isTransient
+            if accessError.isTransient {
+                scheduleProviderRetry()
+                return
+            }
+        } else {
+            hasTransientAccessFailure = false
+        }
+
+        cancelProviderRetry()
+        if changed {
+            DrawerHaptics.shared.error()
+        }
+    }
+
+    private func tone(for error: Error) -> StatusTone {
+        guard let accessError = error as? DrawerFileAccessError else { return .error }
+        switch accessError {
+        case .waitingForICloud, .providerUnavailable:
+            return .info
+        case .authenticationRequired, .iCloudConflict:
+            return .warning
+        case .itemMissing, .permissionDenied, .notRegularFile, .readFailed, .writeFailed:
+            return .error
+        }
+    }
+
+    private func setStatus(_ message: String?, tone: StatusTone) {
+        statusMessage = message
+        statusTone = message == nil ? .info : tone
+    }
+
+    private func clearStatus() {
+        setStatus(nil, tone: .info)
+    }
+
+    private func restorePendingStatus() {
+        setStatus(pendingStatusMessage, tone: pendingStatusTone)
     }
 }

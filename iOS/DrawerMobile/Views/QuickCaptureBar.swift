@@ -4,10 +4,15 @@ struct QuickCaptureBar: View {
     @ObservedObject var model: DrawerMobileModel
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var text = ""
-    @State private var destination: DrawerTaskDestination = .today
+    @SceneStorage("drawer.capture.draft.v1") private var text = ""
+    @SceneStorage("drawer.capture.destination.v1") private var destinationRawValue = DrawerTaskDestination.today.rawValue
+    @State private var handledCaptureToken = 0
     @State private var actionFeedback: DrawerActionFeedbackPayload?
     @FocusState private var focused: Bool
+
+    private var destination: DrawerTaskDestination {
+        DrawerTaskDestination(rawValue: destinationRawValue) ?? .today
+    }
 
     var body: some View {
         VStack(spacing: 8) {
@@ -23,7 +28,7 @@ struct QuickCaptureBar: View {
                 Menu {
                     ForEach(DrawerTaskDestination.allCases, id: \.self) { choice in
                         Button {
-                            destination = choice
+                            destinationRawValue = choice.rawValue
                             DrawerHaptics.shared.progressChanged()
                         } label: {
                             Label(choice.title, systemImage: choice == destination ? "checkmark" : destinationIcon(choice))
@@ -33,7 +38,7 @@ struct QuickCaptureBar: View {
                     Image(systemName: destinationIcon(destination))
                         .font(.system(size: 16, weight: .semibold))
                         .foregroundStyle(.secondary)
-                        .frame(width: 42, height: 42)
+                        .frame(width: 44, height: 44)
                         .background(.quaternary.opacity(0.5), in: Circle())
                         .contentShape(Circle())
                 }
@@ -52,34 +57,36 @@ struct QuickCaptureBar: View {
                     Image(systemName: "arrow.up")
                         .font(.system(size: 15, weight: .bold))
                         .foregroundStyle(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? AnyShapeStyle(.tertiary) : AnyShapeStyle(.white))
-                        .frame(width: 38, height: 38)
+                        .frame(width: 44, height: 44)
                         .background(
                             text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                                 ? AnyShapeStyle(.quaternary.opacity(0.7))
                                 : AnyShapeStyle(Color.accentColor),
                             in: Circle()
                         )
+                        .contentShape(Circle())
                 }
-                .buttonStyle(TactileButtonStyle(pressedScale: 0.92))
+                .buttonStyle(TactileButtonStyle(pressedScale: 0.92, pressedOpacity: 0.96))
                 .disabled(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 .accessibilityLabel("Add task")
             }
             .padding(.leading, 8)
             .padding(.trailing, 8)
             .padding(.vertical, 7)
-            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
+            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 25, style: .continuous))
             .overlay {
-                RoundedRectangle(cornerRadius: 24, style: .continuous)
-                    .stroke(.primary.opacity(focused ? 0.12 : 0.055), lineWidth: focused ? 1 : 0.75)
+                RoundedRectangle(cornerRadius: 25, style: .continuous)
+                    .stroke(.primary.opacity(focused ? 0.13 : 0.055), lineWidth: focused ? 1 : 0.75)
             }
-            .shadow(color: .black.opacity(0.10), radius: 20, y: 8)
+            .shadow(color: .black.opacity(focused ? 0.12 : 0.08), radius: focused ? 22 : 16, y: focused ? 9 : 7)
         }
         .padding(.horizontal, 12)
         .padding(.top, 7)
         .padding(.bottom, 8)
         .background(.clear)
-        .onChange(of: model.captureRequestToken) { _, _ in
-            focused = true
+        .onAppear { handleCaptureRequest(model.captureRequestToken) }
+        .onChange(of: model.captureRequestToken) { _, token in
+            handleCaptureRequest(token)
         }
         .onReceive(NotificationCenter.default.publisher(for: .drawerActionFeedback)) { notification in
             guard let payload = notification.object as? DrawerActionFeedbackPayload else { return }
@@ -90,6 +97,7 @@ struct QuickCaptureBar: View {
                 }
             }
         }
+        .animation(reduceMotion ? nil : .snappy(duration: 0.20), value: focused)
         .animation(reduceMotion ? nil : .snappy(duration: 0.22), value: model.undoLabel)
         .animation(reduceMotion ? nil : .snappy(duration: 0.22), value: actionFeedback?.id)
     }
@@ -98,7 +106,7 @@ struct QuickCaptureBar: View {
         HStack(spacing: 10) {
             Text(label)
                 .font(.footnote.weight(.medium))
-                .lineLimit(1)
+                .lineLimit(2)
             Spacer(minLength: 8)
             Button("Undo") {
                 if model.undoLastMutation() {
@@ -107,9 +115,11 @@ struct QuickCaptureBar: View {
                 }
             }
             .font(.footnote.weight(.bold))
+            .frame(minHeight: 44)
         }
         .padding(.horizontal, 15)
-        .frame(height: 44)
+        .padding(.vertical, 4)
+        .frame(minHeight: 44)
         .foregroundStyle(.primary)
         .background(.regularMaterial, in: Capsule())
         .overlay { Capsule().stroke(.primary.opacity(0.06), lineWidth: 0.75) }
@@ -124,11 +134,12 @@ struct QuickCaptureBar: View {
                 .foregroundStyle(.tint)
             Text(feedback.message)
                 .font(.footnote.weight(.semibold))
-                .lineLimit(1)
+                .lineLimit(2)
             Spacer(minLength: 0)
         }
         .padding(.horizontal, 15)
-        .frame(height: 44)
+        .padding(.vertical, 10)
+        .frame(minHeight: 44)
         .foregroundStyle(.primary)
         .background(.regularMaterial, in: Capsule())
         .overlay { Capsule().stroke(.primary.opacity(0.06), lineWidth: 0.75) }
@@ -137,9 +148,16 @@ struct QuickCaptureBar: View {
         .accessibilityElement(children: .combine)
     }
 
+    private func handleCaptureRequest(_ token: Int) {
+        guard token > 0, token != handledCaptureToken else { return }
+        handledCaptureToken = token
+        DispatchQueue.main.async { focused = true }
+    }
+
     private func save() {
         let clean = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !clean.isEmpty else { return }
+
         if model.add(clean, destination: destination) {
             text = ""
             DrawerHaptics.shared.taskAdded()
@@ -147,13 +165,16 @@ struct QuickCaptureBar: View {
                 "Added to \(destination.title)",
                 systemImage: "plus.circle.fill"
             )
+
             if !reduceMotion {
-                withAnimation(.spring(response: 0.24, dampingFraction: 0.65)) {
+                withAnimation(.spring(response: 0.22, dampingFraction: 0.72)) {
                     focused = false
                 }
             } else {
                 focused = false
             }
+        } else {
+            focused = true
         }
     }
 
