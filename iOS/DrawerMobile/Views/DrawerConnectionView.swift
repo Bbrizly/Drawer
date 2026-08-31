@@ -24,7 +24,7 @@ struct DrawerConnectionView: View {
 
             Text(needsPermission
                  ? "iOS lost access to the file. Choose the same Drawer.md again and everything picks up where it left off."
-                 : "Choose the Drawer.md you already use on your Mac or in Obsidian. Drawer reads it in place — no account, import, or second database.")
+                 : "Choose Drawer.md from On My iPhone, iCloud Drive, or the Files location your vault uses. Drawer edits that file in place — no account, import, or second database.")
                 .font(.body)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
@@ -53,7 +53,7 @@ struct DrawerConnectionView: View {
             .buttonStyle(TactileButtonStyle(pressedScale: 0.985))
             .padding(.top, 30)
 
-            Text("Markdown stays canonical. Drawer only gives it a faster surface.")
+            Text("Markdown stays canonical. Local or cloud, Drawer never replaces it with a private task database.")
                 .font(.caption)
                 .foregroundStyle(.tertiary)
                 .multilineTextAlignment(.center)
