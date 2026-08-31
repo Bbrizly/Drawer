@@ -8,13 +8,16 @@ struct DrawerTaskDetailSheet: View {
 
     @Environment(\.dismiss) private var dismiss
     @State private var noteDraft: String
+    @State private var savedNote: String
     @State private var recurrence: TodoRecurrence?
     @FocusState private var noteFocused: Bool
 
     init(model: DrawerMobileModel, item: TodoItem) {
         self.model = model
         self.item = item
-        _noteDraft = State(initialValue: item.note ?? "")
+        let note = item.note ?? ""
+        _noteDraft = State(initialValue: note)
+        _savedNote = State(initialValue: note)
     }
 
     var body: some View {
@@ -106,9 +109,10 @@ struct DrawerTaskDetailSheet: View {
                     .tracking(0.7)
                     .foregroundStyle(.secondary)
                 Spacer()
-                if noteDraft != (item.note ?? "") {
+                if noteDraft != savedNote {
                     Button("Save") {
                         if model.setNote(item, noteDraft) {
+                            savedNote = noteDraft
                             DrawerHaptics.shared.saved()
                             noteFocused = false
                         }
