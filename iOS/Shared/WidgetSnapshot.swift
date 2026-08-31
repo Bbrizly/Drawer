@@ -138,6 +138,8 @@ enum WidgetSnapshotStore {
         DrawerShared.containerURL?.appendingPathComponent(DrawerShared.snapshotFilename)
     }
 
+    /// Reads only the App Group cache. This is deliberately cheap and never
+    /// reaches a File Provider.
     static func read() -> WidgetSnapshot {
         guard let url = snapshotURL,
               let data = try? Data(contentsOf: url),
@@ -145,6 +147,31 @@ enum WidgetSnapshotStore {
               snapshot.version == WidgetSnapshot.schemaVersion
         else { return .empty }
         return snapshot
+    }
+
+    /// Best-effort canonical refresh for WidgetKit and App Intent queries.
+    /// External Obsidian/iCloud edits and a new local day should appear even if
+    /// the Drawer app itself has not launched. If the provider refuses access
+    /// in an extension process, return the last known-good cache rather than
+    /// manufacturing state or clearing the widget.
+    static func current(todayKey: String = DrawerDate.todayKey()) -> WidgetSnapshot {
+        let cached = read()
+        do {
+            let session = try DrawerBookmarkStore.openSession()
+            let data = try session.read()
+            let fresh = WidgetSnapshot.make(from: data, todayKey: todayKey)
+
+            if cached.version == WidgetSnapshot.schemaVersion,
+               cached.sourceFingerprint == fresh.sourceFingerprint,
+               cached.todayKey == fresh.todayKey {
+                return cached
+            }
+
+            try? write(fresh)
+            return fresh
+        } catch {
+            return cached
+        }
     }
 
     static func write(_ snapshot: WidgetSnapshot) throws {
