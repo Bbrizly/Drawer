@@ -40,6 +40,24 @@ final class DrawerMobileSharedTests: XCTestCase {
         XCTAssertEqual(snapshot.upcomingLabel, "Tomorrow")
     }
 
+    func testNextWidgetPrefersCarriedThenTodayAndSkipsCompleted() {
+        let data = """
+        ## 2026-08-30
+        - [x] Completed yesterday
+        - [ ] Oldest unfinished
+
+        ## 2026-08-31
+        - [x] Finished today
+        - [ ] Current task
+        """.data(using: .utf8)!
+
+        let snapshot = WidgetSnapshot.make(from: data, todayKey: "2026-08-31")
+
+        XCTAssertEqual(snapshot.actionableTasks.map(\.title), ["Oldest unfinished", "Current task"])
+        XCTAssertEqual(snapshot.actionableTasks.first?.bucket, .carried)
+        XCTAssertEqual(snapshot.remaining, 2)
+    }
+
     func testWidgetSnapshotRoundTrips() throws {
         let data = "## 2026-08-28\n- [ ] One\n".data(using: .utf8)!
         let snapshot = WidgetSnapshot.make(from: data, todayKey: "2026-08-28")
