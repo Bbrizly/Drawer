@@ -1,4 +1,5 @@
 import DrawerCore
+import Foundation
 import XCTest
 @testable import DrawerMobile
 
@@ -57,6 +58,57 @@ final class DrawerMobileSharedTests: XCTestCase {
         XCTAssertNil(
             WidgetInteractionFeedbackStore.current(now: before.addingTimeInterval(6 * 60))
         )
+    }
+
+    func testWidgetExplainsICloudMaterializationWithoutChangingTruth() {
+        let before = Date()
+        WidgetInteractionFeedbackStore.recordFailure(DrawerFileAccessError.waitingForICloud)
+
+        let visible = WidgetInteractionFeedbackStore.current(now: before.addingTimeInterval(1))
+        XCTAssertEqual(
+            visible?.message,
+            "Drawer.md is syncing from iCloud. Open Drawer to finish syncing, then retry."
+        )
+    }
+
+    func testICloudStaleAndEvictedStatesRequireMaterialization() {
+        XCTAssertTrue(DrawerFileSession.iCloudNeedsMaterialization(.notDownloaded))
+        XCTAssertTrue(DrawerFileSession.iCloudNeedsMaterialization(.downloaded))
+        XCTAssertFalse(DrawerFileSession.iCloudNeedsMaterialization(.current))
+        XCTAssertFalse(DrawerFileSession.iCloudNeedsMaterialization(nil))
+    }
+
+    func testPlainLocalFileSessionReadsAndWritesWithoutSecurityScope() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let url = directory.appendingPathComponent("Drawer.md")
+        let original = "## 2026-08-31\n- [ ] Local\n".data(using: .utf8)!
+        let updated = "## 2026-08-31\n- [x] Local\n".data(using: .utf8)!
+        try original.write(to: url)
+
+        let session = DrawerFileSession(url: url)
+        XCTAssertEqual(session.storageKind, .files)
+        XCTAssertEqual(try session.read(), original)
+
+        try session.write(updated)
+        XCTAssertEqual(try Data(contentsOf: url), updated)
+        XCTAssertEqual(try session.read(), updated)
+    }
+
+    func testProviderErrorsKeepUsefulRecoverySemantics() {
+        let transient = DrawerFileAccessError.providerUnavailable(.files)
+        XCTAssertTrue(transient.isTransient)
+        XCTAssertEqual(
+            transient.widgetMessage,
+            "Drawer.md's Files provider is unavailable. Open Drawer to retry."
+        )
+
+        let permission = DrawerFileAccessError.permissionDenied
+        XCTAssertFalse(permission.isTransient)
+        XCTAssertEqual(permission.widgetMessage, "Open Drawer to reconnect Drawer.md.")
     }
 
     func testObsidianLinkStripsAlias() {
