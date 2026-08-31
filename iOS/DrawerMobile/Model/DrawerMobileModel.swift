@@ -33,6 +33,7 @@ final class DrawerMobileModel: ObservableObject {
 
     private var document: CoordinatedDrawerDocument?
     private var lastAppliedData: Data?
+    private var lastAppliedDayKey: String?
     private var undoPayload: UndoPayload?
     private var undoExpiryTask: Task<Void, Never>?
     private var isSceneActive = true
@@ -68,6 +69,7 @@ final class DrawerMobileModel: ObservableObject {
         document?.stopObserving()
         document = nil
         lastAppliedData = nil
+        lastAppliedDayKey = nil
         carriedItems = []
         todayItems = []
         upcomingItems = []
@@ -86,10 +88,20 @@ final class DrawerMobileModel: ObservableObject {
         guard let document else { return }
         if active {
             startObserving(document)
+            // Date-derived buckets can change while the app is backgrounded
+            // even when Drawer.md itself has not changed.
             reload()
         } else {
             document.stopObserving()
         }
+    }
+
+    /// Re-evaluates all date-derived state after midnight, a timezone change,
+    /// or a significant system-clock change. The data cache deliberately keys
+    /// on both canonical bytes and the local day so unchanged Markdown cannot
+    /// leave Today/Carried stale.
+    func handleSignificantTimeChange() {
+        reload()
     }
 
     func requestCapture() {
@@ -100,13 +112,14 @@ final class DrawerMobileModel: ObservableObject {
         guard let document else { return }
         do {
             let data = try document.read()
-            if data == lastAppliedData { return }
+            let today = DrawerDate.todayKey()
+            if data == lastAppliedData, today == lastAppliedDayKey { return }
 
             // Keep parity with the desktop store's small automatic cleanup.
             if let text = String(data: data, encoding: .utf8) {
                 let swept = TodoArchiver.archiveCompleted(
                     in: text,
-                    today: DrawerDate.todayKey()
+                    today: today
                 )
                 if swept != text, let sweptData = swept.data(using: .utf8) {
                     try document.write(sweptData)
@@ -362,6 +375,7 @@ final class DrawerMobileModel: ObservableObject {
         }
         statusMessage = nil
         lastAppliedData = data
+        lastAppliedDayKey = today
         publishWidgetSnapshot(data, today: today)
     }
 
@@ -385,6 +399,7 @@ final class DrawerMobileModel: ObservableObject {
             sourceName = newDocument.url.lastPathComponent
             connectionState = .connected
             lastAppliedData = nil
+            lastAppliedDayKey = nil
             if isSceneActive { startObserving(newDocument) }
             reload()
         } catch {

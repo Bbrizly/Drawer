@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 import UniformTypeIdentifiers
 
 struct DrawerRootView: View {
@@ -50,6 +51,15 @@ struct DrawerRootView: View {
                 model.statusMessage = error.localizedDescription
                 DrawerHaptics.shared.error()
             }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .NSCalendarDayChanged)) { _ in
+            model.handleSignificantTimeChange()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: UIApplication.significantTimeChangeNotification)) { _ in
+            model.handleSignificantTimeChange()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .NSSystemTimeZoneDidChange)) { _ in
+            model.handleSignificantTimeChange()
         }
     }
 }
