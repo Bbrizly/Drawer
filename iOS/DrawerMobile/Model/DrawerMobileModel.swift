@@ -61,7 +61,7 @@ final class DrawerMobileModel: ObservableObject {
         if DrawerBookmarkStore.hasPendingBookmark {
             // A staged cloud/provider selection may have been interrupted by a
             // process kill. Reopen the previous canonical source first when one
-            // exists, then continue materializing the staged replacement.
+            // exists, then continue validating the staged replacement.
             if DrawerBookmarkStore.hasBookmark {
                 openStoredDocument()
             }
@@ -82,7 +82,7 @@ final class DrawerMobileModel: ObservableObject {
             switch try DrawerBookmarkStore.save(pickedURL) {
             case .ready:
                 openStoredDocument()
-            case .waitingForProvider:
+            case .staged:
                 beginPendingSelection()
             }
         } catch {
@@ -142,6 +142,10 @@ final class DrawerMobileModel: ObservableObject {
             }
         }
 
+        // Authentication/conflict states deliberately do not busy-poll. The
+        // user fixes those in Files/Obsidian/provider UI; becoming active is the
+        // natural retry point. Transient download/offline states also get an
+        // immediate attempt here before their foreground retry loop resumes.
         if active, pendingDocument != nil {
             attemptPendingSelection()
         }
@@ -604,7 +608,7 @@ final class DrawerMobileModel: ObservableObject {
             statusMessage = nil
             if isSceneActive { startObserving(candidate) }
             reload()
-        } catch let accessError as DrawerFileAccessError where accessError.isTransient {
+        } catch let accessError as DrawerFileAccessError where accessError.preservesSelectedGrant {
             pendingStatusMessage = pendingMessage(for: accessError)
             statusMessage = pendingStatusMessage
             if document == nil {
@@ -612,7 +616,15 @@ final class DrawerMobileModel: ObservableObject {
             } else {
                 connectionState = .connected
             }
-            schedulePendingRetry()
+
+            if accessError.isTransient {
+                schedulePendingRetry()
+            } else {
+                // Authentication and conflict states require user action. Keep
+                // the staged bookmark but avoid a pointless foreground poll;
+                // setSceneActive(true) retries when the user returns.
+                cancelPendingRetry()
+            }
         } catch {
             handlePendingSelectionFailure(error)
         }
@@ -658,7 +670,7 @@ final class DrawerMobileModel: ObservableObject {
                     switch try DrawerBookmarkStore.save(newURL) {
                     case .ready:
                         self.openStoredDocument()
-                    case .waitingForProvider:
+                    case .staged:
                         self.beginPendingSelection()
                     }
                 } catch {
@@ -767,22 +779,18 @@ final class DrawerMobileModel: ObservableObject {
         guard isSceneActive, document != nil, providerRetryTask == nil else { return }
 
         providerRetryTask = Task { [weak self] in
-            let delays: [Duration] = [
+            let initialDelays: [Duration] = [
                 .milliseconds(500),
                 .seconds(1),
                 .seconds(2),
                 .seconds(3),
-                .seconds(5),
-                .seconds(5),
-                .seconds(5),
-                .seconds(5),
-                .seconds(5),
-                .seconds(5),
-                .seconds(5),
-                .seconds(5),
             ]
+            var attempt = 0
 
-            for delay in delays {
+            while !Task.isCancelled {
+                let delay = attempt < initialDelays.count ? initialDelays[attempt] : .seconds(5)
+                attempt += 1
+
                 do {
                     try await Task.sleep(for: delay)
                 } catch {
@@ -798,8 +806,6 @@ final class DrawerMobileModel: ObservableObject {
                 self.reload()
                 if !self.hasTransientAccessFailure { return }
             }
-
-            self?.providerRetryTask = nil
         }
     }
 
@@ -807,22 +813,18 @@ final class DrawerMobileModel: ObservableObject {
         guard isSceneActive, pendingDocument != nil, pendingRetryTask == nil else { return }
 
         pendingRetryTask = Task { [weak self] in
-            let delays: [Duration] = [
+            let initialDelays: [Duration] = [
                 .milliseconds(500),
                 .seconds(1),
                 .seconds(2),
                 .seconds(3),
-                .seconds(5),
-                .seconds(5),
-                .seconds(5),
-                .seconds(5),
-                .seconds(5),
-                .seconds(5),
-                .seconds(5),
-                .seconds(5),
             ]
+            var attempt = 0
 
-            for delay in delays {
+            while !Task.isCancelled {
+                let delay = attempt < initialDelays.count ? initialDelays[attempt] : .seconds(5)
+                attempt += 1
+
                 do {
                     try await Task.sleep(for: delay)
                 } catch {
@@ -837,8 +839,6 @@ final class DrawerMobileModel: ObservableObject {
                 self.attemptPendingSelection()
                 if self.pendingDocument == nil { return }
             }
-
-            self?.pendingRetryTask = nil
         }
     }
 
