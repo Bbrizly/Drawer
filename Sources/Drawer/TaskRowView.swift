@@ -498,10 +498,12 @@ struct TaskRowView: View, Equatable {
         isEditingTitle = true
         requestKeyboard() // panel must be key or the field gets no typing
         titleFieldFocused = true
+        OpenTaskEdit.shared.claim(saveTitle) // quitting mid edit still writes it
     }
 
     private func saveTitle() {
         guard isEditingTitle else { return }
+        OpenTaskEdit.shared.release()
         isEditingTitle = false
         titleFieldFocused = false
         store.rename(item, to: draftTitle)
@@ -512,9 +514,11 @@ struct TaskRowView: View, Equatable {
         isEditingNote = true
         requestKeyboard() // panel must be key or the note field gets no typing
         noteFieldFocused = true
+        OpenTaskEdit.shared.claim(saveNote) // quitting mid edit still writes it
     }
 
     private func saveNote() {
+        OpenTaskEdit.shared.release()
         isEditingNote = false
         noteFieldFocused = false
         store.setNote(item, draftNote)
