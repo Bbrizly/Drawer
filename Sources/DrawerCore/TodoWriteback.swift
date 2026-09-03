@@ -356,7 +356,11 @@ public enum TodoWriteback {
             guard target.sectionKey == nil || currentKey == target.sectionKey,
                   checkboxIndex(in: data, lineRange: lines[i].contentRange) != nil
             else { continue }
-            tasks.append(i)
+            // Positions have to be counted exactly the way the parser numbers
+            // them, so only real task lines. An indented note that mentions
+            // "- [ ]" reads as a checkbox here but is not a task there, and
+            // counting it would shift every row below onto its neighbour.
+            if roles[i] == .task { tasks.append(i) }
             if lines[i].text == target.rawLine { matches.append(i) }
         }
 

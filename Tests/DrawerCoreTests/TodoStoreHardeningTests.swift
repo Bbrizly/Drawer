@@ -212,6 +212,27 @@ final class TodoStoreHardeningTests: XCTestCase {
         XCTAssertTrue(result.contains("- [ ] four"), result)
     }
 
+    /// A note line that happens to mention a checkbox is not a task. Counting
+    /// it as one shifts every row below it onto its neighbour.
+    func testACheckboxInsideANoteDoesNotShiftPositions() async throws {
+        let store = try await loaded("""
+        ## 2026-06-07
+        - [ ] one
+            remember to - [ ] buy milk
+        - [ ] two
+        """)
+        let two = store.todayItems[1]
+
+        store.toggle(two)
+        store.toggle(two)
+        await store.settle()
+
+        let result = try text()
+        XCTAssertTrue(result.contains("- [ ] one"), result)
+        XCTAssertTrue(result.contains("    remember to - [ ] buy milk"), result)
+        XCTAssertTrue(result.contains("- [ ] two"), result)
+    }
+
     // MARK: outside editors
 
     /// Position is only trusted while this app is the only thing that has
