@@ -214,6 +214,31 @@ final class HistoryLoaderTests: XCTestCase {
         XCTAssertNotNil(fresh)
     }
 
+    /// Two live scrubbers ask the same question at once. One pass, one answer,
+    /// and neither caller is told nil.
+    func testTwoRequestsForTheSameRecordsShareOnePass() async {
+        let blobs = Blobs()
+        let records = (0..<6).map { i in
+            add("## 2026-06-07\n- [ ] task \(i)\n", at: day(i), to: blobs)
+        }
+        let gate = Gate()
+        blobs.beforeRead = { _ in gate.hold() }
+        let loader = HistorySummaryLoader(store: makeStore(blobs))
+
+        let first = Task { await loader.dailySummary(for: records) }
+        await waitUntilHeld(gate, 1)
+        let second = Task { await loader.dailySummary(for: records) }
+        // Give the second request a moment to either join or start its own pass.
+        try? await Task.sleep(nanoseconds: 20_000_000)
+        gate.release()
+
+        let firstResult = await first.value
+        let secondResult = await second.value
+        XCTAssertNotNil(firstResult)
+        XCTAssertNotNil(secondResult, "the second asker for the same records got nil")
+        XCTAssertEqual(blobs.reads, records.count, "the same question ran twice")
+    }
+
     /// Bounded is not the same as least-recently-used. The cache used to evict
     /// by insertion age, so re-reading an old snapshot did not protect it.
     func testCacheEvictsTheLeastRecentlyUsedEntry() async {

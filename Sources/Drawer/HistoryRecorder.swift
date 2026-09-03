@@ -97,6 +97,11 @@ actor HistorySummaryLoader {
     private var generation = 0
     private var cachedRecords: [SnapshotRecord]?
     private var cached: [DayTally] = []
+    /// The pass currently running, and what it is a pass over. The scrubber has
+    /// an inline and a full flavour over one recorder, so the same question
+    /// arrives twice; both wait on the one pass instead of starting two.
+    private var running: Task<[DayTally], Never>?
+    private var runningRecords: [SnapshotRecord]?
 
     init(store: SnapshotStore) { self.store = store }
 
@@ -104,13 +109,26 @@ actor HistorySummaryLoader {
     /// this one was running.
     func dailySummary(for records: [SnapshotRecord]) async -> [DayTally]? {
         if cachedRecords == records { return cached }
+        if runningRecords == records, let running {
+            let mine = generation
+            let tallies = await running.value
+            return mine == generation ? tallies : nil
+        }
+        // A pass over records nobody is waiting for any more is wasted work,
+        // and captures can arrive faster than a pass takes.
+        running?.cancel()
         generation += 1
         let mine = generation
         let store = store
-        let tallies = await Task.detached(priority: .utility) {
+        let pass = Task.detached(priority: .utility) {
             HistorySummaryLoader.build(records: records, store: store)
-        }.value
+        }
+        running = pass
+        runningRecords = records
+        let tallies = await pass.value
         guard mine == generation else { return nil }
+        running = nil
+        runningRecords = nil
         cached = tallies
         cachedRecords = records
         return tallies
@@ -125,6 +143,7 @@ actor HistorySummaryLoader {
     ) -> [DayTally] {
         var accumulator = HistoryTimelineAccumulator()
         for record in records.sorted(by: { $0.ts < $1.ts }) {
+            if Task.isCancelled { break }
             guard case let .available(data) = store.reconstruct(record),
                   let text = String(data: data, encoding: .utf8)
             else { continue }
