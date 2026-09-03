@@ -49,6 +49,10 @@ public final class BoardStore: ObservableObject {
     private let debounce: TimeInterval
     private var saveTask: Task<Void, Never>?
     private let persistenceQueue = DispatchQueue(label: "drawer.board.persistence", qos: .utility)
+    /// Handed to the persistence queue so a late debounced write can see what
+    /// already landed. Only ever touched from that serial queue.
+    private let writeLog = WriteLog()
+    private var generationCounter = 0
     private var cachedMetrics: ([BoardItem], BoardMetrics)?
 
     public convenience init(directory: URL, debounce: TimeInterval = 0.4) {
@@ -96,11 +100,15 @@ public final class BoardStore: ObservableObject {
     }
 
     /// Write immediately, cancelling any pending debounce. Call on teardown.
+    /// Blocks until the bytes are down, which is the point: the app is quitting
+    /// and an async write would not survive it.
     public func saveNow() {
         saveTask?.cancel()
         saveTask = nil
         let doc = document
-        persistenceQueue.sync { [writeData, boardFile] in
+        let generation = nextGeneration()
+        persistenceQueue.sync { [writeData, boardFile, writeLog] in
+            guard writeLog.claim(generation) else { return }
             Self.encodeAndWrite(doc, to: boardFile, writeData: writeData)
         }
     }
@@ -204,7 +212,6 @@ public final class BoardStore: ObservableObject {
     public func clear() throws {
         let empty = BoardDocument()
         let data = try Self.encoder.encode(empty)
-        try writeData(data, boardFile)
 
         saveTask?.cancel()
         saveTask = nil
@@ -212,6 +219,9 @@ public final class BoardStore: ObservableObject {
         viewportRevision += 1
         undoStack.removeAll()
         redoStack.removeAll()
+        // Through the same ordered writer as every other save, so a debounced
+        // write still in flight cannot land after this and resurrect the board.
+        try writeOrdered(data, generation: nextGeneration())
 
         if FileManager.default.fileExists(atPath: mediaDirectory.path) {
             try FileManager.default.removeItem(at: mediaDirectory)
@@ -446,19 +456,42 @@ public final class BoardStore: ObservableObject {
         return CGPoint(x: (inset - v.x) / v.zoom, y: (inset - v.y) / v.zoom)
     }
 
+    /// Every write takes its number the moment its snapshot is taken, so the
+    /// queue can tell an old snapshot from a new one no matter what order the
+    /// debounce, a teardown `saveNow`, and `clear` reach it in.
+    private func nextGeneration() -> Int {
+        generationCounter += 1
+        return generationCounter
+    }
+
     private func scheduleSave() {
         saveTask?.cancel()
         let snapshot = document
+        let generation = nextGeneration()
         let delay = debounce
         saveTask = Task { [weak self] in
             if delay > 0 {
                 try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
             }
             guard !Task.isCancelled, let self else { return }
-            self.persistenceQueue.async { [writeData = self.writeData, boardFile = self.boardFile] in
+            self.persistenceQueue.async {
+                [writeData = self.writeData, boardFile = self.boardFile, writeLog = self.writeLog] in
+                guard writeLog.claim(generation) else { return }
                 Self.encodeAndWrite(snapshot, to: boardFile, writeData: writeData)
             }
         }
+    }
+
+    /// Already-encoded bytes through the same ordered writer, so `clear` cannot
+    /// be undone by a write that was queued before it. Throws what the injected
+    /// writer throws, which is why it does not go through `encodeAndWrite`.
+    private func writeOrdered(_ data: Data, generation: Int) throws {
+        var thrown: Error?
+        persistenceQueue.sync { [writeData, boardFile, writeLog] in
+            guard writeLog.claim(generation) else { return }
+            do { try writeData(data, boardFile) } catch { thrown = error }
+        }
+        if let thrown { throw thrown }
     }
 
     private nonisolated static func encodeAndWrite(
@@ -483,4 +516,20 @@ public final class BoardStore: ObservableObject {
         d.dateDecodingStrategy = .iso8601
         return d
     }()
+}
+
+/// The highest write generation that has reached disk. A serial queue keeps
+/// writes in the order they were submitted, but not in the order their
+/// snapshots were taken: a debounced write scheduled before a `saveNow` can be
+/// submitted after it. Stale writes drop themselves here instead.
+/// ponytail: unchecked because the persistence queue is the only toucher.
+final class WriteLog: @unchecked Sendable {
+    private var landed = 0
+
+    /// True if this generation is newer than whatever is already on disk.
+    func claim(_ generation: Int) -> Bool {
+        guard generation > landed else { return false }
+        landed = generation
+        return true
+    }
 }
