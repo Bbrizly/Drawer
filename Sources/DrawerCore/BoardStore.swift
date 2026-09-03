@@ -438,7 +438,10 @@ public final class BoardStore: ObservableObject {
     private nonisolated static func encodeAndWrite(
         _ doc: BoardDocument, to url: URL, writeData: (Data, URL) throws -> Void
     ) {
-        guard let data = try? encoder.encode(doc) else { return }
+        let e = JSONEncoder()
+        e.outputFormatting = [.prettyPrinted, .sortedKeys]
+        e.dateEncodingStrategy = .iso8601
+        guard let data = try? e.encode(doc) else { return }
         try? writeData(data, url)
     }
 

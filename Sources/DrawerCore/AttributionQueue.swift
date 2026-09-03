@@ -98,7 +98,8 @@ public struct AttributionService: Sendable {
     public func approve(
         _ id: UUID, as override: (taskID: String, title: String)?
     ) throws -> WorkSession {
-        guard let entry = queue.all().first(where: { $0.id == id }) else {
+        let pending = queue.all()
+        guard let entry = pending.first(where: { $0.id == id }) else {
             throw AttributionError.entryNotFound
         }
         // Idempotent: if a prior approve wrote the session but failed to clear the
@@ -149,8 +150,9 @@ public struct AttributionService: Sendable {
     /// week unreviewed means the review is not happening, and the titles go.
     public func expireStale(now: Date, days: Int = 7) throws {
         let cutoff = now.addingTimeInterval(-Double(days) * 86_400)
-        let kept = queue.all().filter { $0.createdAt >= cutoff }
-        if kept.count != queue.all().count { try queue.replaceAll(kept) }
+        let pending = queue.all()
+        let kept = pending.filter { $0.createdAt >= cutoff }
+        if kept.count != pending.count { try queue.replaceAll(kept) }
     }
 
     /// Backs the review UI's undo: puts the entry back in the queue for
@@ -158,13 +160,16 @@ public struct AttributionService: Sendable {
     /// failure between the two steps leaves both sides present and the
     /// idempotent approve path resolves it, never a vanished block.
     public func undo(_ session: WorkSession, restoring entry: AttributionQueueEntry) throws {
-        if !queue.all().contains(where: { $0.id == entry.id }) {
+        let pending = queue.all()
+        if !pending.contains(where: { $0.id == entry.id }) {
             try queue.append(entry)
         }
-        try log.replaceAll(log.all().filter { $0.id != session.id })
+        let sessions = log.all()
+        try log.replaceAll(sessions.filter { $0.id != session.id })
     }
 
     private func remove(_ id: UUID) throws {
-        try queue.replaceAll(queue.all().filter { $0.id != id })
+        let pending = queue.all()
+        try queue.replaceAll(pending.filter { $0.id != id })
     }
 }
