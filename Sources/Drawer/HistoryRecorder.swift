@@ -2,6 +2,71 @@ import Combine
 import DrawerCore
 import Foundation
 
+struct HistoryDisplay: Sendable {
+    let today: [TodoItem]
+    let carried: [TodoItem]
+    let upcoming: [TodoItem]
+    let upcomingDate: String?
+    let backlog: [TodoItem]
+    let archive: [TodoItem]
+}
+
+actor HistoryLoader {
+    private let store: SnapshotStore
+    private var dataCache: [String: Data] = [:]
+    private var displayCache: [String: HistoryDisplay?] = [:]
+    private var order: [String] = []
+    private var summaryRecords: [SnapshotRecord]?
+    private var summary: [DayTally] = []
+    private let capacity = 64
+
+    init(store: SnapshotStore) { self.store = store }
+
+    func display(for record: SnapshotRecord, today: String) -> HistoryDisplay? {
+        if let cached = displayCache[record.hash] { return cached }
+        guard let data = bytes(for: record), let text = String(data: data, encoding: .utf8) else {
+            insert(nil, for: record.hash)
+            return nil
+        }
+        let parsed = TodoParser.display(sections: TodoParser.parse(text), today: today)
+        let result = HistoryDisplay(
+            today: parsed.today, carried: parsed.carried, upcoming: parsed.upcoming,
+            upcomingDate: parsed.upcomingDate, backlog: parsed.backlog, archive: parsed.archive)
+        insert(result, for: record.hash)
+        return result
+    }
+
+    func dailySummary(for records: [SnapshotRecord]) -> [DayTally] {
+        if summaryRecords == records { return summary }
+        let snapshots: [TimelineSnapshot] = records.compactMap { record in
+            guard let data = bytes(for: record), let text = String(data: data, encoding: .utf8) else { return nil }
+            return TimelineSnapshot(ts: record.ts, markdown: text)
+        }
+        summary = HistoryTimelineBuilder.dailySummary(
+            HistoryTimelineBuilder.build(snapshots: snapshots))
+        summaryRecords = records
+        return summary
+    }
+
+    private func bytes(for record: SnapshotRecord) -> Data? {
+        if let data = dataCache[record.hash] { return data }
+        guard case let .available(data) = store.reconstruct(record) else { return nil }
+        dataCache[record.hash] = data
+        return data
+    }
+
+    private func insert(_ value: HistoryDisplay?, for hash: String) {
+        displayCache[hash] = value
+        order.removeAll { $0 == hash }
+        order.append(hash)
+        while order.count > capacity {
+            let old = order.removeFirst()
+            displayCache[old] = nil
+            dataCache[old] = nil
+        }
+    }
+}
+
 /// Captures a debounced history of Drawer.md while the app runs. Driven by the
 /// existing FileWatcher: a launch capture anchors "now", then each change arms a
 /// quiet-period debounce so one logical edit yields one clean snapshot. Never
@@ -17,9 +82,11 @@ final class HistoryRecorder: ObservableObject {
     private var pollTimer: Timer?
     private let retention = 500
     private var running = false
+    private let loader: HistoryLoader
 
     init(store: SnapshotStore, fileURL: URL) {
         self.store = store
+        self.loader = HistoryLoader(store: store)
         self.fileURL = fileURL
         watcher = FileWatcher(
             directory: fileURL.deletingLastPathComponent(), pollFile: fileURL)
@@ -56,8 +123,12 @@ final class HistoryRecorder: ObservableObject {
         pollTimer = nil
     }
 
-    func reconstruct(_ record: SnapshotRecord) -> SnapshotReadResult {
-        store.reconstruct(record)
+    func display(for record: SnapshotRecord, today: String) async -> HistoryDisplay? {
+        await loader.display(for: record, today: today)
+    }
+
+    func dailySummary(for records: [SnapshotRecord]) async -> [DayTally] {
+        await loader.dailySummary(for: records)
     }
 
     private func fileChanged() {

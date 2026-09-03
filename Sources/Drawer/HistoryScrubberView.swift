@@ -11,7 +11,9 @@ struct HistoryScrubberView: View {
     /// size it instead.
     var inline: Bool = false
     @State private var position: Double = 0
-    @State private var cache = ParseCache()
+    @State private var prepared: HistoryDisplay?
+    @State private var preparedHash: String?
+    @State private var loadGeneration = 0
     @State private var summary: [DayTally] = []
     /// A tapped day, showing its completed/started task titles below the band.
     /// nil = the live snapshot scrubber instead.
@@ -22,15 +24,6 @@ struct HistoryScrubberView: View {
         upcoming: [TodoItem], upcomingDate: String?,
         backlog: [TodoItem], archive: [TodoItem]
     )
-
-    /// One-entry memo of the reconstructed + parsed snapshot, keyed by hash,
-    /// so repeated body evaluations at the same position don't redo the disk
-    /// read, SHA verify, and full parse. A reference type: filling it during
-    /// body evaluation is legal and doesn't re-invalidate the view.
-    private final class ParseCache {
-        var hash: String?
-        var display: DisplayBuckets? // nil (with hash set) = unavailable
-    }
 
     private var records: [SnapshotRecord] { recorder.records }
     private var index: Int { min(max(0, Int(position.rounded())), max(0, records.count - 1)) }
@@ -53,14 +46,20 @@ struct HistoryScrubberView: View {
         }
         .frame(width: inline ? nil : 400, height: inline ? nil : 540)
         .frame(maxWidth: inline ? .infinity : nil, maxHeight: inline ? .infinity : nil, alignment: .topLeading)
-        .onAppear { position = Double(max(0, records.count - 1)); rebuildSummary() }
+        .onAppear {
+            position = Double(max(0, records.count - 1))
+            requestSummary()
+            requestDisplay()
+        }
         // Jump to newest on any new capture. Observe the newest snapshot's
         // timestamp, not the count, which stays pinned at 500 once retention
         // fills (prune-one, append-one).
         .onChange(of: records.last?.ts) {
             position = Double(max(0, records.count - 1))
-            rebuildSummary()
+            requestSummary()
+            requestDisplay()
         }
+        .onChange(of: index) { requestDisplay() }
     }
 
     /// Reconstruct every retained snapshot, diff it, and roll the lifecycles up
@@ -73,12 +72,27 @@ struct HistoryScrubberView: View {
     /// this view came back on screen, which is what made leaving the idea
     /// board feel broken.
     private func rebuildSummary() {
-        let snaps: [TimelineSnapshot] = records.compactMap { record in
-            guard case let .available(bytes) = recorder.reconstruct(record),
-                  let text = String(data: bytes, encoding: .utf8) else { return nil }
-            return TimelineSnapshot(ts: record.ts, markdown: text)
+        requestSummary()
+    }
+
+    private func requestSummary() {
+        let current = records
+        Task { @MainActor in
+            summary = await recorder.dailySummary(for: current)
         }
-        Task { @MainActor in summary = await Self.tally(snaps) }
+    }
+
+    private func requestDisplay() {
+        guard !records.isEmpty else { prepared = nil; preparedHash = nil; return }
+        let record = records[index]
+        loadGeneration += 1
+        let generation = loadGeneration
+        Task { @MainActor in
+            let result = await recorder.display(for: record, today: today)
+            guard generation == loadGeneration else { return }
+            preparedHash = record.hash
+            prepared = result
+        }
     }
 
     /// Pure, and the snapshots are values, so it runs off the main thread.
@@ -218,21 +232,9 @@ struct HistoryScrubberView: View {
         .padding(12)
     }
 
-    private func parsed(_ record: SnapshotRecord) -> DisplayBuckets? {
-        if cache.hash == record.hash { return cache.display }
-        var display: DisplayBuckets?
-        if case let .available(bytes) = recorder.reconstruct(record) {
-            let text = String(data: bytes, encoding: .utf8) ?? ""
-            display = TodoParser.display(sections: TodoParser.parse(text), today: today)
-        }
-        cache.hash = record.hash
-        cache.display = display
-        return display
-    }
-
     @ViewBuilder
     private func snapshot(_ record: SnapshotRecord) -> some View {
-        if let display = parsed(record) {
+        if preparedHash == record.hash, let display = prepared {
             ScrollView {
                 VStack(alignment: .leading, spacing: 10) {
                     section("Today", display.today)
