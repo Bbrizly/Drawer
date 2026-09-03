@@ -1,12 +1,17 @@
 import XCTest
 @testable import DrawerCore
 
-private final class Box: @unchecked Sendable { var text = "" }
+private final class Box: @unchecked Sendable {
+    var text = ""
+    /// Counts full-file decodes, so a test can pin how many times one operation
+    /// reads the queue back.
+    var reads = 0
+}
 
 private func memoryQueue(_ box: Box) -> AttributionQueueStore {
     AttributionQueueStore(
         fileURL: URL(fileURLWithPath: "/dev/null"),
-        read: { _ in box.text },
+        read: { _ in box.reads += 1; return box.text },
         appendLine: { line, _ in box.text += line },
         overwrite: { value, _ in box.text = value })
 }
@@ -67,6 +72,20 @@ final class AttributionQueueTests: XCTestCase {
         XCTAssertEqual(makeMemoryLog(lbox).all().count, 1, "must not write a second session")
         XCTAssertEqual(returned.attributionID, e.id)
         XCTAssertTrue(svc.pending().isEmpty, "queue entry cleared")
+    }
+
+    /// Approve used to read and decode the whole queue file twice: once to find
+    /// the entry, once inside the removal that follows.
+    func testApproveReadsTheQueueOnce() throws {
+        let (svc, qbox, _) = service()
+        let e = entry(taskID: "t1", taskTitle: "Fix parser", confidence: 0.9)
+        try svc.enqueue(e)
+        qbox.reads = 0
+
+        try svc.approve(e.id, as: nil)
+
+        XCTAssertEqual(qbox.reads, 1, "the queue file was decoded \(qbox.reads) times for one approve")
+        XCTAssertTrue(svc.pending().isEmpty)
     }
 
     func testRejectWritesNoSession() throws {

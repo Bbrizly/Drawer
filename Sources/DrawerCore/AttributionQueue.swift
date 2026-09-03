@@ -105,13 +105,13 @@ public struct AttributionService: Sendable {
         // Idempotent: if a prior approve wrote the session but failed to clear the
         // queue entry, don't write it twice, just finish removing the entry.
         if let existing = log.all().first(where: { $0.attributionID == entry.id }) {
-            try remove(id)
+            try remove(id, from: pending)
             return existing
         }
         // The log drops sub-second sessions; surface that instead of returning
         // a session that was never written (the UI would offer a phantom undo).
         guard entry.blockEnd.timeIntervalSince(entry.blockStart) >= 1 else {
-            try remove(id)
+            try remove(id, from: pending)
             throw AttributionError.blockTooShort
         }
         let taskID: String
@@ -131,7 +131,7 @@ public struct AttributionService: Sendable {
             taskID: taskID, taskTitle: title, start: entry.blockStart, end: entry.blockEnd,
             source: "auto", kind: kind, attributionID: entry.id)
         try log.append(session)
-        try remove(id)
+        try remove(id, from: pending)
         return session
     }
 
@@ -169,7 +169,13 @@ public struct AttributionService: Sendable {
     }
 
     private func remove(_ id: UUID) throws {
-        let pending = queue.all()
+        try remove(id, from: queue.all())
+    }
+
+    /// Rewrites the queue without `id`. Takes the already-decoded entries so
+    /// approve does not read and decode the whole file a second time to drop
+    /// the row it is holding.
+    private func remove(_ id: UUID, from pending: [AttributionQueueEntry]) throws {
         try queue.replaceAll(pending.filter { $0.id != id })
     }
 }
