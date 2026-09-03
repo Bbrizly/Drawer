@@ -37,10 +37,14 @@ public final class TodoStore: ObservableObject {
     private var publishChain: Task<Void, Never>?
     /// Operations accepted and not yet published.
     private var pending = 0
-    /// Deletes queued but not yet on disk. Every later command in the same
-    /// burst sits one row higher for each of these, so its position has to be
-    /// shifted down before it runs.
+    /// Deletes queued but not yet published. Every command captured against the
+    /// display sits one row higher for each of these, so its position has to be
+    /// shifted down before it runs. Each entry is dropped when its own delete
+    /// publishes, because from then on the display already counts without it.
     private var pendingDeletes: [(section: String, ordinal: Int)] = []
+    /// The position numbering the visible items belong to. Commands carry it so
+    /// the worker can tell them whether it still holds.
+    private var displayEpoch = 0
     private var calendarObservers: [NSObjectProtocol] = []
 
     public convenience init(
@@ -132,14 +136,21 @@ public final class TodoStore: ObservableObject {
     /// keystroke earlier has to land first. Blocking here is safe because the
     /// write chain never touches the main actor. The publishes that would
     /// follow are abandoned along with the UI.
-    public func flushPendingWrites(timeout: TimeInterval = 5) {
-        guard let chain = fileChain else { return }
+    @discardableResult
+    public func flushPendingWrites(timeout: TimeInterval = 5) -> Bool {
+        guard let chain = fileChain else { return true }
         let done = DispatchSemaphore(value: 0)
         Task.detached(priority: .userInitiated) {
             _ = await chain.value
             done.signal()
         }
-        _ = done.wait(timeout: .now() + timeout)
+        guard done.wait(timeout: .now() + timeout) == .success else {
+            // A stalled volume. Quitting anyway beats hanging the quit, but say
+            // so: this is the one path where an accepted edit is still lost.
+            NSLog("Drawer: gave up waiting for queued task writes after %.0fs", timeout)
+            return false
+        }
+        return true
     }
 
     public func reload() {
@@ -156,10 +167,11 @@ public final class TodoStore: ObservableObject {
 
     public func delete(_ item: TodoItem) {
         let target = target(for: item)
+        let shifting = target.ordinal != nil
         if let ordinal = target.ordinal {
             pendingDeletes.append((item.sectionDate, ordinal))
         }
-        mutate { data, ours in
+        mutate(retiringADelete: shifting) { data, ours in
             try TodoWriteback.delete(target: target.trusting(ours), in: data)
         }
     }
@@ -200,7 +212,7 @@ public final class TodoStore: ObservableObject {
                 // queued behind it may trust the position it captured.
                 return .display(try await worker.commit(
                     today: today, readingMissingAsEmpty: true, preservesOrdinals: false
-                ) { data, _ in
+                ) { data, _ in  // a plan replace never trusts a captured position
                     try PlanWriter.write(date: date, entries: entries, replace: replace, in: data)
                 })
             } catch {
@@ -262,6 +274,7 @@ public final class TodoStore: ObservableObject {
     /// it in the meantime.
     @discardableResult
     private func enqueue(
+        retiringADelete: Bool = false,
         _ operation: @escaping @Sendable (TodoFileWorker) async -> TodoFileOutcome
     ) -> Task<Void, Never> {
         let worker = worker
@@ -278,7 +291,7 @@ public final class TodoStore: ObservableObject {
             await previousPublish?.value
             let outcome = await file.value
             guard let self else { return }
-            defer { self.finished() }
+            defer { self.finished(retiringADelete: retiringADelete) }
             guard self.fileToken == token else { return }
             self.publish(outcome)
         }
@@ -287,9 +300,12 @@ public final class TodoStore: ObservableObject {
         return publish
     }
 
-    /// One operation left the queue. When the last one goes, nothing is holding
-    /// a captured position any more, so the shift list resets.
-    private func finished() {
+    /// One operation left the queue. A delete's own publish is the moment the
+    /// visible rows renumber, so its shift stops applying right there rather
+    /// than when the whole queue happens to drain. Deletes publish in the order
+    /// they were queued, so the oldest entry is always this one's.
+    private func finished(retiringADelete: Bool) {
+        if retiringADelete, !pendingDeletes.isEmpty { pendingDeletes.removeFirst() }
         pending -= 1
         guard pending == 0 else { return }
         pendingDeletes.removeAll()
@@ -311,9 +327,15 @@ public final class TodoStore: ObservableObject {
             ordinal: ordinal, occurrence: item.occurrence)
     }
 
-    private func mutate(_ transform: @escaping @Sendable (Data, Bool) throws -> Data) {
+    private func mutate(
+        retiringADelete: Bool = false,
+        _ transform: @escaping @Sendable (Data, Bool) throws -> Data
+    ) {
         let today = todayProvider()
-        enqueue { await $0.mutate(today: today, transform) }
+        let epoch = displayEpoch
+        enqueue(retiringADelete: retiringADelete) {
+            await $0.mutate(today: today, epoch: epoch, transform)
+        }
     }
 
     private func write(
@@ -356,6 +378,7 @@ public final class TodoStore: ObservableObject {
     }
 
     private func apply(_ snapshot: TodoDisplaySnapshot) {
+        displayEpoch = snapshot.epoch
         // Publish only what actually changed. An edit usually touches one
         // section; the other five publishes would re-evaluate every
         // subscriber's body for nothing. The compares are cheap value

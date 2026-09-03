@@ -11,6 +11,10 @@ struct TodoDisplaySnapshot: Sendable {
     var upcomingDate: String?
     var backlog: [TodoItem]
     var archive: [TodoItem]
+    /// Which numbering of task positions these items belong to. A command
+    /// captured against this snapshot may only trust its position while the
+    /// worker is still on the same epoch.
+    var epoch: Int
 }
 
 /// What a file transaction ended up meaning for the display.
@@ -49,12 +53,12 @@ actor TodoFileWorker {
     /// directory, so sibling saves fire reloads constantly; identical bytes mean
     /// there is nothing to re-parse or re-publish.
     private var lastAppliedData: Data?
-    /// Bytes this app's own last mutation left on disk, cleared the moment
-    /// anything else is read in. While it matches what we are about to edit,
-    /// the only thing that has changed the file since the display was built is
-    /// an earlier command from the same burst, which is what makes a queued
-    /// command's ordinal safe to trust.
-    private var lastCommittedData: Data?
+    /// Bumped every time the file changes in a way our own position-preserving
+    /// mutations did not cause: an outside editor, an archive sweep, a plan
+    /// replace, a new file. A queued command carries the epoch of the display
+    /// it was made against, and may trust the position it captured only while
+    /// that epoch is still current.
+    private var ordinalEpoch = 0
 
     init(
         fileURL: URL,
@@ -72,7 +76,7 @@ actor TodoFileWorker {
         fileURL = url
         lastWrittenData = nil
         lastAppliedData = nil
-        lastCommittedData = nil
+        ordinalEpoch += 1
     }
 
     /// Day changed: identical bytes no longer mean an identical display, so
@@ -80,7 +84,7 @@ actor TodoFileWorker {
     func forgetSuppression() {
         lastWrittenData = nil
         lastAppliedData = nil
-        lastCommittedData = nil
+        ordinalEpoch += 1
     }
 
     /// Read, sweep archived tasks if any are due, parse. Returns `.unchanged`
@@ -91,7 +95,7 @@ actor TodoFileWorker {
             data = try readData(fileURL)
         } catch {
             lastAppliedData = nil
-            lastCommittedData = nil
+            ordinalEpoch += 1
             return isMissingFileError(error) ? .missingFile : .unreadable
         }
         // Self-write suppression: skip reload churn for our own write.
@@ -103,9 +107,9 @@ actor TodoFileWorker {
         // file itself did not change, so what is displayed is already right.
         if data == lastAppliedData { return .unchanged }
         // Past here the bytes are someone else's, or a sweep is about to move
-        // lines around. Either way our own last write no longer describes the
-        // file, so no queued command may trust its ordinal.
-        lastCommittedData = nil
+        // lines around. Either way the positions any queued command captured
+        // may no longer be where it thinks.
+        ordinalEpoch += 1
         // Sweep done tasks older than the keep window into Archive > Done.
         // Idempotent and only writes when something actually moved, so the
         // follow-up watcher event is caught by the suppression check above.
@@ -136,13 +140,15 @@ actor TodoFileWorker {
     /// ponytail: one re-read, not a loop or a file lock. A single external editor
     /// is the only other writer in practice; upgrade to NSFileCoordinator if
     /// cross-process races ever matter.
-    /// `transform` is handed the bytes and whether they are byte-for-byte our
-    /// own last write, so a command can tell "an earlier command of mine changed
-    /// this line" from "an outside editor did". `preservesOrdinals` is false for
-    /// a transform that rewrites whole sections (a day plan replace), because
-    /// then no queued command's position survives it.
+    /// `epoch` is the numbering the caller captured its positions under.
+    /// `transform` is told whether that numbering still holds, which is what
+    /// lets a command act on the row a command ahead of it just rewrote without
+    /// ever acting on a row an outside editor moved. `preservesOrdinals` is
+    /// false for a transform that can renumber a section (a plan replace, an
+    /// insert), so nothing queued behind it trusts a stale position.
     func commit(
         today: String,
+        epoch: Int = 0,
         readingMissingAsEmpty: Bool,
         preservesOrdinals: Bool = true,
         _ transform: (Data, Bool) throws -> Data
@@ -153,22 +159,26 @@ actor TodoFileWorker {
         }
         do {
             var data = try currentData()
-            var newData = try transform(data, data == lastCommittedData)
+            // Bytes we have not seen: something outside wrote while this
+            // command sat in the queue, so its positions are void from here on.
+            if data != lastAppliedData { ordinalEpoch += 1 }
+            var newData = try transform(data, epoch == ordinalEpoch)
             let fresh = try currentData()
             if fresh != data {
+                ordinalEpoch += 1
                 data = fresh
-                newData = try transform(data, data == lastCommittedData)
+                newData = try transform(data, epoch == ordinalEpoch)
             }
             try writeData(newData, fileURL)
             lastWrittenData = newData
-            lastCommittedData = preservesOrdinals ? newData : nil
+            if !preservesOrdinals { ordinalEpoch += 1 }
             guard case let .display(snapshot) = parse(newData, today: today) else {
                 throw TodoFileError.notUTF8
             }
             return snapshot
         } catch {
             lastWrittenData = nil
-            lastCommittedData = nil
+            ordinalEpoch += 1
             throw error
         }
     }
@@ -178,10 +188,12 @@ actor TodoFileWorker {
     /// on disk. One operation, so nothing lands between the failure and the
     /// re-read.
     func mutate(
-        today: String, _ transform: (Data, Bool) throws -> Data
+        today: String, epoch: Int, _ transform: (Data, Bool) throws -> Data
     ) -> TodoFileOutcome {
         do {
-            return .display(try commit(today: today, readingMissingAsEmpty: false, transform))
+            return .display(
+                try commit(
+                    today: today, epoch: epoch, readingMissingAsEmpty: false, transform))
         } catch {
             lastWrittenData = nil
             return reload(today: today)
@@ -190,6 +202,8 @@ actor TodoFileWorker {
 
     /// A transform the user asked for by name (add, insert). A failure is worth
     /// saying out loud rather than silently reloading.
+    /// An insert can renumber a section whose key appears under more than one
+    /// heading, so it never leaves position trust armed behind it.
     func write(
         today: String,
         readingMissingAsEmpty: Bool,
@@ -197,7 +211,9 @@ actor TodoFileWorker {
     ) -> TodoFileOutcome {
         do {
             return .display(
-                try commit(today: today, readingMissingAsEmpty: readingMissingAsEmpty, transform))
+                try commit(
+                    today: today, readingMissingAsEmpty: readingMissingAsEmpty,
+                    preservesOrdinals: false, transform))
         } catch {
             return .writeFailed
         }
@@ -217,7 +233,8 @@ actor TodoFileWorker {
             upcoming: display.upcoming,
             upcomingDate: display.upcomingDate,
             backlog: display.backlog,
-            archive: display.archive
+            archive: display.archive,
+            epoch: ordinalEpoch
         ))
     }
 
