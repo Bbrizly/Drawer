@@ -518,6 +518,9 @@ struct TaskRowView: View, Equatable {
     }
 
     private func saveNote() {
+        // Clearing the focus below fires the blur handler, which calls back in
+        // here. Same guard as saveTitle, so one edit is written once.
+        guard isEditingNote else { return }
         OpenTaskEdit.shared.release()
         isEditingNote = false
         noteFieldFocused = false
