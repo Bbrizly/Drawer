@@ -94,7 +94,11 @@ struct HistoryScrubberView: View {
     private func requestSummary() {
         let current = records
         Task { @MainActor in
-            summary = await recorder.dailySummary(for: current)
+            // nil means a newer record set is already being summarised, so
+            // leaving the current band up is right.
+            if let tallies = await recorder.dailySummary(for: current) {
+                summary = tallies
+            }
         }
     }
 

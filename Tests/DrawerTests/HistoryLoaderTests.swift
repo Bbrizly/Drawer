@@ -11,16 +11,52 @@ final class HistoryLoaderTests: XCTestCase {
         private let lock = NSLock()
         private var store: [String: Data] = [:]
         private(set) var reads = 0
+        /// Runs before the lock is taken, so a test can stall one read without
+        /// stalling every other read as a side effect.
+        var beforeRead: (@Sendable (String) -> Void)?
 
         func put(_ hash: String, _ data: Data) { lock.withLock { store[hash] = data } }
         func read(_ hash: String) throws -> Data {
-            try lock.withLock {
+            beforeRead?(hash)
+            return try lock.withLock {
                 reads += 1
                 guard let data = store[hash] else { throw CocoaError(.fileReadNoSuchFile) }
                 return data
             }
         }
         func resetReads() { lock.withLock { reads = 0 } }
+    }
+
+    /// Holds readers until the test lets them go, and says how many are held so
+    /// the test can wait for the work it wants to race against to be underway.
+    private final class Gate: @unchecked Sendable {
+        private let condition = NSCondition()
+        private var opened = false
+        private var held = 0
+
+        var heldCount: Int { condition.lock(); defer { condition.unlock() }; return held }
+
+        func hold() {
+            condition.lock()
+            held += 1
+            condition.broadcast()
+            while !opened { condition.wait() }
+            held -= 1
+            condition.unlock()
+        }
+
+        func release() {
+            condition.lock()
+            opened = true
+            condition.broadcast()
+            condition.unlock()
+        }
+    }
+
+    private func waitUntilHeld(_ gate: Gate, _ count: Int) async {
+        while gate.heldCount < count {
+            try? await Task.sleep(nanoseconds: 2_000_000)
+        }
     }
 
     private func makeStore(_ blobs: Blobs) -> SnapshotStore {
@@ -102,12 +138,14 @@ final class HistoryLoaderTests: XCTestCase {
         let records = (0..<200).map { i in
             add("## 2026-06-07\n- [ ] task \(i % 7)\n", at: day(i), to: blobs)
         }
-        let loader = HistoryLoader(store: makeStore(blobs))
+        let store = makeStore(blobs)
+        let display = HistoryLoader(store: store)
+        let summaries = HistorySummaryLoader(store: store)
 
-        let summary = await loader.dailySummary(for: records)
+        let summary = await summaries.dailySummary(for: records)
 
-        XCTAssertFalse(summary.isEmpty)
-        let cached = await loader.cachedCount
+        XCTAssertEqual(summary?.isEmpty, false)
+        let cached = await display.cachedCount
         XCTAssertEqual(cached, 0, "summary generation retained \(cached) reconstructed snapshots")
     }
 
@@ -116,13 +154,64 @@ final class HistoryLoaderTests: XCTestCase {
         let records = (0..<5).map { i in
             add("## 2026-06-07\n- [ ] task \(i)\n", at: day(i), to: blobs)
         }
-        let loader = HistoryLoader(store: makeStore(blobs))
+        let loader = HistorySummaryLoader(store: makeStore(blobs))
 
         _ = await loader.dailySummary(for: records)
         blobs.resetReads()
         _ = await loader.dailySummary(for: records)
 
         XCTAssertEqual(blobs.reads, 0, "an unchanged record list rebuilt the summary")
+    }
+
+    /// The point of splitting the two loaders. While a summary is grinding
+    /// through every retained snapshot, moving the scrubber must still resolve.
+    /// Sharing one actor made this hang instead.
+    func testASlowSummaryDoesNotDelayAnInteractiveLoad() async {
+        let blobs = Blobs()
+        let bulk = (0..<50).map { i in
+            add("## 2026-06-07\n- [ ] bulk \(i)\n", at: day(i), to: blobs)
+        }
+        let interactive = add("## 2026-06-07\n- [ ] interactive\n", at: day(900), to: blobs)
+        let gate = Gate()
+        let bulkHashes = Set(bulk.map(\.hash))
+        blobs.beforeRead = { hash in if bulkHashes.contains(hash) { gate.hold() } }
+
+        let store = makeStore(blobs)
+        let display = HistoryLoader(store: store)
+        let summaries = HistorySummaryLoader(store: store)
+
+        let summaryTask = Task { await summaries.dailySummary(for: bulk) }
+        await waitUntilHeld(gate, 1)
+
+        let result = await display.display(for: interactive, today: "2026-06-07")
+        XCTAssertEqual(result?.today.map(\.title), ["interactive"])
+
+        gate.release()
+        _ = await summaryTask.value
+    }
+
+    /// Records changed mid-pass. The older summary must come back empty-handed
+    /// rather than paint stale tallies over the newer ones.
+    func testASupersededSummaryIsDiscarded() async {
+        let blobs = Blobs()
+        let first = (0..<4).map { i in
+            add("## 2026-06-07\n- [ ] task \(i)\n", at: day(i), to: blobs)
+        }
+        let second = first + [add("## 2026-06-07\n- [ ] later\n", at: day(10), to: blobs)]
+        let gate = Gate()
+        blobs.beforeRead = { _ in gate.hold() }
+        let loader = HistorySummaryLoader(store: makeStore(blobs))
+
+        let older = Task { await loader.dailySummary(for: first) }
+        await waitUntilHeld(gate, 1)
+        let newer = Task { await loader.dailySummary(for: second) }
+        await waitUntilHeld(gate, 2)
+        gate.release()
+
+        let stale = await older.value
+        let fresh = await newer.value
+        XCTAssertNil(stale, "a superseded summary came back and would have overwritten a newer one")
+        XCTAssertNotNil(fresh)
     }
 
     /// Bounded is not the same as least-recently-used. The cache used to evict

@@ -11,13 +11,13 @@ struct HistoryDisplay: Sendable {
     let archive: [TodoItem]
 }
 
-/// Reconstructs and parses snapshots away from the UI, and remembers the last
-/// few so re-scrubbing over the same steps does not go back to disk.
+/// Reconstructs and parses one snapshot at a time for the scrubber, and
+/// remembers the last few so re-scrubbing over the same steps does not go back
+/// to disk.
 ///
-/// The cache holds parsed displays only. It used to hold the reconstructed
-/// markdown too, and the summary pass put every one of them in without ever
-/// putting them in the eviction order, so generating a summary pinned all 500
-/// retained files in memory for the life of the app.
+/// Interactive work only. The day summary reads every retained snapshot and
+/// used to share this actor, so a scrub during a summary pass waited behind up
+/// to five hundred reconstructions; it lives on `HistorySummaryLoader` now.
 actor HistoryLoader {
     /// Small on purpose: the scrubber walks neighbours, so a handful of steps
     /// either side is all that ever gets revisited.
@@ -32,8 +32,6 @@ actor HistoryLoader {
     /// The display depends on which day is "today", so a day roll invalidates
     /// every parse even though the bytes are unchanged.
     private var cachedToday: String?
-    private var summaryRecords: [SnapshotRecord]?
-    private var summary: [DayTally] = []
 
     init(store: SnapshotStore) { self.store = store }
 
@@ -63,22 +61,6 @@ actor HistoryLoader {
         return result
     }
 
-    /// Walks the snapshots oldest first, feeding each one to the diff and
-    /// letting it go before reading the next. Nothing here enters the cache:
-    /// the summary touches every retained snapshot, and caching that set is
-    /// exactly the leak this replaced.
-    func dailySummary(for records: [SnapshotRecord]) -> [DayTally] {
-        if summaryRecords == records { return summary }
-        var accumulator = HistoryTimelineAccumulator()
-        for record in records.sorted(by: { $0.ts < $1.ts }) {
-            guard let text = markdown(for: record) else { continue }
-            accumulator.add(ts: record.ts, markdown: text)
-        }
-        summary = HistoryTimelineBuilder.dailySummary(accumulator.finish())
-        summaryRecords = records
-        return summary
-    }
-
     /// The snapshot's bytes as text, or nil if the blob is missing or fails the
     /// hash check. Never retained past the caller's use of it.
     private func markdown(for record: SnapshotRecord) -> String? {
@@ -102,6 +84,56 @@ actor HistoryLoader {
     }
 }
 
+/// The day band's tallies: every retained snapshot reconstructed, diffed
+/// against the one before it, and rolled up per day.
+///
+/// The work itself runs on a detached task, not on this actor, so the actor is
+/// free between requests. That is what makes a newer request able to supersede
+/// an older one: the older one comes back to find its generation stale and
+/// returns nil rather than publishing a summary of records that have since
+/// changed.
+actor HistorySummaryLoader {
+    private let store: SnapshotStore
+    private var generation = 0
+    private var cachedRecords: [SnapshotRecord]?
+    private var cached: [DayTally] = []
+
+    init(store: SnapshotStore) { self.store = store }
+
+    /// The tallies for `records`, or nil when a newer request came in while
+    /// this one was running.
+    func dailySummary(for records: [SnapshotRecord]) async -> [DayTally]? {
+        if cachedRecords == records { return cached }
+        generation += 1
+        let mine = generation
+        let store = store
+        let tallies = await Task.detached(priority: .utility) {
+            HistorySummaryLoader.build(records: records, store: store)
+        }.value
+        guard mine == generation else { return nil }
+        cached = tallies
+        cachedRecords = records
+        return tallies
+    }
+
+    /// Walks the snapshots oldest first, feeding each one to the diff and
+    /// letting it go before reading the next. Nothing is cached along the way:
+    /// the summary touches every retained snapshot, and holding that set is the
+    /// leak this replaced.
+    private static func build(
+        records: [SnapshotRecord], store: SnapshotStore
+    ) -> [DayTally] {
+        var accumulator = HistoryTimelineAccumulator()
+        for record in records.sorted(by: { $0.ts < $1.ts }) {
+            guard case let .available(data) = store.reconstruct(record),
+                  let text = String(data: data, encoding: .utf8)
+            else { continue }
+            accumulator.add(ts: record.ts, markdown: text)
+        }
+        return HistoryTimelineBuilder.dailySummary(accumulator.finish())
+    }
+}
+
 /// Captures a debounced history of Drawer.md while the app runs. Driven by the
 /// existing FileWatcher: a launch capture anchors "now", then each change arms a
 /// quiet-period debounce so one logical edit yields one clean snapshot. Never
@@ -118,10 +150,12 @@ final class HistoryRecorder: ObservableObject {
     private let retention = 500
     private var running = false
     private let loader: HistoryLoader
+    private let summaryLoader: HistorySummaryLoader
 
     init(store: SnapshotStore, fileURL: URL) {
         self.store = store
         self.loader = HistoryLoader(store: store)
+        self.summaryLoader = HistorySummaryLoader(store: store)
         self.fileURL = fileURL
         watcher = FileWatcher(
             directory: fileURL.deletingLastPathComponent(), pollFile: fileURL)
@@ -162,8 +196,9 @@ final class HistoryRecorder: ObservableObject {
         await loader.display(for: record, today: today)
     }
 
-    func dailySummary(for records: [SnapshotRecord]) async -> [DayTally] {
-        await loader.dailySummary(for: records)
+    /// nil when a newer summary request overtook this one.
+    func dailySummary(for records: [SnapshotRecord]) async -> [DayTally]? {
+        await summaryLoader.dailySummary(for: records)
     }
 
     private func fileChanged() {
