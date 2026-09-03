@@ -14,7 +14,7 @@ final class BoardCanvasView: NSView, NSTextViewDelegate {
     // Reported back to the coordinator (which mutates the store).
     var onMoveMany: ([UUID: CGPoint]) -> Void = { _ in }
     var onBringToFront: (UUID) -> Void = { _ in }
-    var onViewport: (BoardViewport) -> Void = { _ in }
+    var onViewportCommit: (BoardViewport) -> Void = { _ in }
     var onDropImage: (Data, CGPoint) -> Void = { _, _ in }
     var onDropText: (String, CGPoint) -> Void = { _, _ in }
     var onDeleteMany: (Set<UUID>) -> Void = { _ in }
@@ -37,8 +37,10 @@ final class BoardCanvasView: NSView, NSTextViewDelegate {
     private var itemLayers: [UUID: CALayer] = [:]
     private var imageFiles: [UUID: String] = [:]
     private var loadingThumbnails: Set<UUID> = []
+    private var thumbnailRetries: Set<UUID> = []
     private var items: [BoardItem] = []
     private var viewport = BoardViewport()
+    private var viewportCommitWork: DispatchWorkItem?
 
     private var selectedIDs: Set<UUID> = []
     private var soleSelection: UUID? { selectedIDs.count == 1 ? selectedIDs.first : nil }
@@ -109,6 +111,8 @@ final class BoardCanvasView: NSView, NSTextViewDelegate {
     required init?(coder: NSCoder) { fatalError() }
 
     deinit {
+        commitViewport()
+        viewportCommitWork?.cancel()
         if let globalPanMonitor { NSEvent.removeMonitor(globalPanMonitor) }
         if let magnifyMonitor { NSEvent.removeMonitor(magnifyMonitor) }
         if let keyboardMonitor { NSEvent.removeMonitor(keyboardMonitor) }
@@ -136,7 +140,7 @@ final class BoardCanvasView: NSView, NSTextViewDelegate {
         // Persist after the layout pass; publishing a store change from inside
         // setFrameSize would re-enter the SwiftUI update that resized us.
         let v = viewport
-        DispatchQueue.main.async { [weak self] in self?.onViewport(v) }
+        DispatchQueue.main.async { [weak self] in self?.commitViewport(v) }
     }
 
     override func viewDidChangeBackingProperties() {
@@ -159,6 +163,7 @@ final class BoardCanvasView: NSView, NSTextViewDelegate {
 
     /// Diff the incoming items against the current layers: create, update, drop.
     func setItems(_ newItems: [BoardItem]) {
+        let previous = Dictionary(uniqueKeysWithValues: items.map { ($0.id, $0) })
         items = newItems
         let incoming = Set(newItems.map(\.id))
 
@@ -167,11 +172,16 @@ final class BoardCanvasView: NSView, NSTextViewDelegate {
             itemLayers[id] = nil
             imageFiles[id] = nil
             loadingThumbnails.remove(id)
+            thumbnailRetries.remove(id)
         }
 
         for item in newItems {
             let layer = itemLayers[item.id] ?? makeLayer(for: item)
-            configure(layer, for: item)
+            if previous[item.id] != item || itemLayers[item.id] == nil
+                || thumbnailRetries.contains(item.id) {
+                thumbnailRetries.remove(item.id)
+                configure(layer, for: item)
+            }
             if itemLayers[item.id] == nil {
                 itemLayers[item.id] = layer
                 contentLayer.addSublayer(layer)
@@ -181,13 +191,21 @@ final class BoardCanvasView: NSView, NSTextViewDelegate {
     }
 
     func setViewport(_ v: BoardViewport) {
+        guard viewport != v else { return }
         viewport = v
         applyTransform()
     }
 
-    func setTransparent(_ on: Bool) { transparentBg = on; updateBackground() }
-    func setPaper(_ on: Bool) { paperBg = on; updateBackground() }
+    func setTransparent(_ on: Bool) {
+        guard transparentBg != on else { return }
+        transparentBg = on; updateBackground()
+    }
+    func setPaper(_ on: Bool) {
+        guard paperBg != on else { return }
+        paperBg = on; updateBackground()
+    }
     func setXPBackground(_ on: Bool) {
+        guard xpBg != on else { return }
         xpBg = on
         handleLayer.cornerRadius = on ? 0 : handleSize / 2
         handleLayer.borderColor = (on ? NSColor.black : NSColor.controlAccentColor).cgColor
@@ -386,6 +404,7 @@ final class BoardCanvasView: NSView, NSTextViewDelegate {
         if imageFiles[item.id] != file {
             imageFiles[item.id] = file
             loadingThumbnails.remove(item.id)
+            thumbnailRetries.remove(item.id)
             img.contents = nil
         }
         guard img.contents == nil, !loadingThumbnails.contains(item.id) else { return }
@@ -397,7 +416,10 @@ final class BoardCanvasView: NSView, NSTextViewDelegate {
         loadingThumbnails.insert(item.id)
         thumbnailProvider(item) { [weak self, weak img] cg in
             self?.loadingThumbnails.remove(item.id)
-            guard let img, let cg else { return }
+            guard let img, let cg else {
+                self?.thumbnailRetries.insert(item.id)
+                return
+            }
             CATransaction.begin()
             CATransaction.setDisableActions(true)
             img.contents = cg
@@ -442,7 +464,7 @@ final class BoardCanvasView: NSView, NSTextViewDelegate {
         viewport.x = bounds.width / 2 - cx * zoom
         viewport.y = bounds.height / 2 - cy * zoom
         applyTransform()
-        onViewport(viewport)
+        commitViewport()
     }
 
     // MARK: selection + resize chrome
@@ -633,12 +655,13 @@ final class BoardCanvasView: NSView, NSTextViewDelegate {
         if event.modifierFlags.contains(.command) {
             applyZoom(factor: 1 + event.scrollingDeltaY * 0.01,
                       at: convert(event.locationInWindow, from: nil))
+            scheduleViewportCommit(for: event)
             return
         }
         viewport.x += event.scrollingDeltaX
         viewport.y -= event.scrollingDeltaY
         applyTransform()
-        onViewport(viewport)
+        scheduleViewportCommit(for: event)
     }
 
     // No magnify(with:) override: it would consume the pinch and starve SwiftUI's
@@ -649,7 +672,7 @@ final class BoardCanvasView: NSView, NSTextViewDelegate {
         viewport.x += dx
         viewport.y -= dy
         applyTransform()
-        onViewport(viewport)
+        scheduleViewportCommit()
     }
 
     /// Armed while the board is open, so Option + drag pans from anywhere.
@@ -723,7 +746,26 @@ final class BoardCanvasView: NSView, NSTextViewDelegate {
         viewport.y = p.y - under.y * newZoom
         viewport.zoom = newZoom
         applyTransform()
-        onViewport(viewport)
+        scheduleViewportCommit()
+    }
+
+    private func scheduleViewportCommit(for event: NSEvent? = nil) {
+        let ended = event?.phase == .ended || event?.phase == .cancelled
+            || event?.momentumPhase == .ended || event?.momentumPhase == .cancelled
+        viewportCommitWork?.cancel()
+        if ended {
+            commitViewport()
+            return
+        }
+        let work = DispatchWorkItem { [weak self] in self?.commitViewport() }
+        viewportCommitWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.12, execute: work)
+    }
+
+    private func commitViewport(_ value: BoardViewport? = nil) {
+        viewportCommitWork?.cancel()
+        viewportCommitWork = nil
+        onViewportCommit(value ?? viewport)
     }
 
     override func keyDown(with event: NSEvent) {

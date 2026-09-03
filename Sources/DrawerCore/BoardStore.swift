@@ -42,6 +42,8 @@ public final class BoardStore: ObservableObject {
     private let now: () -> Date
     private let debounce: TimeInterval
     private var saveTask: Task<Void, Never>?
+    private let persistenceQueue = DispatchQueue(label: "drawer.board.persistence", qos: .utility)
+    private var cachedMetrics: ([BoardItem], BoardMetrics)?
 
     public convenience init(directory: URL, debounce: TimeInterval = 0.4) {
         self.init(
@@ -89,7 +91,10 @@ public final class BoardStore: ObservableObject {
     public func saveNow() {
         saveTask?.cancel()
         saveTask = nil
-        write(document)
+        let doc = document
+        persistenceQueue.sync { [writeData, boardFile] in
+            Self.encodeAndWrite(doc, to: boardFile, writeData: writeData)
+        }
     }
 
     // MARK: mutations
@@ -137,6 +142,7 @@ public final class BoardStore: ObservableObject {
     }
 
     public func metrics(for board: BoardRecord) -> BoardMetrics {
+        if let cachedMetrics, cachedMetrics.0 == board.items { return cachedMetrics.1 }
         let jsonBytes = (try? Self.encoder.encode(board).count) ?? 0
         let mediaBytes = Set(board.items.compactMap(\.file)).reduce(0) { total, file in
             total + fileSize(directory.appendingPathComponent(file))
@@ -146,7 +152,7 @@ public final class BoardStore: ObservableObject {
         let canvasPointArea = board.items.reduce(0) { total, item in
             total + Int((item.width * item.height).rounded())
         }
-        return BoardMetrics(
+        let result = BoardMetrics(
             itemCount: board.items.count,
             textCount: textCount,
             imageCount: imageCount,
@@ -155,6 +161,8 @@ public final class BoardStore: ObservableObject {
             canvasLayerCount: 5 + board.items.count * 2,
             canvasPointArea: canvasPointArea
         )
+        cachedMetrics = (board.items, result)
+        return result
     }
 
     /// Media files no board or current undo/redo step still references.
@@ -286,9 +294,14 @@ public final class BoardStore: ObservableObject {
     /// Move several items at once (marquee drag), as a single undo step.
     public func setPositions(_ positions: [UUID: CGPoint]) {
         guard !positions.isEmpty else { return }
+        let changed = document.items.contains { item in
+            guard let p = positions[item.id] else { return false }
+            return item.x != Double(p.x) || item.y != Double(p.y)
+        }
+        guard changed else { return }
         snapshot()
-        for (id, p) in positions where index(of: id) != nil {
-            let i = index(of: id)!
+        for i in document.items.indices {
+            guard let p = positions[document.items[i].id] else { continue }
             document.items[i].x = Double(p.x)
             document.items[i].y = Double(p.y)
         }
@@ -416,23 +429,27 @@ public final class BoardStore: ObservableObject {
                 try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
             }
             guard !Task.isCancelled, let self else { return }
-            self.write(snapshot)
+            self.persistenceQueue.async { [writeData = self.writeData, boardFile = self.boardFile] in
+                Self.encodeAndWrite(snapshot, to: boardFile, writeData: writeData)
+            }
         }
     }
 
-    private func write(_ doc: BoardDocument) {
-        guard let data = try? Self.encoder.encode(doc) else { return }
-        try? writeData(data, boardFile)
+    private nonisolated static func encodeAndWrite(
+        _ doc: BoardDocument, to url: URL, writeData: (Data, URL) throws -> Void
+    ) {
+        guard let data = try? encoder.encode(doc) else { return }
+        try? writeData(data, url)
     }
 
-    private static let encoder: JSONEncoder = {
+    private nonisolated static let encoder: JSONEncoder = {
         let e = JSONEncoder()
         e.outputFormatting = [.prettyPrinted, .sortedKeys]
         e.dateEncodingStrategy = .iso8601
         return e
     }()
 
-    private static let decoder: JSONDecoder = {
+    private nonisolated static let decoder: JSONDecoder = {
         let d = JSONDecoder()
         d.dateDecodingStrategy = .iso8601
         return d

@@ -38,7 +38,7 @@ struct BoardCanvas: NSViewRepresentable {
             view.setItems(coord.store.document.items) // realize the new text now
             view.beginInlineEdit(item.id)
         }
-        view.onViewport = { store.setViewport($0) }
+        view.onViewportCommit = { store.setViewport($0) }
         view.onDeleteMany = { store.removeMany($0) }
         view.onDropText = { text, p in coord.dropText(text, at: p) }
         view.onDropImage = { data, p in coord.importImage(data, at: p) }
