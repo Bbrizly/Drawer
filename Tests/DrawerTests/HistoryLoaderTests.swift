@@ -125,6 +125,29 @@ final class HistoryLoaderTests: XCTestCase {
         XCTAssertEqual(blobs.reads, 0, "an unchanged record list rebuilt the summary")
     }
 
+    /// Bounded is not the same as least-recently-used. The cache used to evict
+    /// by insertion age, so re-reading an old snapshot did not protect it.
+    func testCacheEvictsTheLeastRecentlyUsedEntry() async {
+        let blobs = Blobs()
+        let records = (0..<HistoryLoader.capacity).map { i in
+            add("## 2026-06-07\n- [ ] task \(i)\n", at: day(i), to: blobs)
+        }
+        let extra = add("## 2026-06-07\n- [ ] extra\n", at: day(900), to: blobs)
+        let loader = HistoryLoader(store: makeStore(blobs))
+        for record in records {
+            _ = await loader.display(for: record, today: "2026-06-07")
+        }
+
+        _ = await loader.display(for: records[0], today: "2026-06-07")  // oldest, now newest
+        _ = await loader.display(for: extra, today: "2026-06-07")       // forces one eviction
+        blobs.resetReads()
+
+        _ = await loader.display(for: records[0], today: "2026-06-07")
+        XCTAssertEqual(blobs.reads, 0, "the entry used right before the insert was evicted")
+        _ = await loader.display(for: records[1], today: "2026-06-07")
+        XCTAssertEqual(blobs.reads, 1, "the least recently used entry was not the one evicted")
+    }
+
     func testDayRollReparsesTheSameBytes() async {
         let blobs = Blobs()
         let record = add("## 2026-06-07\n- [ ] a\n", at: day(0), to: blobs)

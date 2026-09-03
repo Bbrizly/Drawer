@@ -45,7 +45,12 @@ actor HistoryLoader {
             displayCache.removeAll()
             order.removeAll()
         }
-        if let cached = displayCache[record.hash] { return cached }
+        if let cached = displayCache[record.hash] {
+            // A hit is a use: without this the order never moved and the cache
+            // evicted by insertion age, not by least-recently-used.
+            touch(record.hash)
+            return cached
+        }
         guard let text = markdown(for: record) else {
             insert(nil, for: record.hash)
             return nil
@@ -81,15 +86,19 @@ actor HistoryLoader {
         return String(data: data, encoding: .utf8)
     }
 
-    /// Plain LRU: touching a hash moves it to the end, and the front falls off
-    /// once the cache is over capacity.
+    /// Plain LRU: reading or writing a hash moves it to the end, and the front
+    /// falls off once the cache is over capacity.
     private func insert(_ value: HistoryDisplay?, for hash: String) {
         displayCache[hash] = value
-        order.removeAll { $0 == hash }
-        order.append(hash)
+        touch(hash)
         while order.count > Self.capacity {
             displayCache[order.removeFirst()] = nil
         }
+    }
+
+    private func touch(_ hash: String) {
+        order.removeAll { $0 == hash }
+        order.append(hash)
     }
 }
 
