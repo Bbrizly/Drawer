@@ -53,7 +53,10 @@ public final class BoardStore: ObservableObject {
     /// already landed. Only ever touched from that serial queue.
     private let writeLog = WriteLog()
     private var generationCounter = 0
-    private var cachedMetrics: ([BoardItem], BoardMetrics)?
+    private var cachedMetrics: (MetricsKey, BoardMetrics)?
+    /// Counts cache misses in `metrics(for:)`. Tests read it to prove a repeat
+    /// call did not re-encode the board.
+    private(set) var metricsComputeCount = 0
 
     public convenience init(directory: URL, debounce: TimeInterval = 0.4) {
         self.init(
@@ -160,12 +163,19 @@ public final class BoardStore: ObservableObject {
         scheduleSave()
     }
 
+    /// Size and render-load numbers for the board popover. The JSON size covers
+    /// the whole record (name and viewport included) and the media size comes
+    /// off disk, so the cache key has to carry both: keying on items alone
+    /// returned a stale size after a rename or an externally replaced image.
+    /// Stat calls are cheap and always run; only the encode is cached.
     public func metrics(for board: BoardRecord) -> BoardMetrics {
-        if let cachedMetrics, cachedMetrics.0 == board.items { return cachedMetrics.1 }
+        let files = Set(board.items.compactMap(\.file)).sorted()
+        let media = files.map { MediaStamp(file: $0, url: directory.appendingPathComponent($0)) }
+        let key = MetricsKey(board: board, media: media)
+        if let cachedMetrics, cachedMetrics.0 == key { return cachedMetrics.1 }
+        metricsComputeCount += 1
         let jsonBytes = (try? Self.encoder.encode(board).count) ?? 0
-        let mediaBytes = Set(board.items.compactMap(\.file)).reduce(0) { total, file in
-            total + fileSize(directory.appendingPathComponent(file))
-        }
+        let mediaBytes = media.reduce(0) { $0 + $1.size }
         let textCount = board.items.filter { $0.kind == .text }.count
         let imageCount = board.items.filter { $0.kind == .image }.count
         let canvasPointArea = board.items.reduce(0) { total, item in
@@ -180,7 +190,7 @@ public final class BoardStore: ObservableObject {
             canvasLayerCount: 5 + board.items.count * 2,
             canvasPointArea: canvasPointArea
         )
-        cachedMetrics = (board.items, result)
+        cachedMetrics = (key, result)
         return result
     }
 
@@ -442,11 +452,6 @@ public final class BoardStore: ObservableObject {
         return "Board \(n)"
     }
 
-    private func fileSize(_ url: URL) -> Int {
-        let value = try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? NSNumber
-        return value?.intValue ?? 0
-    }
-
     /// A spot near the current top-left of the view, cascaded a little so
     /// freshly parked ideas do not stack perfectly on top of each other.
     private func cascadePoint() -> CGPoint {
@@ -516,6 +521,29 @@ public final class BoardStore: ObservableObject {
         d.dateDecodingStrategy = .iso8601
         return d
     }()
+}
+
+/// One media file as the metrics cache sees it. Size and modification date, so
+/// a file swapped underneath us invalidates instead of reporting the old bytes.
+private struct MediaStamp: Equatable {
+    var file: String
+    var size: Int
+    var modified: Date?
+
+    init(file: String, url: URL) {
+        self.file = file
+        let attributes = try? FileManager.default.attributesOfItem(atPath: url.path)
+        size = (attributes?[.size] as? NSNumber)?.intValue ?? 0
+        modified = attributes?[.modificationDate] as? Date
+    }
+}
+
+/// Everything `metrics(for:)` reads. Comparing the whole record is a value
+/// compare over items already in memory, far cheaper than the JSON encode it
+/// saves.
+private struct MetricsKey: Equatable {
+    var board: BoardRecord
+    var media: [MediaStamp]
 }
 
 /// The highest write generation that has reached disk. A serial queue keeps

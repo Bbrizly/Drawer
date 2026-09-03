@@ -416,13 +416,15 @@ private struct BoardEditPopover: View {
     @Environment(\.drawerTheme) private var theme
     @FocusState private var nameFocused: Bool
 
-    private var metrics: BoardMetrics { store.metrics(for: board) }
     private var trimmedName: String {
         renameDraft.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        // Once per body pass. As a computed property this ran ten times, and
+        // each run stats every image on the board.
+        let metrics = store.metrics(for: board)
+        return VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 8) {
                 TextField("Board name", text: $renameDraft)
                     .textFieldStyle(.roundedBorder)
