@@ -13,13 +13,12 @@ struct DrawerConnectionView: View {
             Image("DrawerMark")
                 .resizable()
                 .scaledToFit()
-                .frame(width: 92, height: 92)
-                .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
-                .shadow(color: .black.opacity(0.10), radius: 24, y: 12)
-                .padding(.bottom, 30)
+                .frame(width: 72, height: 72)
+                .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+                .padding(.bottom, 24)
 
             Text(title)
-                .font(.system(.largeTitle, design: .rounded, weight: .bold))
+                .font(.system(.largeTitle, design: .default, weight: .bold))
                 .multilineTextAlignment(.center)
                 .tracking(-0.8)
 
@@ -56,11 +55,11 @@ struct DrawerConnectionView: View {
                 }
                 .frame(maxWidth: .infinity)
                 .frame(height: 54)
-                .background(.tint, in: RoundedRectangle(cornerRadius: 17, style: .continuous))
-                .foregroundStyle(.white)
+                .background(DrawerPalette.ink, in: RoundedRectangle(cornerRadius: 13, style: .continuous))
+                .foregroundStyle(DrawerPalette.canvas)
             }
             .buttonStyle(TactileButtonStyle(pressedScale: 0.985))
-            .padding(.top, 30)
+            .padding(.top, 24)
 
             Text("Markdown stays canonical. Local or cloud, Drawer never replaces it with a private task database.")
                 .font(.caption)

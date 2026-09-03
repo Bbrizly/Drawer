@@ -30,7 +30,7 @@ struct DrawerTaskDetailSheet: View {
     var body: some View {
         NavigationStack {
             ScrollView {
-                VStack(alignment: .leading, spacing: 22) {
+                VStack(alignment: .leading, spacing: 26) {
                     taskHeader
                     focusButton
                     noteEditor
@@ -43,7 +43,7 @@ struct DrawerTaskDetailSheet: View {
                 .padding(.top, 8)
                 .padding(.bottom, 34)
             }
-            .navigationTitle("Task")
+            .navigationTitle("Details")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
@@ -98,7 +98,7 @@ struct DrawerTaskDetailSheet: View {
 
             HStack(alignment: .top, spacing: 10) {
                 Text(item.title)
-                    .font(.system(.title2, design: .rounded, weight: .bold))
+                    .font(.system(.title2, design: .default, weight: .bold))
                     .tracking(-0.3)
                     .fixedSize(horizontal: false, vertical: true)
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -110,7 +110,7 @@ struct DrawerTaskDetailSheet: View {
                         .font(.system(size: 14, weight: .bold))
                         .foregroundStyle(.secondary)
                         .frame(width: 44, height: 44)
-                        .background(.quaternary.opacity(0.55), in: Circle())
+                .background(DrawerPalette.surface, in: Circle())
                 }
                 .buttonStyle(TactileButtonStyle(pressedScale: 0.92))
                 .accessibilityLabel("Edit task")
@@ -135,7 +135,7 @@ struct DrawerTaskDetailSheet: View {
                 .frame(maxWidth: .infinity)
                 .frame(minHeight: 52)
                 .foregroundStyle(.white)
-                .background(.tint, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                .background(DrawerPalette.accent, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
         }
         .buttonStyle(TactileButtonStyle(pressedScale: 0.985))
         .disabled(item.isDone)
@@ -173,7 +173,7 @@ struct DrawerTaskDetailSheet: View {
                 .scrollContentBackground(.hidden)
                 .frame(minHeight: 92)
                 .padding(10)
-                .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                .background(DrawerPalette.surface)
                 .overlay {
                     if noteDraft.isEmpty && !noteFocused {
                         Text("Add the context you need when you get here.")
@@ -222,7 +222,7 @@ struct DrawerTaskDetailSheet: View {
                 .foregroundStyle(.primary)
                 .padding(.horizontal, 14)
                 .frame(minHeight: 54)
-                .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                .background(DrawerPalette.surface)
             }
             .buttonStyle(TactileButtonStyle(pressedScale: 0.99))
             .disabled(item.isDone)
@@ -288,7 +288,7 @@ struct DrawerTaskDetailSheet: View {
                 }
                 .padding(14)
                 .frame(minHeight: 50)
-                .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                .background(DrawerPalette.surface)
             }
             .buttonStyle(TactileButtonStyle(pressedScale: 0.99))
         }
@@ -312,7 +312,7 @@ struct DrawerTaskDetailSheet: View {
                 .font(.subheadline.weight(.semibold))
                 .frame(maxWidth: .infinity)
                 .frame(minHeight: 50)
-                .background(Color.red.opacity(0.10), in: RoundedRectangle(cornerRadius: 15, style: .continuous))
+                .foregroundStyle(.red)
         }
         .buttonStyle(TactileButtonStyle(pressedScale: 0.99))
     }
@@ -329,7 +329,7 @@ struct DrawerTaskDetailSheet: View {
         .foregroundStyle(.primary)
         .padding(.horizontal, 14)
         .frame(minHeight: 50)
-        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                .background(DrawerPalette.surface)
     }
 
     private func moveButton(_ destination: DrawerTaskDestination) -> some View {
@@ -424,7 +424,7 @@ private struct DrawerTaskEditSheet: View {
                             .textInputAutocapitalization(.sentences)
                             .submitLabel(.done)
                             .padding(14)
-                            .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                .background(DrawerPalette.surface)
                             .accessibilityLabel("Task title")
                     }
 
@@ -457,7 +457,7 @@ private struct DrawerTaskEditSheet: View {
                             .foregroundStyle(.primary)
                             .padding(.horizontal, 14)
                             .frame(minHeight: 54)
-                            .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                            .background(DrawerPalette.surface)
                         }
                         .buttonStyle(TactileButtonStyle(pressedScale: 0.99))
                         .accessibilityLabel("Focus length, \(minutes) minutes")
@@ -476,7 +476,7 @@ private struct DrawerTaskEditSheet: View {
                             .scrollContentBackground(.hidden)
                             .frame(minHeight: 150)
                             .padding(10)
-                            .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                            .background(DrawerPalette.surface)
                             .accessibilityLabel("Task note")
                     }
 

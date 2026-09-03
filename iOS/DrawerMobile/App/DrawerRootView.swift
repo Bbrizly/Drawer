@@ -43,6 +43,7 @@ struct DrawerRootView: View {
                 )
             }
         }
+        .tint(DrawerPalette.accent)
         .fileImporter(
             isPresented: $showingImporter,
             allowedContentTypes: markdownTypes,
@@ -74,19 +75,31 @@ struct DrawerRootView: View {
 
 private struct DrawerBackdrop: View {
     var body: some View {
-        ZStack {
-            Color(uiColor: .systemGroupedBackground)
-            RadialGradient(
-                colors: [
-                    Color.accentColor.opacity(0.10),
-                    Color.clear,
-                ],
-                center: .topTrailing,
-                startRadius: 10,
-                endRadius: 440
-            )
-            .ignoresSafeArea()
-        }
+        DrawerPalette.canvas
         .ignoresSafeArea()
     }
+}
+
+enum DrawerPalette {
+    static let canvas = Color(uiColor: UIColor { traits in
+        traits.userInterfaceStyle == .dark
+            ? UIColor(red: 0.075, green: 0.072, blue: 0.065, alpha: 1)
+            : UIColor(red: 0.965, green: 0.952, blue: 0.925, alpha: 1)
+    })
+
+    static let surface = Color(uiColor: UIColor { traits in
+        traits.userInterfaceStyle == .dark
+            ? UIColor(red: 0.12, green: 0.115, blue: 0.105, alpha: 1)
+            : UIColor(red: 0.985, green: 0.978, blue: 0.955, alpha: 1)
+    })
+
+    static let ink = Color(uiColor: UIColor { traits in
+        traits.userInterfaceStyle == .dark ? .white : UIColor(red: 0.12, green: 0.105, blue: 0.09, alpha: 1)
+    })
+
+    static let accent = Color(uiColor: UIColor { traits in
+        traits.userInterfaceStyle == .dark
+            ? UIColor(red: 1.0, green: 0.60, blue: 0.30, alpha: 1)
+            : UIColor(red: 0.82, green: 0.30, blue: 0.14, alpha: 1)
+    })
 }

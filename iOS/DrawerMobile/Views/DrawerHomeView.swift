@@ -93,7 +93,7 @@ struct DrawerHomeView: View {
 
     private var dayHeader: some View {
         ViewThatFits(in: .horizontal) {
-            HStack(alignment: .bottom, spacing: 16) {
+            HStack(alignment: .center, spacing: 16) {
                 dayIdentity
                 Spacer(minLength: 10)
                 remainingBadge
@@ -103,39 +103,40 @@ struct DrawerHomeView: View {
                 dayIdentity
                 HStack(spacing: 5) {
                     Text("\(model.remainingCount)")
-                        .font(.system(.title2, design: .rounded, weight: .semibold))
+                        .font(.system(.title2, design: .default, weight: .bold))
                         .monospacedDigit()
-                    Text("left")
-                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(DrawerPalette.accent)
+                    Text("to go")
+                        .font(.caption.weight(.medium))
                         .foregroundStyle(.secondary)
                 }
                 .accessibilityElement(children: .ignore)
                 .accessibilityLabel("\(model.remainingCount) tasks remaining")
             }
         }
-        .padding(.horizontal, 4)
-        .padding(.top, 8)
-        .padding(.bottom, 2)
+        .padding(.horizontal, 2)
+        .padding(.top, 12)
+        .padding(.bottom, 6)
     }
 
     private var dayIdentity: some View {
         VStack(alignment: .leading, spacing: 3) {
             Text(Date.now.formatted(.dateTime.weekday(.wide)))
-                .font(.system(.largeTitle, design: .rounded, weight: .bold))
-                .tracking(-0.8)
+                .font(.system(.largeTitle, design: .default, weight: .bold))
                 .fixedSize(horizontal: false, vertical: true)
             Text(Date.now.formatted(.dateTime.month(.wide).day()))
-                .font(.subheadline.weight(.medium))
+                .font(.subheadline.weight(.regular))
                 .foregroundStyle(.secondary)
         }
     }
 
     private var remainingBadge: some View {
-        VStack(alignment: .trailing, spacing: 2) {
+        VStack(alignment: .trailing, spacing: 1) {
             Text("\(model.remainingCount)")
-                .font(.system(.title, design: .rounded, weight: .semibold))
+                .font(.system(.title2, design: .default, weight: .bold))
                 .monospacedDigit()
-            Text("left").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                .foregroundStyle(DrawerPalette.accent)
+            Text("to go").font(.caption2.weight(.medium)).foregroundStyle(.secondary)
         }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("\(model.remainingCount) tasks remaining")
@@ -144,16 +145,15 @@ struct DrawerHomeView: View {
     private var todaySection: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(alignment: .firstTextBaseline) {
-                Text("TODAY")
-                    .font(.caption.weight(.bold))
-                    .tracking(0.8)
-                    .foregroundStyle(.secondary)
+                Text("Today")
+                    .font(.headline.weight(.semibold))
+                    .foregroundStyle(DrawerPalette.ink)
                 if visibleToday.isEmpty {
                     Text("Clear").font(.caption).foregroundStyle(.tertiary)
                 }
                 Spacer()
             }
-            .padding(.horizontal, 4)
+            .padding(.horizontal, 2)
 
             let ungrouped = visibleToday.filter { $0.subsection == nil }
             if !ungrouped.isEmpty || visibleToday.isEmpty {
@@ -202,14 +202,13 @@ struct DrawerHomeView: View {
     private func taskSection(title: String, subtitle: String?, items: [TodoItem], accent: Bool) -> some View {
         VStack(alignment: .leading, spacing: 9) {
             HStack(alignment: .firstTextBaseline) {
-                Text(title.uppercased())
-                    .font(.caption.weight(.bold))
-                    .tracking(0.8)
-                    .foregroundStyle(accent ? AnyShapeStyle(.tint) : AnyShapeStyle(.secondary))
+                Text(title)
+                    .font(.headline.weight(.semibold))
+                    .foregroundStyle(accent ? AnyShapeStyle(DrawerPalette.accent) : AnyShapeStyle(DrawerPalette.ink))
                 if let subtitle { Text(subtitle).font(.caption).foregroundStyle(.tertiary) }
                 Spacer()
             }
-            .padding(.horizontal, 4)
+            .padding(.horizontal, 2)
             TaskTray(items: items, model: model) { selectedTask = $0 }
         }
     }
@@ -225,15 +224,15 @@ struct DrawerHomeView: View {
                 }
             } label: {
                 HStack(spacing: 8) {
-                    Text(title.uppercased()).font(.caption.weight(.bold)).tracking(0.8)
-                    Text("\(count)").font(.caption2.weight(.bold)).foregroundStyle(.tertiary)
+                    Text(title).font(.headline.weight(.semibold))
+                    Text("\(count)").font(.caption.weight(.medium)).foregroundStyle(.secondary)
                     Spacer()
                     Image(systemName: "chevron.down")
                         .font(.caption.weight(.bold))
                         .rotationEffect(.degrees(isExpanded.wrappedValue ? 180 : 0))
                         .foregroundStyle(.tertiary)
                 }
-                .foregroundStyle(.secondary)
+                .foregroundStyle(DrawerPalette.ink)
                 .contentShape(Rectangle())
                 .padding(.horizontal, 4)
                 .frame(minHeight: 44)
@@ -259,11 +258,8 @@ struct DrawerHomeView: View {
             Spacer(minLength: 0)
         }
         .padding(13)
-        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-        .overlay {
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .stroke(statusStyle(tone).opacity(0.15), lineWidth: 0.75)
-        }
+        .padding(.vertical, 10)
+        .overlay(alignment: .top) { Divider().overlay(statusStyle(tone)) }
         .accessibilityElement(children: .combine)
         .accessibilityLabel(statusAccessibilityPrefix(tone) + status)
     }
@@ -325,7 +321,7 @@ private struct DrawerRoutineSession: View {
 
                 VStack(spacing: 7) {
                     Text(title)
-                        .font(.system(.title, design: .rounded, weight: .bold))
+                        .font(.system(.title, design: .default, weight: .bold))
                         .tracking(-0.5)
                         .multilineTextAlignment(.center)
                     Text("\(completedCount) of \(allItems.count)")
@@ -344,7 +340,7 @@ private struct DrawerRoutineSession: View {
                             .accessibilityHidden(true)
 
                         Text(current.title)
-                            .font(.system(.title, design: .rounded, weight: .bold))
+                            .font(.system(.title, design: .default, weight: .bold))
                             .multilineTextAlignment(.center)
                             .fixedSize(horizontal: false, vertical: true)
 
@@ -456,24 +452,17 @@ private struct TaskTray: View {
                     Spacer()
                 }
                 .foregroundStyle(.tertiary)
-                .padding(.horizontal, 17)
+                .padding(.horizontal, 4)
                 .frame(minHeight: 58)
                 .accessibilityElement(children: .combine)
             } else {
                 ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
                     MobileTaskRow(model: model, item: item) { openTask(item) }
                     if index < items.count - 1 {
-                        Divider().padding(.leading, 58).opacity(0.62)
+                        Divider().padding(.leading, 57).opacity(0.55)
                     }
                 }
             }
         }
-        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
-        .overlay {
-            RoundedRectangle(cornerRadius: 22, style: .continuous)
-                .stroke(.primary.opacity(0.055), lineWidth: 0.75)
-        }
-        .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
-        .shadow(color: .black.opacity(0.035), radius: 12, y: 5)
     }
 }

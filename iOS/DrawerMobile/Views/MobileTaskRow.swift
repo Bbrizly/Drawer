@@ -36,14 +36,14 @@ struct MobileTaskRow: View {
     }
 
     private var rowContent: some View {
-        HStack(alignment: .top, spacing: 8) {
+        HStack(alignment: .top, spacing: 13) {
             checkbox
 
             VStack(alignment: .leading, spacing: 5) {
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
                     Text(item.title)
-                        .font(.body.weight(item.isInProgress ? .semibold : .regular))
-                        .foregroundStyle(item.isDone ? .secondary : .primary)
+                        .font(.system(.body, design: .default, weight: item.isInProgress ? .semibold : .regular))
+                        .foregroundStyle(item.isDone ? AnyShapeStyle(.secondary) : AnyShapeStyle(DrawerPalette.ink))
                         .strikethrough(item.isDone, color: .secondary)
                         .lineLimit(nil)
                         .fixedSize(horizontal: false, vertical: true)
@@ -51,79 +51,54 @@ struct MobileTaskRow: View {
 
                     if item.minutes != 25 && !item.isDone {
                         Text("\(item.minutes)m")
-                            .font(.caption2.weight(.bold))
+                            .font(.caption2.weight(.medium))
                             .monospacedDigit()
-                            .foregroundStyle(.secondary)
-                            .padding(.horizontal, 7)
-                            .padding(.vertical, 4)
-                            .background(.quaternary, in: Capsule())
+                            .foregroundStyle(DrawerPalette.accent)
                     }
                 }
 
                 if let note = item.note, !note.isEmpty {
-                    HStack(alignment: .firstTextBaseline, spacing: 5) {
-                        Image(systemName: "text.alignleft")
-                            .font(.caption2.weight(.bold))
-                        Text(note.replacingOccurrences(of: "\n", with: " "))
-                            .lineLimit(1)
-                    }
-                    .font(.caption)
-                    .foregroundStyle(.tertiary)
-                }
-            }
-            .padding(.vertical, 1)
-
-            Image(systemName: "chevron.right")
-                .font(.caption2.weight(.bold))
-                .foregroundStyle(.quaternary)
-                .frame(width: 15, height: 24)
-                .accessibilityHidden(true)
-        }
-        .padding(.leading, 8)
-        .padding(.trailing, 14)
-        .padding(.vertical, 9)
-        .frame(minHeight: 60)
-        .background {
-            ZStack(alignment: .leading) {
-                Color(uiColor: .secondarySystemGroupedBackground).opacity(0.82)
-                if item.isInProgress && !item.isDone {
-                    Color.accentColor.opacity(0.075)
-                    Rectangle()
-                        .fill(.tint)
-                        .frame(width: 3)
-                        .padding(.vertical, 8)
+                    Text(note.replacingOccurrences(of: "\n", with: " "))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
                 }
             }
         }
+        .padding(.horizontal, 4)
+        .padding(.vertical, item.note == nil || item.note?.isEmpty == true ? 12 : 14)
+        .frame(minHeight: item.note == nil || item.note?.isEmpty == true ? 56 : 72)
         .contentShape(Rectangle())
         .onTapGesture(perform: openTask)
-        .opacity(item.isDone ? 0.68 : 1)
+        .opacity(item.isDone ? 0.55 : 1)
     }
 
     private var checkbox: some View {
         Button(action: checkboxTapped) {
-            Image(systemName: checkboxSymbol)
-                .font(.system(size: 22, weight: .semibold))
-                .symbolRenderingMode(.hierarchical)
-                .foregroundStyle(
-                    item.isDone || item.isInProgress
-                        ? AnyShapeStyle(.tint)
-                        : AnyShapeStyle(.tertiary)
-                )
-                .contentTransition(.symbolEffect(.replace))
+            ZStack {
+                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    .stroke(item.isDone || item.isInProgress ? DrawerPalette.accent : .secondary.opacity(0.55), lineWidth: 1.5)
+                    .frame(width: 22, height: 22)
+
+                if item.isDone {
+                    Image(systemName: "checkmark")
+                        .font(.system(size: 12, weight: .bold))
+                        .foregroundStyle(.white)
+                        .frame(width: 22, height: 22)
+                        .background(DrawerPalette.accent, in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+                } else if item.isInProgress {
+                    Circle()
+                        .fill(DrawerPalette.accent)
+                        .frame(width: 8, height: 8)
+                }
+            }
                 .frame(width: 44, height: 44)
-                .contentShape(Circle())
+                .contentShape(Rectangle())
                 .scaleEffect(checkboxScale)
         }
         .buttonStyle(.plain)
         .accessibilityLabel(item.isDone ? "Reopen task" : "Complete task")
         .accessibilityValue(item.title)
-    }
-
-    private var checkboxSymbol: String {
-        if item.isDone { return "checkmark.circle.fill" }
-        if item.isInProgress { return "circle.lefthalf.filled" }
-        return "circle"
     }
 
     private var primaryAccessibilityAction: String {

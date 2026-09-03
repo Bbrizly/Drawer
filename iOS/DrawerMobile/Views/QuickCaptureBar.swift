@@ -24,7 +24,7 @@ struct QuickCaptureBar: View {
                     .transition(.move(edge: .bottom).combined(with: .opacity))
             }
 
-            HStack(spacing: 8) {
+            HStack(spacing: 10) {
                 Menu {
                     ForEach(DrawerTaskDestination.allCases, id: \.self) { choice in
                         Button {
@@ -35,13 +35,15 @@ struct QuickCaptureBar: View {
                         }
                     }
                 } label: {
-                    Image(systemName: destinationIcon(destination))
-                        .font(.system(size: 16, weight: .semibold))
-                        .foregroundStyle(.secondary)
-                        .frame(width: 44, height: 44)
-                        .background(.quaternary.opacity(0.5), in: Circle())
-                        .contentShape(Circle())
-                }
+                    HStack(spacing: 5) {
+                        Text(destination.title)
+                            .font(.caption.weight(.semibold))
+                        Image(systemName: "chevron.up.chevron.down")
+                            .font(.system(size: 9, weight: .bold))
+                    }
+                    .foregroundStyle(.secondary)
+                    .frame(minWidth: 48, minHeight: 44)
+                    }
                 .buttonStyle(TactileButtonStyle())
                 .accessibilityLabel("Add to \(destination.title)")
 
@@ -54,7 +56,7 @@ struct QuickCaptureBar: View {
                     .onSubmit(save)
 
                 Button(action: save) {
-                    Image(systemName: "arrow.up")
+                    Image(systemName: "plus")
                         .font(.system(size: 15, weight: .bold))
                         .foregroundStyle(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? AnyShapeStyle(.tertiary) : AnyShapeStyle(.white))
                         .frame(width: 44, height: 44)
@@ -70,20 +72,16 @@ struct QuickCaptureBar: View {
                 .disabled(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 .accessibilityLabel("Add task")
             }
-            .padding(.leading, 8)
-            .padding(.trailing, 8)
-            .padding(.vertical, 7)
-            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 25, style: .continuous))
-            .overlay {
-                RoundedRectangle(cornerRadius: 25, style: .continuous)
-                    .stroke(.primary.opacity(focused ? 0.13 : 0.055), lineWidth: focused ? 1 : 0.75)
+            .padding(.horizontal, 2)
+            .padding(.vertical, 5)
+            .overlay(alignment: .top) {
+                Divider().opacity(0.7)
             }
-            .shadow(color: .black.opacity(focused ? 0.12 : 0.08), radius: focused ? 22 : 16, y: focused ? 9 : 7)
         }
-        .padding(.horizontal, 12)
+        .padding(.horizontal, 14)
         .padding(.top, 7)
-        .padding(.bottom, 8)
-        .background(.clear)
+        .padding(.bottom, 7)
+        .background(DrawerPalette.canvas)
         .onAppear { handleCaptureRequest(model.captureRequestToken) }
         .onChange(of: model.captureRequestToken) { _, token in
             handleCaptureRequest(token)
@@ -121,9 +119,8 @@ struct QuickCaptureBar: View {
         .padding(.vertical, 4)
         .frame(minHeight: 44)
         .foregroundStyle(.primary)
-        .background(.regularMaterial, in: Capsule())
-        .overlay { Capsule().stroke(.primary.opacity(0.06), lineWidth: 0.75) }
-        .shadow(color: .black.opacity(0.08), radius: 14, y: 6)
+        .background(DrawerPalette.surface, in: Capsule())
+        .overlay { Capsule().stroke(.primary.opacity(0.08), lineWidth: 0.75) }
         .padding(.horizontal, 18)
     }
 
@@ -141,9 +138,8 @@ struct QuickCaptureBar: View {
         .padding(.vertical, 10)
         .frame(minHeight: 44)
         .foregroundStyle(.primary)
-        .background(.regularMaterial, in: Capsule())
-        .overlay { Capsule().stroke(.primary.opacity(0.06), lineWidth: 0.75) }
-        .shadow(color: .black.opacity(0.08), radius: 14, y: 6)
+        .background(DrawerPalette.surface, in: Capsule())
+        .overlay { Capsule().stroke(.primary.opacity(0.08), lineWidth: 0.75) }
         .padding(.horizontal, 18)
         .accessibilityElement(children: .combine)
     }

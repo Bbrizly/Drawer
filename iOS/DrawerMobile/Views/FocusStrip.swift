@@ -11,24 +11,20 @@ struct FocusStrip: View {
     }
 
     var body: some View {
-        HStack(spacing: 13) {
-            ZStack {
-                Circle()
-                    .fill(Color.accentColor.opacity(0.12))
-                    .frame(width: 44, height: 44)
-                Image(systemName: timer.phase == .finished ? "checkmark" : "timer")
-                    .font(.system(size: 17, weight: .bold))
-                    .foregroundStyle(.tint)
-            }
-            .accessibilityHidden(true)
+        HStack(spacing: 12) {
+            Rectangle()
+                .fill(DrawerPalette.accent)
+                .frame(width: 4)
+                .clipShape(Capsule())
+                .accessibilityHidden(true)
 
             VStack(alignment: .leading, spacing: 3) {
-                Text(timer.phase == .finished ? "Focus complete" : timer.taskTitle)
-                    .font(.subheadline.weight(.semibold))
+                Text(timer.phase == .finished ? "Focus complete" : "Focusing")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(DrawerPalette.accent)
                     .lineLimit(1)
-                Text(timer.phase == .finished ? timer.taskTitle : FocusTimer.format(timer.remaining))
-                    .font(timer.phase == .finished ? .caption : .system(.caption, design: .monospaced, weight: .semibold))
-                    .foregroundStyle(.secondary)
+                Text(timer.phase == .finished ? timer.taskTitle : timer.taskTitle)
+                    .font(.subheadline.weight(.semibold))
                     .contentTransition(.numericText())
                     .lineLimit(1)
             }
@@ -47,6 +43,10 @@ struct FocusStrip: View {
                 .frame(minHeight: 44)
                 .accessibilityHint("Closes the timer without changing the task")
             } else {
+                Text(FocusTimer.format(timer.remaining))
+                    .font(.system(.subheadline, design: .monospaced, weight: .bold))
+                    .foregroundStyle(DrawerPalette.ink)
+
                 Button {
                     switch timer.phase {
                     case .running:
@@ -62,7 +62,8 @@ struct FocusStrip: View {
                     Image(systemName: timer.phase == .running ? "pause.fill" : "play.fill")
                         .font(.system(size: 14, weight: .bold))
                         .frame(width: 44, height: 44)
-                        .background(.quaternary.opacity(0.6), in: Circle())
+                        .background(DrawerPalette.ink, in: Circle())
+                        .foregroundStyle(DrawerPalette.canvas)
                         .contentShape(Circle())
                 }
                 .buttonStyle(TactileButtonStyle(pressedScale: 0.91, pressedOpacity: 0.96))
@@ -84,14 +85,9 @@ struct FocusStrip: View {
                 .accessibilityHint("Stops the timer without changing the task")
             }
         }
-        .padding(.horizontal, 13)
-        .padding(.vertical, 11)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
-        .overlay {
-            RoundedRectangle(cornerRadius: 20, style: .continuous)
-                .stroke(Color.accentColor.opacity(timer.phase == .finished ? 0.22 : 0.10), lineWidth: 0.8)
-        }
-        .shadow(color: .black.opacity(0.035), radius: 12, y: 5)
+        .padding(.horizontal, 2)
+        .padding(.vertical, 8)
+        .background(DrawerPalette.surface)
         .accessibilityElement(children: .contain)
     }
 }
