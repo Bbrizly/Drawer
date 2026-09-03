@@ -1,8 +1,9 @@
 import XCTest
 @testable import DrawerCore
 
-/// A second command on a row still has to land when the first one has already
-/// rewritten that row's text.
+/// Two things the async file pipeline had to earn: a queued edit survives the
+/// app quitting, and a second command on a row still lands when the first one
+/// has already rewritten that row's text.
 @MainActor
 final class TodoStoreHardeningTests: XCTestCase {
     private var dir: URL!
@@ -37,6 +38,62 @@ final class TodoStoreHardeningTests: XCTestCase {
         store.reload()
         await store.settle()
         return store
+    }
+
+    // MARK: durability on quit
+
+    /// The quit path is synchronous and the process dies when it returns, so a
+    /// toggle made a keystroke earlier has to be on disk by then.
+    func testFlushPutsAPendingToggleOnDiskBeforeItReturns() async throws {
+        try write("## 2026-06-07\n- [ ] one\n")
+        let store = TodoStore(
+            fileURL: file,
+            todayProvider: { "2026-06-07" },
+            readData: { try Data(contentsOf: $0) },
+            // A slow disk, so quitting without the flush really would lose it.
+            writeData: { data, url in
+                Thread.sleep(forTimeInterval: 0.2)
+                try data.write(to: url, options: .atomic)
+            }
+        )
+        store.reload()
+        await store.settle()
+
+        store.toggle(store.todayItems[0])
+        store.flushPendingWrites()
+
+        XCTAssertEqual(try text(), "## 2026-06-07\n- [x] one\n")
+        await store.settle()
+    }
+
+    /// A whole burst, not just the newest one, and in the order it was made.
+    func testFlushPutsEveryQueuedEditOnDisk() async throws {
+        let store = try await loaded("""
+        ## 2026-06-07
+        - [ ] one
+        - [ ] two
+        - [ ] three
+        """)
+        let items = store.todayItems
+
+        store.toggle(items[0])
+        store.rename(items[1], to: "two renamed")
+        store.setNote(items[2], "a note")
+        store.add("four")
+        store.flushPendingWrites()
+
+        let result = try text()
+        XCTAssertTrue(result.contains("- [x] one"), result)
+        XCTAssertTrue(result.contains("- [ ] two renamed"), result)
+        XCTAssertTrue(result.contains("    a note"), result)
+        XCTAssertTrue(result.contains("- [ ] four"), result)
+        await store.settle()
+    }
+
+    func testFlushWithNothingQueuedReturnsAtOnce() async throws {
+        let store = try await loaded("## 2026-06-07\n- [ ] one\n")
+        store.flushPendingWrites()
+        XCTAssertEqual(try text(), "## 2026-06-07\n- [ ] one\n")
     }
 
     // MARK: rapid commands on the same row

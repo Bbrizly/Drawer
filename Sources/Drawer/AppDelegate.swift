@@ -266,6 +266,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         // Always flush the in-progress block into the review queue, don't drop it;
         // only summarize the day when attribution is permitted.
         attribution?.apply(attributionPermitted ? .endSession : .suspend)
+        // Last: a toggle or edit made a keystroke before quitting is still on
+        // the file queue, and the process exits the moment this returns.
+        store?.flushPendingWrites()
     }
 
     private func setupStatusItem() {

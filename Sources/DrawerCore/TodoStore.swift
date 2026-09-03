@@ -26,10 +26,15 @@ public final class TodoStore: ObservableObject {
     /// finishes harmlessly instead of publishing tasks from a file we no longer
     /// show.
     private var fileToken = 0
-    /// The tail of the operation chain. Each new operation awaits this one, so
-    /// transactions run in the order they were asked for rather than the order
-    /// the runtime happens to schedule them.
-    private var pipeline: Task<Void, Never>?
+    /// The tail of the file chain, off the main actor. Each new operation
+    /// awaits this one, so transactions reach the disk in the order they were
+    /// asked for. Nothing in it touches the main actor, which is what lets
+    /// teardown block the main thread until it drains.
+    private var fileChain: Task<TodoFileOutcome, Never>?
+    /// The tail of the publish chain, on the main actor. Each publish awaits
+    /// its own file operation and the publish before it, so the UI sees results
+    /// in the same order.
+    private var publishChain: Task<Void, Never>?
     /// Operations accepted and not yet published.
     private var pending = 0
     /// Deletes queued but not yet on disk. Every later command in the same
@@ -116,9 +121,25 @@ public final class TodoStore: ObservableObject {
 
     /// Waits until every queued file operation has finished and been applied.
     /// The UI never needs this: it just gets the publish when it lands. Tests
-    /// and teardown do.
+    /// do.
     public func settle() async {
-        await pipeline?.value
+        await publishChain?.value
+    }
+
+    /// Blocks the caller until every file operation already accepted has been
+    /// written. For teardown: `applicationWillTerminate` runs on the main
+    /// thread and the process dies the moment it returns, so a toggle queued a
+    /// keystroke earlier has to land first. Blocking here is safe because the
+    /// write chain never touches the main actor. The publishes that would
+    /// follow are abandoned along with the UI.
+    public func flushPendingWrites(timeout: TimeInterval = 5) {
+        guard let chain = fileChain else { return }
+        let done = DispatchSemaphore(value: 0)
+        Task.detached(priority: .userInitiated) {
+            _ = await chain.value
+            done.signal()
+        }
+        _ = done.wait(timeout: .now() + timeout)
     }
 
     public func reload() {
@@ -241,22 +262,29 @@ public final class TodoStore: ObservableObject {
     /// it in the meantime.
     @discardableResult
     private func enqueue(
-        _ operation: @escaping @MainActor (TodoFileWorker) async -> TodoFileOutcome
+        _ operation: @escaping @Sendable (TodoFileWorker) async -> TodoFileOutcome
     ) -> Task<Void, Never> {
-        let previous = pipeline
         let worker = worker
+        let previousFile = fileChain
+        let file = Task.detached(priority: .userInitiated) { () -> TodoFileOutcome in
+            _ = await previousFile?.value
+            return await operation(worker)
+        }
+        fileChain = file
+
+        let previousPublish = publishChain
         let token = fileToken
-        let task = Task { @MainActor [weak self] in
-            await previous?.value
-            let outcome = await operation(worker)
+        let publish = Task { @MainActor [weak self] in
+            await previousPublish?.value
+            let outcome = await file.value
             guard let self else { return }
             defer { self.finished() }
             guard self.fileToken == token else { return }
             self.publish(outcome)
         }
-        pipeline = task
+        publishChain = publish
         pending += 1
-        return task
+        return publish
     }
 
     /// One operation left the queue. When the last one goes, nothing is holding
@@ -265,7 +293,8 @@ public final class TodoStore: ObservableObject {
         pending -= 1
         guard pending == 0 else { return }
         pendingDeletes.removeAll()
-        pipeline = nil
+        fileChain = nil
+        publishChain = nil
     }
 
     /// The task a command means, in a form that survives the commands queued
@@ -379,9 +408,8 @@ public final class TodoStore: ObservableObject {
 }
 
 /// A one-slot handoff for a value produced inside a queued operation and read
-/// back on the main actor once it has finished. Both ends are main-actor, so
-/// there is nothing to synchronize.
-@MainActor
-private final class Box<T> {
+/// back once that operation has finished. The pipeline puts a happens-before
+/// edge between the write and the read, so there is nothing to lock.
+private final class Box<T>: @unchecked Sendable {
     var value: T?
 }
