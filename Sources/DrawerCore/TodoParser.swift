@@ -177,6 +177,7 @@ public enum TodoParser {
         var itemsByDate: [String: [TodoItem]] = [:]
         var order: [String] = []
         var occurrences: [String: Int] = [:]
+        var ordinals: [String: Int] = [:]
         var currentDate: String?
         var currentSubsection: String?
         var activeFence: Character?
@@ -243,11 +244,13 @@ public enum TodoParser {
             let occurrenceKey = date + "|" + line
             let occurrence = occurrences[occurrenceKey, default: 0]
             occurrences[occurrenceKey] = occurrence + 1
+            let ordinal = ordinals[date, default: 0]
+            ordinals[date] = ordinal + 1
             itemsByDate[date, default: []].append(TodoItem(
                 rawLine: line, title: title, isDone: isDone,
                 isInProgress: isInProgress,
                 minutes: minutes, sectionDate: date, occurrence: occurrence,
-                subsection: currentSubsection, note: note
+                ordinal: ordinal, subsection: currentSubsection, note: note
             ))
             i = j
         }

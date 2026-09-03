@@ -30,6 +30,12 @@ public final class TodoStore: ObservableObject {
     /// transactions run in the order they were asked for rather than the order
     /// the runtime happens to schedule them.
     private var pipeline: Task<Void, Never>?
+    /// Operations accepted and not yet published.
+    private var pending = 0
+    /// Deletes queued but not yet on disk. Every later command in the same
+    /// burst sits one row higher for each of these, so its position has to be
+    /// shifted down before it runs.
+    private var pendingDeletes: [(section: String, ordinal: Int)] = []
     private var calendarObservers: [NSObjectProtocol] = []
 
     public convenience init(
@@ -121,24 +127,19 @@ public final class TodoStore: ObservableObject {
     }
 
     public func toggle(_ item: TodoItem) {
-        mutate { data in
-            try TodoWriteback.toggle(
-                line: item.rawLine,
-                sectionDate: item.sectionDate,
-                occurrence: item.occurrence,
-                in: data
-            )
+        let target = target(for: item)
+        mutate { data, ours in
+            try TodoWriteback.toggle(target: target.trusting(ours), in: data)
         }
     }
 
     public func delete(_ item: TodoItem) {
-        mutate { data in
-            try TodoWriteback.delete(
-                line: item.rawLine,
-                sectionDate: item.sectionDate,
-                occurrence: item.occurrence,
-                in: data
-            )
+        let target = target(for: item)
+        if let ordinal = target.ordinal {
+            pendingDeletes.append((item.sectionDate, ordinal))
+        }
+        mutate { data, ours in
+            try TodoWriteback.delete(target: target.trusting(ours), in: data)
         }
     }
 
@@ -152,26 +153,17 @@ public final class TodoStore: ObservableObject {
     }
 
     public func setInProgress(_ item: TodoItem, _ inProgress: Bool) {
-        mutate { data in
+        let target = target(for: item)
+        mutate { data, ours in
             try TodoWriteback.setInProgress(
-                line: item.rawLine,
-                sectionDate: item.sectionDate,
-                occurrence: item.occurrence,
-                inProgress: inProgress,
-                in: data
-            )
+                target: target.trusting(ours), inProgress: inProgress, in: data)
         }
     }
 
     public func setNote(_ item: TodoItem, _ note: String) {
-        mutate { data in
-            try TodoWriteback.setNote(
-                line: item.rawLine,
-                sectionDate: item.sectionDate,
-                occurrence: item.occurrence,
-                note: note,
-                in: data
-            )
+        let target = target(for: item)
+        mutate { data, ours in
+            try TodoWriteback.setNote(target: target.trusting(ours), note: note, in: data)
         }
     }
 
@@ -183,8 +175,12 @@ public final class TodoStore: ObservableObject {
         let failure = Box<Error>()
         let task = enqueue { worker in
             do {
-                return .display(try await worker.commit(today: today, readingMissingAsEmpty: true) {
-                    try PlanWriter.write(date: date, entries: entries, replace: replace, in: $0)
+                // A plan replace rewrites whole day sections, so no command
+                // queued behind it may trust the position it captured.
+                return .display(try await worker.commit(
+                    today: today, readingMissingAsEmpty: true, preservesOrdinals: false
+                ) { data, _ in
+                    try PlanWriter.write(date: date, entries: entries, replace: replace, in: data)
                 })
             } catch {
                 failure.value = error
@@ -201,7 +197,7 @@ public final class TodoStore: ObservableObject {
         // Capture today once: the CAS transform may run twice, and it must not
         // roll to a new day between the two passes.
         let today = todayProvider()
-        write(readingMissingAsEmpty: true) { data in
+        write(readingMissingAsEmpty: true) { data, _ in
             try TodoWriteback.append(title: trimmed, today: today, in: data)
         }
     }
@@ -222,7 +218,7 @@ public final class TodoStore: ObservableObject {
     }
 
     private func insertLine(_ line: String, intoSectionKey key: String, displayHeading: String) {
-        write(readingMissingAsEmpty: true) { data in
+        write(readingMissingAsEmpty: true) { data, _ in
             try TodoWriteback.insert(
                 line: line, intoSectionKey: key, displayHeading: displayHeading, in: data)
         }
@@ -232,14 +228,9 @@ public final class TodoStore: ObservableObject {
     public func rename(_ item: TodoItem, to newTitle: String) {
         let trimmed = newTitle.trimmingCharacters(in: .whitespaces)
         guard !trimmed.isEmpty, trimmed != item.title else { return }
-        mutate { data in
-            try TodoWriteback.rename(
-                line: item.rawLine,
-                sectionDate: item.sectionDate,
-                occurrence: item.occurrence,
-                to: trimmed,
-                in: data
-            )
+        let target = target(for: item)
+        mutate { data, ours in
+            try TodoWriteback.rename(target: target.trusting(ours), to: trimmed, in: data)
         }
     }
 
@@ -258,21 +249,47 @@ public final class TodoStore: ObservableObject {
         let task = Task { @MainActor [weak self] in
             await previous?.value
             let outcome = await operation(worker)
-            guard let self, self.fileToken == token else { return }
+            guard let self else { return }
+            defer { self.finished() }
+            guard self.fileToken == token else { return }
             self.publish(outcome)
         }
         pipeline = task
+        pending += 1
         return task
     }
 
-    private func mutate(_ transform: @escaping @Sendable (Data) throws -> Data) {
+    /// One operation left the queue. When the last one goes, nothing is holding
+    /// a captured position any more, so the shift list resets.
+    private func finished() {
+        pending -= 1
+        guard pending == 0 else { return }
+        pendingDeletes.removeAll()
+        pipeline = nil
+    }
+
+    /// The task a command means, in a form that survives the commands queued
+    /// ahead of it: where the row sat when the user acted, shifted down by any
+    /// delete still queued in front of it.
+    private func target(for item: TodoItem) -> TodoTarget {
+        var ordinal = item.ordinal
+        for deleted in pendingDeletes
+        where deleted.section == item.sectionDate && deleted.ordinal < ordinal {
+            ordinal -= 1
+        }
+        return TodoTarget(
+            sectionKey: item.sectionDate, rawLine: item.rawLine,
+            ordinal: ordinal, occurrence: item.occurrence)
+    }
+
+    private func mutate(_ transform: @escaping @Sendable (Data, Bool) throws -> Data) {
         let today = todayProvider()
         enqueue { await $0.mutate(today: today, transform) }
     }
 
     private func write(
         readingMissingAsEmpty: Bool,
-        _ transform: @escaping @Sendable (Data) throws -> Data
+        _ transform: @escaping @Sendable (Data, Bool) throws -> Data
     ) {
         let today = todayProvider()
         enqueue {

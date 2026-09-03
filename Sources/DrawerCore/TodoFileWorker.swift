@@ -49,6 +49,12 @@ actor TodoFileWorker {
     /// directory, so sibling saves fire reloads constantly; identical bytes mean
     /// there is nothing to re-parse or re-publish.
     private var lastAppliedData: Data?
+    /// Bytes this app's own last mutation left on disk, cleared the moment
+    /// anything else is read in. While it matches what we are about to edit,
+    /// the only thing that has changed the file since the display was built is
+    /// an earlier command from the same burst, which is what makes a queued
+    /// command's ordinal safe to trust.
+    private var lastCommittedData: Data?
 
     init(
         fileURL: URL,
@@ -66,6 +72,7 @@ actor TodoFileWorker {
         fileURL = url
         lastWrittenData = nil
         lastAppliedData = nil
+        lastCommittedData = nil
     }
 
     /// Day changed: identical bytes no longer mean an identical display, so
@@ -73,6 +80,7 @@ actor TodoFileWorker {
     func forgetSuppression() {
         lastWrittenData = nil
         lastAppliedData = nil
+        lastCommittedData = nil
     }
 
     /// Read, sweep archived tasks if any are due, parse. Returns `.unchanged`
@@ -83,6 +91,7 @@ actor TodoFileWorker {
             data = try readData(fileURL)
         } catch {
             lastAppliedData = nil
+            lastCommittedData = nil
             return isMissingFileError(error) ? .missingFile : .unreadable
         }
         // Self-write suppression: skip reload churn for our own write.
@@ -93,6 +102,10 @@ actor TodoFileWorker {
         // Sibling-file suppression: the directory watcher fired but the drawer
         // file itself did not change, so what is displayed is already right.
         if data == lastAppliedData { return .unchanged }
+        // Past here the bytes are someone else's, or a sweep is about to move
+        // lines around. Either way our own last write no longer describes the
+        // file, so no queued command may trust its ordinal.
+        lastCommittedData = nil
         // Sweep done tasks older than the keep window into Archive > Done.
         // Idempotent and only writes when something actually moved, so the
         // follow-up watcher event is caught by the suppression check above.
@@ -116,17 +129,23 @@ actor TodoFileWorker {
     /// if the file changed between our read and the write (a concurrent
     /// Obsidian/iCloud/MCP save), the transform is recomputed once against the
     /// fresh bytes so that edit is not clobbered. The writeback transforms locate
-    /// their target by section + occurrence + exact rawLine, so replaying against
+    /// their target by section + position + exact rawLine, so replaying against
     /// fresh bytes hits the same logical task. `lastWrittenData` is set only after
     /// the write succeeds, so a thrown write never leaves a stale suppression
     /// value that swallows the next external reload.
     /// ponytail: one re-read, not a loop or a file lock. A single external editor
     /// is the only other writer in practice; upgrade to NSFileCoordinator if
     /// cross-process races ever matter.
+    /// `transform` is handed the bytes and whether they are byte-for-byte our
+    /// own last write, so a command can tell "an earlier command of mine changed
+    /// this line" from "an outside editor did". `preservesOrdinals` is false for
+    /// a transform that rewrites whole sections (a day plan replace), because
+    /// then no queued command's position survives it.
     func commit(
         today: String,
         readingMissingAsEmpty: Bool,
-        _ transform: (Data) throws -> Data
+        preservesOrdinals: Bool = true,
+        _ transform: (Data, Bool) throws -> Data
     ) throws -> TodoDisplaySnapshot {
         func currentData() throws -> Data {
             do { return try readData(fileURL) }
@@ -134,20 +153,22 @@ actor TodoFileWorker {
         }
         do {
             var data = try currentData()
-            var newData = try transform(data)
+            var newData = try transform(data, data == lastCommittedData)
             let fresh = try currentData()
             if fresh != data {
                 data = fresh
-                newData = try transform(data)
+                newData = try transform(data, data == lastCommittedData)
             }
             try writeData(newData, fileURL)
             lastWrittenData = newData
+            lastCommittedData = preservesOrdinals ? newData : nil
             guard case let .display(snapshot) = parse(newData, today: today) else {
                 throw TodoFileError.notUTF8
             }
             return snapshot
         } catch {
             lastWrittenData = nil
+            lastCommittedData = nil
             throw error
         }
     }
@@ -156,7 +177,9 @@ actor TodoFileWorker {
     /// file or a write error it drops the self-write guard and reloads the truth
     /// on disk. One operation, so nothing lands between the failure and the
     /// re-read.
-    func mutate(today: String, _ transform: (Data) throws -> Data) -> TodoFileOutcome {
+    func mutate(
+        today: String, _ transform: (Data, Bool) throws -> Data
+    ) -> TodoFileOutcome {
         do {
             return .display(try commit(today: today, readingMissingAsEmpty: false, transform))
         } catch {
@@ -170,7 +193,7 @@ actor TodoFileWorker {
     func write(
         today: String,
         readingMissingAsEmpty: Bool,
-        _ transform: (Data) throws -> Data
+        _ transform: (Data, Bool) throws -> Data
     ) -> TodoFileOutcome {
         do {
             return .display(

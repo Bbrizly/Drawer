@@ -5,12 +5,53 @@ public enum WritebackError: Error, Equatable {
     case badEncoding
 }
 
+/// Where a command means to land. Section plus position plus the text the line
+/// had when the user acted, so a command can still find its task after an
+/// earlier queued command has changed that text.
+public struct TodoTarget: Sendable, Equatable {
+    /// The section to search, or nil to match anywhere in the file.
+    public let sectionKey: String?
+    /// The line exactly as the user saw it.
+    public let rawLine: String
+    /// Position among the section's task lines when the user acted, or nil when
+    /// the caller only knows the text.
+    public let ordinal: Int?
+    /// Index among identical `rawLine`s in the section (0 = first).
+    public let occurrence: Int
+    /// The bytes being edited are exactly what this app last wrote, so a line
+    /// that no longer reads like `rawLine` was changed by an earlier queued
+    /// command and not by an outside editor. Only then may `ordinal` win over
+    /// the text: that is what makes a second toggle land on the task the first
+    /// one just checked instead of failing to find the old line.
+    public let trustsOrdinal: Bool
+
+    public init(
+        sectionKey: String?,
+        rawLine: String,
+        ordinal: Int? = nil,
+        occurrence: Int = 0,
+        trustsOrdinal: Bool = false
+    ) {
+        self.sectionKey = sectionKey
+        self.rawLine = rawLine
+        self.ordinal = ordinal
+        self.occurrence = occurrence
+        self.trustsOrdinal = trustsOrdinal
+    }
+
+    public func trusting(_ flag: Bool) -> TodoTarget {
+        TodoTarget(
+            sectionKey: sectionKey, rawLine: rawLine, ordinal: ordinal,
+            occurrence: occurrence, trustsOrdinal: flag)
+    }
+}
+
 public enum TodoWriteback {
     /// Flips the checkbox on the exact line `rawLine` inside `data`,
     /// touching only that single byte. Throws if the line is not found
     /// as a complete line (bounded by newlines or file edges).
     public static func toggle(line rawLine: String, in data: Data) throws -> Data {
-        try toggle(line: rawLine, sectionDate: nil, in: data)
+        try toggle(target: TodoTarget(sectionKey: nil, rawLine: rawLine), in: data)
     }
 
     /// Flips the exact line only inside sections whose date matches
@@ -22,51 +63,23 @@ public enum TodoWriteback {
         occurrence: Int = 0,
         in data: Data
     ) throws -> Data {
-        try toggle(line: rawLine, sectionDate: Optional(sectionDate), occurrence: occurrence, in: data)
+        try toggle(
+            target: TodoTarget(
+                sectionKey: sectionDate, rawLine: rawLine, occurrence: occurrence),
+            in: data)
     }
 
-    private static func toggle(
-        line rawLine: String,
-        sectionDate: String?,
-        occurrence: Int = 0,
-        in data: Data
-    ) throws -> Data {
-        guard !rawLine.isEmpty else { throw WritebackError.lineNotFound }
-
-        var currentDate: String?
-        var seen = 0
-        let lines = try markdownLines(in: data)
-        // The parser's own per-line classification, so fence and note handling
-        // can never disagree with what the task list displays.
-        let roles = TodoParser.lineRoles(lines.map(\.text))
-        for (i, line) in lines.enumerated() {
-            if roles[i] == .fence || roles[i] == .fenced { continue }
-            if roles[i] == .heading {
-                // Shared with the parser so section boundaries always agree
-                // (dates and the "backlog" key alike).
-                currentDate = TodoParser.sectionKey(fromHeading: line.text)
-                continue
-            }
-            guard sectionDate == nil || currentDate == sectionDate,
-                  line.text == rawLine,
-                  let boxIndex = checkboxIndex(in: data, lineRange: line.contentRange)
-            else {
-                continue
-            }
-            if seen < occurrence {
-                seen += 1
-                continue
-            }
-
-            var out = data
-            let current = out[boxIndex]
-            // Checking a blank or in-progress "/" task completes it. Only an
-            // already-done task toggles back to blank.
-            let done = current == UInt8(ascii: "x") || current == UInt8(ascii: "X")
-            out[boxIndex] = done ? UInt8(ascii: " ") : UInt8(ascii: "x")
-            return out
+    public static func toggle(target: TodoTarget, in data: Data) throws -> Data {
+        let (lines, _, index) = try find(target, in: data)
+        guard let boxIndex = checkboxIndex(in: data, lineRange: lines[index].contentRange) else {
+            throw WritebackError.lineNotFound
         }
-        throw WritebackError.lineNotFound
+        var out = data
+        // Checking a blank or in-progress "/" task completes it. Only an
+        // already-done task toggles back to blank.
+        let done = out[boxIndex] == UInt8(ascii: "x") || out[boxIndex] == UInt8(ascii: "X")
+        out[boxIndex] = done ? UInt8(ascii: " ") : UInt8(ascii: "x")
+        return out
     }
 
     /// Sets the checkbox on the exact line to "/" (in progress) when
@@ -80,34 +93,22 @@ public enum TodoWriteback {
         inProgress: Bool,
         in data: Data
     ) throws -> Data {
-        guard !rawLine.isEmpty else { throw WritebackError.lineNotFound }
+        try setInProgress(
+            target: TodoTarget(
+                sectionKey: sectionDate, rawLine: rawLine, occurrence: occurrence),
+            inProgress: inProgress, in: data)
+    }
 
-        var currentDate: String?
-        var seen = 0
-        let lines = try markdownLines(in: data)
-        let roles = TodoParser.lineRoles(lines.map(\.text))
-        for (i, line) in lines.enumerated() {
-            if roles[i] == .fence || roles[i] == .fenced { continue }
-            if roles[i] == .heading {
-                currentDate = TodoParser.sectionKey(fromHeading: line.text)
-                continue
-            }
-            guard currentDate == sectionDate,
-                  line.text == rawLine,
-                  let boxIndex = checkboxIndex(in: data, lineRange: line.contentRange)
-            else {
-                continue
-            }
-            if seen < occurrence {
-                seen += 1
-                continue
-            }
-
-            var out = data
-            out[boxIndex] = inProgress ? UInt8(ascii: "/") : UInt8(ascii: " ")
-            return out
+    public static func setInProgress(
+        target: TodoTarget, inProgress: Bool, in data: Data
+    ) throws -> Data {
+        let (lines, _, index) = try find(target, in: data)
+        guard let boxIndex = checkboxIndex(in: data, lineRange: lines[index].contentRange) else {
+            throw WritebackError.lineNotFound
         }
-        throw WritebackError.lineNotFound
+        var out = data
+        out[boxIndex] = inProgress ? UInt8(ascii: "/") : UInt8(ascii: " ")
+        return out
     }
 
     /// Removes the exact line `rawLine` (with its line ending) only inside
@@ -122,45 +123,17 @@ public enum TodoWriteback {
         occurrence: Int = 0,
         in data: Data
     ) throws -> Data {
-        guard !rawLine.isEmpty else { throw WritebackError.lineNotFound }
+        try delete(
+            target: TodoTarget(
+                sectionKey: sectionDate, rawLine: rawLine, occurrence: occurrence),
+            in: data)
+    }
 
-        let lines = try markdownLines(in: data)
-        let roles = TodoParser.lineRoles(lines.map(\.text))
-        var currentDate: String?
-        var seen = 0
-        var index = lines.startIndex
-        while index < lines.endIndex {
-            let line = lines[index]
-            if roles[index] == .fence || roles[index] == .fenced { index += 1; continue }
-            if roles[index] == .heading {
-                currentDate = TodoParser.sectionKey(fromHeading: line.text)
-                index += 1
-                continue
-            }
-            guard currentDate == sectionDate,
-                  line.text == rawLine,
-                  checkboxIndex(in: data, lineRange: line.contentRange) != nil
-            else {
-                index += 1
-                continue
-            }
-            if seen < occurrence {
-                seen += 1
-                index += 1
-                continue
-            }
-
-            var end = line.fullRange.upperBound
-            var k = index + 1
-            while k < lines.endIndex, roles[k] == .note {
-                end = lines[k].fullRange.upperBound
-                k += 1
-            }
-            var out = data
-            out.removeSubrange(line.fullRange.lowerBound..<end)
-            return out
-        }
-        throw WritebackError.lineNotFound
+    public static func delete(target: TodoTarget, in data: Data) throws -> Data {
+        let (lines, roles, index) = try find(target, in: data)
+        var out = data
+        out.removeSubrange(lines[index].fullRange.lowerBound..<noteBlockEnd(index, lines, roles))
+        return out
     }
 
     /// Sets (or clears) the description under the matched task. `note` is
@@ -175,64 +148,37 @@ public enum TodoWriteback {
         note: String,
         in data: Data
     ) throws -> Data {
-        guard !rawLine.isEmpty else { throw WritebackError.lineNotFound }
+        try setNote(
+            target: TodoTarget(
+                sectionKey: sectionDate, rawLine: rawLine, occurrence: occurrence),
+            note: note, in: data)
+    }
 
-        let lines = try markdownLines(in: data)
-        let roles = TodoParser.lineRoles(lines.map(\.text))
+    public static func setNote(target: TodoTarget, note: String, in data: Data) throws -> Data {
+        let (lines, roles, index) = try find(target, in: data)
+        let line = lines[index]
         let newline = preferredNewline(in: lines, data: data)
-        var currentDate: String?
-        var seen = 0
-        var index = lines.startIndex
-        while index < lines.endIndex {
-            let line = lines[index]
-            if roles[index] == .fence || roles[index] == .fenced { index += 1; continue }
-            if roles[index] == .heading {
-                currentDate = TodoParser.sectionKey(fromHeading: line.text)
-                index += 1
-                continue
-            }
-            guard currentDate == sectionDate,
-                  line.text == rawLine,
-                  checkboxIndex(in: data, lineRange: line.contentRange) != nil
-            else {
-                index += 1
-                continue
-            }
-            if seen < occurrence {
-                seen += 1
-                index += 1
-                continue
-            }
+        let blockEnd = noteBlockEnd(index, lines, roles)
 
-            // Existing description block: indented lines right below the task.
-            var blockEnd = line.fullRange.upperBound
-            var k = index + 1
-            while k < lines.endIndex, roles[k] == .note {
-                blockEnd = lines[k].fullRange.upperBound
-                k += 1
+        let indent = String(line.text.prefix { $0 == " " || $0 == "\t" }) + "    "
+        let trimmed = note.trimmingCharacters(in: .whitespacesAndNewlines)
+        var insertion = Data()
+        if !trimmed.isEmpty {
+            // Task line had no trailing newline (last line of file): add one
+            // before the note so the block sits on its own lines.
+            if line.contentRange.upperBound == line.fullRange.upperBound {
+                insertion.append(newline)
             }
-
-            let indent = String(rawLine.prefix { $0 == " " || $0 == "\t" }) + "    "
-            let trimmed = note.trimmingCharacters(in: .whitespacesAndNewlines)
-            var insertion = Data()
-            if !trimmed.isEmpty {
-                // Task line had no trailing newline (last line of file): add one
-                // before the note so the block sits on its own lines.
-                if line.contentRange.upperBound == line.fullRange.upperBound {
-                    insertion.append(newline)
-                }
-                for noteLine in trimmed.components(separatedBy: "\n") {
-                    let clean = noteLine.trimmingCharacters(in: .whitespaces)
-                    insertion.append(Data((indent + clean).utf8))
-                    insertion.append(newline)
-                }
+            for noteLine in trimmed.components(separatedBy: "\n") {
+                let clean = noteLine.trimmingCharacters(in: .whitespaces)
+                insertion.append(Data((indent + clean).utf8))
+                insertion.append(newline)
             }
-
-            var out = data
-            out.replaceSubrange(line.fullRange.upperBound..<blockEnd, with: insertion)
-            return out
         }
-        throw WritebackError.lineNotFound
+
+        var out = data
+        out.replaceSubrange(line.fullRange.upperBound..<blockEnd, with: insertion)
+        return out
     }
 
     /// Appends "- [ ] title" to the end of today's section, creating the
@@ -354,38 +300,84 @@ public enum TodoWriteback {
         to newTitle: String,
         in data: Data
     ) throws -> Data {
-        guard !rawLine.isEmpty else { throw WritebackError.lineNotFound }
+        try rename(
+            target: TodoTarget(
+                sectionKey: sectionDate, rawLine: rawLine, occurrence: occurrence),
+            to: newTitle, in: data)
+    }
 
-        var currentDate: String?
-        var seen = 0
+    public static func rename(target: TodoTarget, to newTitle: String, in data: Data) throws -> Data {
+        let (lines, _, index) = try find(target, in: data)
+        let line = lines[index]
+        guard let boxIndex = checkboxIndex(in: data, lineRange: line.contentRange) else {
+            throw WritebackError.lineNotFound
+        }
+        // boxIndex points at the state char; "]" then " " then the title.
+        let bracket = data.index(after: boxIndex)
+        guard bracket < line.contentRange.upperBound,
+              data[bracket] == UInt8(ascii: "]")
+        else { throw WritebackError.lineNotFound }
+        var titleStart = data.index(after: bracket)
+        if titleStart < line.contentRange.upperBound, data[titleStart] == UInt8(ascii: " ") {
+            titleStart = data.index(after: titleStart)
+        }
+        var out = data
+        out.replaceSubrange(titleStart..<line.contentRange.upperBound, with: Data(newTitle.utf8))
+        return out
+    }
+
+    /// The one place a command turns into a line index. Two ways in, and which
+    /// one wins is the whole point: normally the exact text plus occurrence, as
+    /// it always was, but when the file is untouched since our own last write a
+    /// trusted ordinal wins instead. That is what lets a second command queued
+    /// on the same row land, when the first has already rewritten the text the
+    /// second is holding. When an outside editor is in play the ordinal is not
+    /// trusted, so a vanished line still fails rather than hitting its neighbour.
+    private static func find(
+        _ target: TodoTarget, in data: Data
+    ) throws -> ([MarkdownLine], [TodoParser.LineRole], Int) {
+        guard !target.rawLine.isEmpty else { throw WritebackError.lineNotFound }
         let lines = try markdownLines(in: data)
+        // The parser's own per-line classification, so fence and note handling
+        // can never disagree with what the task list displays.
         let roles = TodoParser.lineRoles(lines.map(\.text))
-        for (i, line) in lines.enumerated() {
-            let text = line.text
+
+        var currentKey: String?
+        var tasks: [Int] = []
+        var matches: [Int] = []
+        for i in lines.indices {
             if roles[i] == .fence || roles[i] == .fenced { continue }
             if roles[i] == .heading {
-                currentDate = TodoParser.sectionKey(fromHeading: text)
+                // Shared with the parser so section boundaries always agree
+                // (dates and the "backlog" key alike).
+                currentKey = TodoParser.sectionKey(fromHeading: lines[i].text)
                 continue
             }
-            guard currentDate == sectionDate,
-                  text == rawLine,
-                  let boxIndex = checkboxIndex(in: data, lineRange: line.contentRange)
+            guard target.sectionKey == nil || currentKey == target.sectionKey,
+                  checkboxIndex(in: data, lineRange: lines[i].contentRange) != nil
             else { continue }
-            if seen < occurrence { seen += 1; continue }
-
-            // boxIndex points at the state char; "]" then " " then the title.
-            let bracket = data.index(after: boxIndex)
-            guard bracket < line.contentRange.upperBound,
-                  data[bracket] == UInt8(ascii: "]") else { continue }
-            var titleStart = data.index(after: bracket)
-            if titleStart < line.contentRange.upperBound, data[titleStart] == UInt8(ascii: " ") {
-                titleStart = data.index(after: titleStart)
-            }
-            var out = data
-            out.replaceSubrange(titleStart..<line.contentRange.upperBound, with: Data(newTitle.utf8))
-            return out
+            tasks.append(i)
+            if lines[i].text == target.rawLine { matches.append(i) }
         }
-        throw WritebackError.lineNotFound
+
+        if target.trustsOrdinal, let ordinal = target.ordinal, tasks.indices.contains(ordinal) {
+            return (lines, roles, tasks[ordinal])
+        }
+        guard target.occurrence < matches.count else { throw WritebackError.lineNotFound }
+        return (lines, roles, matches[target.occurrence])
+    }
+
+    /// End of the task line plus the indented description block under it.
+    private static func noteBlockEnd(
+        _ index: Int, _ lines: [MarkdownLine], _ roles: [TodoParser.LineRole]
+    ) -> Data.Index {
+        var end = lines[index].fullRange.upperBound
+        var k = index + 1
+        while k < lines.endIndex, roles[k] == .note {
+            end = lines[k].fullRange.upperBound
+            k += 1
+        }
+        return end
     }
 
     private static func checkboxIndex(

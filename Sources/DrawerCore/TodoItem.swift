@@ -13,6 +13,11 @@ public struct TodoItem: Equatable, Identifiable, Sendable {
     /// Index among identical rawLines within the same date section, so
     /// duplicate task lines stay distinct for SwiftUI and writeback.
     public let occurrence: Int
+    /// Position among all task lines of the section, counting from 0. Unlike
+    /// `occurrence` it does not move when a line's text changes, so a command
+    /// queued against this item still finds it after an earlier queued command
+    /// has toggled or renamed it.
+    public let ordinal: Int
     /// Title of the nearest "### " subheading above the task within its
     /// section, nil if none. Lets grouped sections (Archive) render their
     /// sub-structure.
@@ -31,6 +36,7 @@ public struct TodoItem: Equatable, Identifiable, Sendable {
         minutes: Int,
         sectionDate: String,
         occurrence: Int = 0,
+        ordinal: Int = 0,
         subsection: String? = nil,
         note: String? = nil
     ) {
@@ -42,6 +48,7 @@ public struct TodoItem: Equatable, Identifiable, Sendable {
         self.minutes = minutes
         self.sectionDate = sectionDate
         self.occurrence = occurrence
+        self.ordinal = ordinal
         self.subsection = subsection
         self.note = note
     }
