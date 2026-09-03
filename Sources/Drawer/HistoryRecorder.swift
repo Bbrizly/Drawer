@@ -11,20 +11,42 @@ struct HistoryDisplay: Sendable {
     let archive: [TodoItem]
 }
 
+/// Reconstructs and parses snapshots away from the UI, and remembers the last
+/// few so re-scrubbing over the same steps does not go back to disk.
+///
+/// The cache holds parsed displays only. It used to hold the reconstructed
+/// markdown too, and the summary pass put every one of them in without ever
+/// putting them in the eviction order, so generating a summary pinned all 500
+/// retained files in memory for the life of the app.
 actor HistoryLoader {
+    /// Small on purpose: the scrubber walks neighbours, so a handful of steps
+    /// either side is all that ever gets revisited.
+    static let capacity = 32
+
     private let store: SnapshotStore
-    private var dataCache: [String: Data] = [:]
+    /// hash -> parsed display, or nil for a snapshot whose blob is gone or no
+    /// longer hashes to its recorded hash.
     private var displayCache: [String: HistoryDisplay?] = [:]
+    /// Oldest first. The one thing that bounds `displayCache`.
     private var order: [String] = []
+    /// The display depends on which day is "today", so a day roll invalidates
+    /// every parse even though the bytes are unchanged.
+    private var cachedToday: String?
     private var summaryRecords: [SnapshotRecord]?
     private var summary: [DayTally] = []
-    private let capacity = 64
 
     init(store: SnapshotStore) { self.store = store }
 
+    var cachedCount: Int { displayCache.count }
+
     func display(for record: SnapshotRecord, today: String) -> HistoryDisplay? {
+        if cachedToday != today {
+            cachedToday = today
+            displayCache.removeAll()
+            order.removeAll()
+        }
         if let cached = displayCache[record.hash] { return cached }
-        guard let data = bytes(for: record), let text = String(data: data, encoding: .utf8) else {
+        guard let text = markdown(for: record) else {
             insert(nil, for: record.hash)
             return nil
         }
@@ -36,33 +58,37 @@ actor HistoryLoader {
         return result
     }
 
+    /// Walks the snapshots oldest first, feeding each one to the diff and
+    /// letting it go before reading the next. Nothing here enters the cache:
+    /// the summary touches every retained snapshot, and caching that set is
+    /// exactly the leak this replaced.
     func dailySummary(for records: [SnapshotRecord]) -> [DayTally] {
         if summaryRecords == records { return summary }
-        let snapshots: [TimelineSnapshot] = records.compactMap { record in
-            guard let data = bytes(for: record), let text = String(data: data, encoding: .utf8) else { return nil }
-            return TimelineSnapshot(ts: record.ts, markdown: text)
+        var accumulator = HistoryTimelineAccumulator()
+        for record in records.sorted(by: { $0.ts < $1.ts }) {
+            guard let text = markdown(for: record) else { continue }
+            accumulator.add(ts: record.ts, markdown: text)
         }
-        summary = HistoryTimelineBuilder.dailySummary(
-            HistoryTimelineBuilder.build(snapshots: snapshots))
+        summary = HistoryTimelineBuilder.dailySummary(accumulator.finish())
         summaryRecords = records
         return summary
     }
 
-    private func bytes(for record: SnapshotRecord) -> Data? {
-        if let data = dataCache[record.hash] { return data }
+    /// The snapshot's bytes as text, or nil if the blob is missing or fails the
+    /// hash check. Never retained past the caller's use of it.
+    private func markdown(for record: SnapshotRecord) -> String? {
         guard case let .available(data) = store.reconstruct(record) else { return nil }
-        dataCache[record.hash] = data
-        return data
+        return String(data: data, encoding: .utf8)
     }
 
+    /// Plain LRU: touching a hash moves it to the end, and the front falls off
+    /// once the cache is over capacity.
     private func insert(_ value: HistoryDisplay?, for hash: String) {
         displayCache[hash] = value
         order.removeAll { $0 == hash }
         order.append(hash)
-        while order.count > capacity {
-            let old = order.removeFirst()
-            displayCache[old] = nil
-            dataCache[old] = nil
+        while order.count > Self.capacity {
+            displayCache[order.removeFirst()] = nil
         }
     }
 }

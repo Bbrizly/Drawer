@@ -73,67 +73,79 @@ public struct DayTally: Equatable, Sendable {
     }
 }
 
+/// The diff state `HistoryTimelineBuilder.build` keeps as it walks snapshots.
+/// Exposed so the history summary can feed snapshots in one at a time and drop
+/// each file before reading the next, instead of holding all 500 in memory.
+/// Snapshots must arrive oldest first.
+public struct HistoryTimelineAccumulator {
+    private var events: [TimelineEvent] = []
+    private var life: [String: TaskLifecycle] = [:]
+    private var previous: [String: (title: String, done: Bool)] = [:]
+
+    public init() {}
+
+    public mutating func add(ts: Date, markdown: String) {
+        // identity -> (display title, done?) present in this snapshot.
+        // Identity is the normalized title, so two identical task lines
+        // collapse into one lifecycle (done if either is done); there is no
+        // stable per-occurrence id to tell them apart.
+        var current: [String: (title: String, done: Bool)] = [:]
+        for item in TodoParser.parse(markdown).flatMap(\.items) {
+            let key = TitleSimilarity.normalize(item.title)
+            let done = (current[key]?.done ?? false) || item.isDone
+            current[key] = (current[key]?.title ?? item.title, done)
+        }
+
+        for (identity, value) in current.sorted(by: { $0.key < $1.key }) {
+            let wasPresent = previous[identity] != nil
+            if !wasPresent {
+                events.append(TimelineEvent(ts: ts, identity: identity, title: value.title, kind: .appeared))
+                // Reappearance keeps the original firstSeen/completedAt, so a
+                // task removed and re-added still reads as one long life.
+                if life[identity] == nil {
+                    life[identity] = TaskLifecycle(
+                        identity: identity, title: value.title,
+                        firstSeen: ts, lastSeen: ts, completedAt: nil)
+                } else {
+                    life[identity]?.lastSeen = ts
+                    life[identity]?.title = value.title
+                }
+            } else {
+                life[identity]?.lastSeen = ts
+                life[identity]?.title = value.title
+            }
+            let wasDone = previous[identity]?.done ?? false
+            if value.done, !wasDone {
+                events.append(TimelineEvent(ts: ts, identity: identity, title: value.title, kind: .checkedOff))
+                if life[identity]?.completedAt == nil { life[identity]?.completedAt = ts }
+            }
+        }
+        for (identity, value) in previous.sorted(by: { $0.key < $1.key }) where current[identity] == nil {
+            events.append(TimelineEvent(ts: ts, identity: identity, title: value.title, kind: .removed))
+        }
+        previous = current
+    }
+
+    public func finish() -> HistoryTimeline {
+        let lifecycles = life.values
+            .sorted { $0.survival != $1.survival ? $0.survival > $1.survival : $0.identity < $1.identity }
+        return HistoryTimeline(events: events, lifecycles: lifecycles)
+    }
+}
+
 /// Diffs a series of drawer snapshots into per-task lifecycle events. Pure and
 /// single-pass over the snapshots; identity ignores the checkbox marker and the
 /// `(Nm)` hint (both stripped by `TodoParser`/`TitleSimilarity.normalize`), so
 /// checking a task reads as a state change, never remove+add.
 public enum HistoryTimelineBuilder {
     public static func build(snapshots: [TimelineSnapshot]) -> HistoryTimeline {
-        // identity -> (display title, done?) present in a snapshot.
-        // Identity is the normalized title, so two identical task lines
-        // collapse into one lifecycle (done if either is done); there is no
-        // stable per-occurrence id to tell them apart.
-        func state(_ markdown: String) -> [String: (title: String, done: Bool)] {
-            var out: [String: (String, Bool)] = [:]
-            for item in TodoParser.parse(markdown).flatMap(\.items) {
-                let key = TitleSimilarity.normalize(item.title)
-                let done = (out[key]?.1 ?? false) || item.isDone
-                out[key] = (out[key]?.0 ?? item.title, done)
-            }
-            return out
-        }
-
-        var events: [TimelineEvent] = []
-        var life: [String: TaskLifecycle] = [:]
-        var previous: [String: (title: String, done: Bool)] = [:]
-
+        var accumulator = HistoryTimelineAccumulator()
         // Diffing assumes chronological order; sort defensively so an unsorted
         // caller can't produce negative survival or scrambled events.
         for snapshot in snapshots.sorted(by: { $0.ts < $1.ts }) {
-            let current = state(snapshot.markdown)
-            for (identity, value) in current.sorted(by: { $0.key < $1.key }) {
-                let wasPresent = previous[identity] != nil
-                if !wasPresent {
-                    events.append(TimelineEvent(ts: snapshot.ts, identity: identity, title: value.title, kind: .appeared))
-                    // Reappearance keeps the original firstSeen/completedAt, so a
-                    // task removed and re-added still reads as one long life.
-                    if life[identity] == nil {
-                        life[identity] = TaskLifecycle(
-                            identity: identity, title: value.title,
-                            firstSeen: snapshot.ts, lastSeen: snapshot.ts, completedAt: nil)
-                    } else {
-                        life[identity]?.lastSeen = snapshot.ts
-                        life[identity]?.title = value.title
-                    }
-                } else {
-                    life[identity]?.lastSeen = snapshot.ts
-                    life[identity]?.title = value.title
-                }
-                let wasDone = previous[identity]?.done ?? false
-                if value.done, !wasDone {
-                    events.append(TimelineEvent(ts: snapshot.ts, identity: identity, title: value.title, kind: .checkedOff))
-                    if life[identity]?.completedAt == nil { life[identity]?.completedAt = snapshot.ts }
-                }
-            }
-            for (identity, value) in previous.sorted(by: { $0.key < $1.key }) where current[identity] == nil {
-                events.append(TimelineEvent(ts: snapshot.ts, identity: identity, title: value.title, kind: .removed))
-            }
-            previous = current
+            accumulator.add(ts: snapshot.ts, markdown: snapshot.markdown)
         }
-
-        let lifecycles = life.values
-            .sorted { $0.survival != $1.survival ? $0.survival > $1.survival : $0.identity < $1.identity }
-        return HistoryTimeline(events: events, lifecycles: lifecycles)
+        return accumulator.finish()
     }
 
     /// Per-day counts of tasks started (first seen) and completed (first checked
