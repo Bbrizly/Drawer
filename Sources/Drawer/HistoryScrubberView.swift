@@ -1,6 +1,32 @@
 import DrawerCore
 import SwiftUI
 
+/// What the scrubber knows about the snapshot the slider is sitting on.
+/// Loading is its own state on purpose: reconstruction is a disk read plus a
+/// parse on another actor, and showing "unavailable" while that is in flight
+/// made every normal scrub look like corrupted history.
+enum HistorySnapshotState {
+    case idle
+    case loading(hash: String)
+    case loaded(hash: String, HistoryDisplay)
+    case unavailable(hash: String)
+
+    /// The display to draw for this snapshot, or nil for the quiet loading
+    /// state. A result carrying a different hash never counts, so the previous
+    /// step's tasks cannot sit under a newer slider position.
+    func display(for hash: String) -> HistoryDisplay? {
+        if case let .loaded(loaded, display) = self, loaded == hash { return display }
+        return nil
+    }
+
+    /// Only a snapshot proven missing or corrupt says so. Still loading is not
+    /// unavailable, which is the whole reason this is an enum.
+    func isUnavailable(for hash: String) -> Bool {
+        if case let .unavailable(failed) = self { return failed == hash }
+        return false
+    }
+}
+
 /// Scrub through your week and watch the work happen. A slider across the
 /// retained snapshots; above it, the reconstructed Drawer.md at that instant,
 /// rendered read-only with the same parser the live drawer uses.
@@ -11,19 +37,13 @@ struct HistoryScrubberView: View {
     /// size it instead.
     var inline: Bool = false
     @State private var position: Double = 0
-    @State private var prepared: HistoryDisplay?
-    @State private var preparedHash: String?
+    @State private var snapshotState: HistorySnapshotState = .idle
+    @State private var loadTask: Task<Void, Never>?
     @State private var loadGeneration = 0
     @State private var summary: [DayTally] = []
     /// A tapped day, showing its completed/started task titles below the band.
     /// nil = the live snapshot scrubber instead.
     @State private var selectedDay: Date?
-
-    private typealias DisplayBuckets = (
-        today: [TodoItem], carried: [TodoItem],
-        upcoming: [TodoItem], upcomingDate: String?,
-        backlog: [TodoItem], archive: [TodoItem]
-    )
 
     private var records: [SnapshotRecord] { recorder.records }
     private var index: Int { min(max(0, Int(position.rounded())), max(0, records.count - 1)) }
@@ -71,10 +91,6 @@ struct HistoryScrubberView: View {
     /// in `onAppear` stopped the whole drawer for about a second every time
     /// this view came back on screen, which is what made leaving the idea
     /// board feel broken.
-    private func rebuildSummary() {
-        requestSummary()
-    }
-
     private func requestSummary() {
         let current = records
         Task { @MainActor in
@@ -82,22 +98,27 @@ struct HistoryScrubberView: View {
         }
     }
 
+    /// Moving the slider shows loading straight away, then swaps in whatever
+    /// comes back. Two guards keep a slow load off a newer selection: the
+    /// previous task is cancelled, and the generation is checked on arrival in
+    /// case it had already passed the cancellation point.
     private func requestDisplay() {
-        guard !records.isEmpty else { prepared = nil; preparedHash = nil; return }
+        loadTask?.cancel()
+        guard !records.isEmpty else {
+            snapshotState = .idle
+            return
+        }
         let record = records[index]
         loadGeneration += 1
         let generation = loadGeneration
-        Task { @MainActor in
+        guard snapshotState.display(for: record.hash) == nil else { return }
+        snapshotState = .loading(hash: record.hash)
+        loadTask = Task { @MainActor in
             let result = await recorder.display(for: record, today: today)
-            guard generation == loadGeneration else { return }
-            preparedHash = record.hash
-            prepared = result
+            guard !Task.isCancelled, generation == loadGeneration else { return }
+            snapshotState = result.map { .loaded(hash: record.hash, $0) }
+                ?? .unavailable(hash: record.hash)
         }
-    }
-
-    /// Pure, and the snapshots are values, so it runs off the main thread.
-    private nonisolated static func tally(_ snaps: [TimelineSnapshot]) async -> [DayTally] {
-        HistoryTimelineBuilder.dailySummary(HistoryTimelineBuilder.build(snapshots: snaps))
     }
 
     /// A left-to-right band of day cards (oldest first, matching the scrubber
@@ -234,7 +255,9 @@ struct HistoryScrubberView: View {
 
     @ViewBuilder
     private func snapshot(_ record: SnapshotRecord) -> some View {
-        if preparedHash == record.hash, let display = prepared {
+        // Anything not about this exact snapshot reads as still loading, so the
+        // previous step's tasks never sit under the new slider position.
+        if let display = snapshotState.display(for: record.hash) {
             ScrollView {
                 VStack(alignment: .leading, spacing: 10) {
                     section("Today", display.today)
@@ -246,10 +269,19 @@ struct HistoryScrubberView: View {
                 .padding(12)
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
-        } else {
+        } else if snapshotState.isUnavailable(for: record.hash) {
             Text("This snapshot is unavailable.").foregroundStyle(.secondary)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else {
+            loadingState
         }
+    }
+
+    /// Deliberately quiet: scrubbing lands here between every step, so a
+    /// spinner or a message would strobe.
+    private var loadingState: some View {
+        Color.clear.frame(maxWidth: .infinity, maxHeight: .infinity)
+            .accessibilityLabel("Loading snapshot")
     }
 
     @ViewBuilder
