@@ -31,6 +31,12 @@ public struct BoardMetrics: Equatable, Sendable {
 @MainActor
 public final class BoardStore: ObservableObject {
     @Published public private(set) var document = BoardDocument()
+    /// Bumped only when something other than the canvas moves the camera: a
+    /// board switch, the zoom buttons, undo/redo, a load. The canvas owns the
+    /// viewport during a gesture and ignores store values it did not ask for,
+    /// so it needs this to tell a programmatic move from the echo of its own
+    /// commit. Its own `setViewport` commits never bump it.
+    @Published public private(set) var viewportRevision = 0
 
     public let directory: URL
     public var boardFile: URL { directory.appendingPathComponent("board.json") }
@@ -82,9 +88,11 @@ public final class BoardStore: ObservableObject {
               let doc = try? Self.decoder.decode(BoardDocument.self, from: data)
         else {
             document = BoardDocument()
+            viewportRevision += 1
             return
         }
         document = doc
+        viewportRevision += 1
     }
 
     /// Write immediately, cancelling any pending debounce. Call on teardown.
@@ -105,6 +113,7 @@ public final class BoardStore: ObservableObject {
         let board = BoardRecord(name: nextBoardName())
         document.boards.append(board)
         document.activeBoardID = board.id
+        viewportRevision += 1
         scheduleSave()
         return board
     }
@@ -114,6 +123,7 @@ public final class BoardStore: ObservableObject {
               document.boards.contains(where: { $0.id == id })
         else { return }
         document.activeBoardID = id
+        viewportRevision += 1
         scheduleSave()
     }
 
@@ -126,6 +136,7 @@ public final class BoardStore: ObservableObject {
         document.boards.remove(at: index)
         if wasActive {
             document.activeBoardID = document.boards[min(index, document.boards.count - 1)].id
+            viewportRevision += 1
         }
         scheduleSave()
     }
@@ -198,6 +209,7 @@ public final class BoardStore: ObservableObject {
         saveTask?.cancel()
         saveTask = nil
         document = empty
+        viewportRevision += 1
         undoStack.removeAll()
         redoStack.removeAll()
 
@@ -329,7 +341,19 @@ public final class BoardStore: ObservableObject {
         scheduleSave()
     }
 
+    /// The canvas committing the camera it already drew. Does not bump the
+    /// revision: the canvas must read this back as the echo of its own move,
+    /// not as an order to snap somewhere.
     public func setViewport(_ viewport: BoardViewport) {
+        guard document.viewport != viewport else { return }
+        document.viewport = viewport
+        scheduleSave()
+    }
+
+    /// Moves the camera from outside the canvas (zoom buttons, a restored
+    /// board). Bumps the revision so the canvas applies it even mid-gesture.
+    public func applyViewport(_ viewport: BoardViewport) {
+        viewportRevision += 1
         guard document.viewport != viewport else { return }
         document.viewport = viewport
         scheduleSave()
@@ -346,7 +370,7 @@ public final class BoardStore: ObservableObject {
         vp.zoom = newZoom
         vp.x = screenX - c.x * newZoom
         vp.y = screenY - c.y * newZoom
-        setViewport(vp)
+        applyViewport(vp)
     }
 
     private func contentCenter() -> (x: Double, y: Double) {
@@ -375,6 +399,7 @@ public final class BoardStore: ObservableObject {
         guard let prev = undoStack.popLast() else { return }
         redoStack.append(document)
         document = prev
+        viewportRevision += 1
         scheduleSave()
     }
 
@@ -382,6 +407,7 @@ public final class BoardStore: ObservableObject {
         guard let next = redoStack.popLast() else { return }
         undoStack.append(document)
         document = next
+        viewportRevision += 1
         scheduleSave()
     }
 

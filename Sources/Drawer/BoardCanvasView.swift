@@ -41,6 +41,20 @@ final class BoardCanvasView: NSView, NSTextViewDelegate {
     private var items: [BoardItem] = []
     private var viewport = BoardViewport()
     private var viewportCommitWork: DispatchWorkItem?
+    /// Set to the camera this view drove itself (pan, pinch, resize, recenter).
+    /// While it is non-nil the view owns the viewport, so a store value that is
+    /// not the echo of this exact camera is a stale persisted one and must not
+    /// snap the board back mid-gesture. Cleared the moment the store hands the
+    /// same camera back, which is the commit completing its round trip.
+    private var localViewport: BoardViewport?
+    private var lastViewportRevision = 0
+    /// Test hook: fires for every item layer that actually gets reconfigured.
+    var onConfigureItem: ((UUID) -> Void)?
+
+    /// What the canvas currently draws the camera at, and which items own a
+    /// layer. Read by tests; the app has no reason to ask.
+    var currentViewport: BoardViewport { viewport }
+    var renderedItemIDs: Set<UUID> { Set(itemLayers.keys) }
 
     private var selectedIDs: Set<UUID> = []
     private var soleSelection: UUID? { selectedIDs.count == 1 ? selectedIDs.first : nil }
@@ -111,7 +125,7 @@ final class BoardCanvasView: NSView, NSTextViewDelegate {
     required init?(coder: NSCoder) { fatalError() }
 
     deinit {
-        commitViewport()
+        flushViewport()
         viewportCommitWork?.cancel()
         if let globalPanMonitor { NSEvent.removeMonitor(globalPanMonitor) }
         if let magnifyMonitor { NSEvent.removeMonitor(magnifyMonitor) }
@@ -136,7 +150,7 @@ final class BoardCanvasView: NSView, NSTextViewDelegate {
         guard old.width > 0, old.height > 0, old != newSize else { return }
         viewport.x += (newSize.width - old.width) / 2
         viewport.y += (newSize.height - old.height) / 2
-        applyTransform()
+        moveCameraLocally()
         // Persist after the layout pass; publishing a store change from inside
         // setFrameSize would re-enter the SwiftUI update that resized us.
         let v = viewport
@@ -181,6 +195,7 @@ final class BoardCanvasView: NSView, NSTextViewDelegate {
                 || thumbnailRetries.contains(item.id) {
                 thumbnailRetries.remove(item.id)
                 configure(layer, for: item)
+                onConfigureItem?(item.id)
             }
             if itemLayers[item.id] == nil {
                 itemLayers[item.id] = layer
@@ -190,9 +205,35 @@ final class BoardCanvasView: NSView, NSTextViewDelegate {
         updateSelection()
     }
 
-    func setViewport(_ v: BoardViewport) {
+    /// The store's viewport. `revision` bumps only when something other than
+    /// this view moved the camera (board switch, zoom buttons, undo, load), and
+    /// those always win. Otherwise a value arriving while the view owns the
+    /// camera is ignored, except the echo of its own commit, which releases
+    /// ownership.
+    func setViewportFromStore(_ v: BoardViewport, revision: Int) {
+        if revision != lastViewportRevision {
+            lastViewportRevision = revision
+            localViewport = nil
+            applyStoreViewport(v)
+            return
+        }
+        if let owned = localViewport {
+            if owned == v { localViewport = nil }
+            return
+        }
+        applyStoreViewport(v)
+    }
+
+    private func applyStoreViewport(_ v: BoardViewport) {
         guard viewport != v else { return }
         viewport = v
+        applyTransform()
+    }
+
+    /// The view just moved its own camera. Redraw and take ownership so the
+    /// next SwiftUI pass cannot push the older persisted viewport back in.
+    private func moveCameraLocally() {
+        localViewport = viewport
         applyTransform()
     }
 
@@ -463,7 +504,7 @@ final class BoardCanvasView: NSView, NSTextViewDelegate {
         viewport.zoom = zoom
         viewport.x = bounds.width / 2 - cx * zoom
         viewport.y = bounds.height / 2 - cy * zoom
-        applyTransform()
+        moveCameraLocally()
         commitViewport()
     }
 
@@ -660,7 +701,7 @@ final class BoardCanvasView: NSView, NSTextViewDelegate {
         }
         viewport.x += event.scrollingDeltaX
         viewport.y -= event.scrollingDeltaY
-        applyTransform()
+        moveCameraLocally()
         scheduleViewportCommit(for: event)
     }
 
@@ -668,15 +709,17 @@ final class BoardCanvasView: NSView, NSTextViewDelegate {
     // MagnificationGesture, which is the path that actually gets delivered here.
 
     /// Pan the board by a view-space delta (drag right -> content right).
-    private func panBy(_ dx: CGFloat, _ dy: CGFloat) {
+    /// Internal so a test can drive a pan without forging an NSEvent.
+    func panBy(_ dx: CGFloat, _ dy: CGFloat) {
         viewport.x += dx
         viewport.y -= dy
-        applyTransform()
+        moveCameraLocally()
         scheduleViewportCommit()
     }
 
     /// Armed while the board is open, so Option + drag pans from anywhere.
     func setGlobalPanEnabled(_ on: Bool) {
+        guard globalPanActive != on else { return }
         globalPanActive = on
         if on {
             window?.makeFirstResponder(self)
@@ -745,7 +788,7 @@ final class BoardCanvasView: NSView, NSTextViewDelegate {
         viewport.x = p.x - under.x * newZoom
         viewport.y = p.y - under.y * newZoom
         viewport.zoom = newZoom
-        applyTransform()
+        moveCameraLocally()
         scheduleViewportCommit()
     }
 
@@ -760,6 +803,12 @@ final class BoardCanvasView: NSView, NSTextViewDelegate {
         let work = DispatchWorkItem { [weak self] in self?.commitViewport() }
         viewportCommitWork = work
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.12, execute: work)
+    }
+
+    /// Push the newest camera to the store now, cancelling any pending
+    /// debounce. Teardown calls this so the last pan is never lost.
+    func flushViewport() {
+        commitViewport()
     }
 
     private func commitViewport(_ value: BoardViewport? = nil) {

@@ -48,7 +48,7 @@ struct BoardCanvas: NSViewRepresentable {
         view.canUndo = { [weak store] in store?.canUndo ?? false }
         view.canRedo = { [weak store] in store?.canRedo ?? false }
         view.setItems(store.document.items)
-        view.setViewport(store.document.viewport)
+        view.setViewportFromStore(store.document.viewport, revision: store.viewportRevision)
         view.setTransparent(transparentBackground)
         view.setPaper(paperBackground)
         view.setXPBackground(xpBackground)
@@ -58,7 +58,9 @@ struct BoardCanvas: NSViewRepresentable {
 
     func updateNSView(_ view: BoardCanvasView, context: Context) {
         view.setItems(store.document.items)
-        view.setViewport(store.document.viewport)
+        // Not `setViewport`: an unrelated re-render mid-pan would otherwise
+        // push the last persisted camera back over the live one.
+        view.setViewportFromStore(store.document.viewport, revision: store.viewportRevision)
         view.setTransparent(transparentBackground)
         view.setPaper(paperBackground)
         view.setXPBackground(xpBackground)
