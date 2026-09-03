@@ -21,7 +21,7 @@ final class TodoStoreTests: XCTestCase {
         TodoStore(fileURL: file, todayProvider: { "2026-06-07" })
     }
 
-    func testLoadsTodayAndCarried() throws {
+    func testLoadsTodayAndCarried() async throws {
         try """
         ## 2026-06-05
         - [ ] carried task
@@ -31,25 +31,29 @@ final class TodoStoreTests: XCTestCase {
 
         let store = makeStore()
         store.reload()
+        await store.settle()
         XCTAssertEqual(store.todayItems.map(\.title), ["today task"])
         XCTAssertEqual(store.carriedItems.map(\.title), ["carried task"])
         XCTAssertNil(store.statusMessage)
     }
 
-    func testMissingFileShowsEmptyState() {
+    func testMissingFileShowsEmptyState() async {
         let store = makeStore()
         store.reload()
+        await store.settle()
         XCTAssertEqual(store.todayItems, [])
         XCTAssertEqual(store.carriedItems, [])
         XCTAssertNotNil(store.statusMessage)
     }
 
-    func testToggleWritesFileAndUpdatesItems() throws {
+    func testToggleWritesFileAndUpdatesItems() async throws {
         try "## 2026-06-07\n- [ ] flip me\n".write(to: file, atomically: true, encoding: .utf8)
         let store = makeStore()
         store.reload()
+        await store.settle()
 
         store.toggle(store.todayItems[0])
+        await store.settle()
 
         XCTAssertEqual(
             try String(contentsOf: file, encoding: .utf8),
@@ -58,30 +62,34 @@ final class TodoStoreTests: XCTestCase {
         XCTAssertTrue(store.todayItems[0].isDone)
     }
 
-    func testUpdateFileURLSwitchesSource() throws {
+    func testUpdateFileURLSwitchesSource() async throws {
         try "## 2026-06-07\n- [ ] from A\n".write(to: file, atomically: true, encoding: .utf8)
         let store = makeStore()
         store.start()
+        await store.settle()
         XCTAssertEqual(store.todayItems.map(\.title), ["from A"])
 
         let fileB = dir.appendingPathComponent("B.md")
         try "## 2026-06-07\n- [ ] from B\n".write(to: fileB, atomically: true, encoding: .utf8)
         store.updateFileURL(fileB)
+        await store.settle()
 
         XCTAssertEqual(store.todayItems.map(\.title), ["from B"])
         store.stop()
     }
 
-    func testToggleStaleItemAbortsAndReloads() throws {
+    func testToggleStaleItemAbortsAndReloads() async throws {
         try "## 2026-06-07\n- [ ] original\n".write(to: file, atomically: true, encoding: .utf8)
         let store = makeStore()
         store.reload()
+        await store.settle()
         let stale = store.todayItems[0]
 
         // External edit replaces the line before the user clicks.
         try "## 2026-06-07\n- [ ] rewritten\n".write(to: file, atomically: true, encoding: .utf8)
 
         store.toggle(stale)
+        await store.settle()
 
         // File untouched by the toggle; view reloaded to current truth.
         XCTAssertEqual(
@@ -91,7 +99,7 @@ final class TodoStoreTests: XCTestCase {
         XCTAssertEqual(store.todayItems.map(\.title), ["rewritten"])
     }
 
-    func testToggleOnlyChangesItemsDateSection() throws {
+    func testToggleOnlyChangesItemsDateSection() async throws {
         try """
         ## 2026-06-05
         - [ ] same
@@ -100,8 +108,10 @@ final class TodoStoreTests: XCTestCase {
         """.write(to: file, atomically: true, encoding: .utf8)
         let store = makeStore()
         store.reload()
+        await store.settle()
 
         store.toggle(store.todayItems[0])
+        await store.settle()
 
         XCTAssertEqual(
             try String(contentsOf: file, encoding: .utf8),
@@ -114,21 +124,25 @@ final class TodoStoreTests: XCTestCase {
         )
     }
 
-    func testExternalRestoreOfPreviousAppWriteReloads() throws {
+    func testExternalRestoreOfPreviousAppWriteReloads() async throws {
         try "## 2026-06-07\n- [ ] first\n".write(to: file, atomically: true, encoding: .utf8)
         let store = makeStore()
         store.reload()
+        await store.settle()
         store.toggle(store.todayItems[0])
+        await store.settle()
         let appWrite = try Data(contentsOf: file)
 
         try "## 2026-06-07\n- [ ] external\n".write(
             to: file, atomically: true, encoding: .utf8
         )
         store.reload()
+        await store.settle()
         XCTAssertEqual(store.todayItems.map(\.title), ["external"])
 
         try appWrite.write(to: file, options: .atomic)
         store.reload()
+        await store.settle()
 
         XCTAssertEqual(store.todayItems.map(\.title), ["first"])
         XCTAssertTrue(store.todayItems[0].isDone)
@@ -144,17 +158,18 @@ final class TodoStoreTests: XCTestCase {
         var today = "2026-06-07"
         let store = TodoStore(fileURL: file, todayProvider: { today })
         store.start()
+        await store.settle()
         XCTAssertEqual(store.todayItems.map(\.title), ["sunday"])
 
         today = "2026-06-08"
         NotificationCenter.default.post(name: .NSCalendarDayChanged, object: nil)
-        await Task.yield()
+        await store.settle()
 
         XCTAssertEqual(store.todayItems.map(\.title), ["monday"])
         store.stop()
     }
 
-    func testWriteDayPlanCommitsAndRecomputesOnConcurrentEdit() throws {
+    func testWriteDayPlanCommitsAndRecomputesOnConcurrentEdit() async throws {
         try "## 2026-06-07\n- [ ] existing\n".write(to: file, atomically: true, encoding: .utf8)
         var reads = 0
         let store = TodoStore(
@@ -172,14 +187,14 @@ final class TodoStoreTests: XCTestCase {
             },
             writeData: { data, url in try data.write(to: url, options: .atomic) }
         )
-        try store.writeDayPlan(
+        try await store.writeDayPlan(
             date: "2026-06-07", entries: [PlanEntry(title: "planned")], replace: false)
         let text = try String(contentsOf: file, encoding: .utf8)
         XCTAssertTrue(text.contains("- [ ] external"), "concurrent edit must survive: \(text)")
         XCTAssertTrue(text.contains("- [ ] planned"))
     }
 
-    func testWriteDayPlanFailedWriteDoesNotSuppressNextReload() throws {
+    func testWriteDayPlanFailedWriteDoesNotSuppressNextReload() async throws {
         try "## 2026-06-07\n- [ ] existing\n".write(to: file, atomically: true, encoding: .utf8)
         let store = TodoStore(
             fileURL: file,
@@ -187,17 +202,24 @@ final class TodoStoreTests: XCTestCase {
             readData: { try Data(contentsOf: $0) },
             writeData: { _, _ in throw CocoaError(.fileWriteNoPermission) }
         )
-        XCTAssertThrowsError(try store.writeDayPlan(
-            date: "2026-06-07", entries: [PlanEntry(title: "planned")], replace: false))
+        var thrown: Error?
+        do {
+            try await store.writeDayPlan(
+                date: "2026-06-07", entries: [PlanEntry(title: "planned")], replace: false)
+        } catch {
+            thrown = error
+        }
+        XCTAssertNotNil(thrown)
         // The failed write must not have armed the reload-suppression value:
         // an external editor writing those exact bytes must still display.
         let external = "## 2026-06-07\n- [ ] existing\n- [ ] planned\n"
         try external.write(to: file, atomically: true, encoding: .utf8)
         store.reload()
+        await store.settle()
         XCTAssertEqual(store.todayItems.map(\.title), ["existing", "planned"])
     }
 
-    func testAddDoesNotWriteWhenExistingFileCannotBeRead() {
+    func testAddDoesNotWriteWhenExistingFileCannotBeRead() async {
         var didWrite = false
         let store = TodoStore(
             fileURL: file,
@@ -207,12 +229,13 @@ final class TodoStoreTests: XCTestCase {
         )
 
         store.add("new task")
+        await store.settle()
 
         XCTAssertFalse(didWrite)
         XCTAssertNotNil(store.statusMessage)
     }
 
-    func testToggleRecomputesAgainstConcurrentEditOnCASReread() throws {
+    func testToggleRecomputesAgainstConcurrentEditOnCASReread() async throws {
         // The commit re-reads after transforming. Model a concurrent external
         // add (task B) landing between the two reads: reads 1-2 see the original,
         // read 3 (the CAS re-read) sees the edit. The toggle must replay onto the
@@ -231,7 +254,9 @@ final class TodoStoreTests: XCTestCase {
             writeData: { data, _ in written = data }
         )
         store.reload()                    // read 1 -> original, populates items
+        await store.settle()
         store.toggle(store.todayItems[0]) // read 2 (original), re-read 3 (edited)
+        await store.settle()
 
         let result = try XCTUnwrap(written.flatMap { String(data: $0, encoding: .utf8) })
         XCTAssertTrue(result.contains("- [x] A"), "toggle applied on fresh bytes")

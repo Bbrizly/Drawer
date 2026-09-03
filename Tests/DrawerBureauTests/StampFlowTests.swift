@@ -22,9 +22,10 @@ final class StampFlowTests: XCTestCase {
         try? FileManager.default.removeItem(at: dir)
     }
 
-    private func makeFeature() -> (BureauFeature, TodoStore) {
+    private func makeFeature() async -> (BureauFeature, TodoStore) {
         let store = TodoStore(fileURL: fileURL, todayProvider: { "2026-07-13" })
         store.reload()
+        await store.settle()
         return (BureauFeature(store: store, directory: dir), store)
     }
 
@@ -36,29 +37,33 @@ final class StampFlowTests: XCTestCase {
         return link.id
     }
 
-    func testDoneChecksTheTaskAndFilesTheReceipt() throws {
-        let (feature, store) = makeFeature()
+    func testDoneChecksTheTaskAndFilesTheReceipt() async throws {
+        let (feature, store) = await makeFeature()
         let id = stickyReceipt(feature, store)
         feature.applyStamp(id, .done)
+        await store.settle()
         XCTAssertTrue(try String(contentsOf: fileURL, encoding: .utf8).contains("- [x] Ship the release"))
         XCTAssertEqual(feature.receipts.document.receipts.first { $0.id == id }?.state, .filed)
         XCTAssertEqual(feature.receipts.document.lifetimeFiled, 1)
     }
 
-    func testPostponedReturnsTheReceiptAndLeavesTheFile() throws {
-        let (feature, store) = makeFeature()
+    func testPostponedReturnsTheReceiptAndLeavesTheFile() async throws {
+        let (feature, store) = await makeFeature()
         let id = stickyReceipt(feature, store)
         feature.applyStamp(id, .postponed)
+        await store.settle()
         XCTAssertTrue(try String(contentsOf: fileURL, encoding: .utf8).contains("- [ ] Ship the release"))
         XCTAssertEqual(feature.receipts.document.receipts.first { $0.id == id }?.state, .inDrawer)
         XCTAssertEqual(feature.receipts.document.lifetimeFiled, 0)
     }
 
-    func testDoneOnAlreadyCheckedTaskDoesNotUncheckIt() throws {
-        let (feature, store) = makeFeature()
+    func testDoneOnAlreadyCheckedTaskDoesNotUncheckIt() async throws {
+        let (feature, store) = await makeFeature()
         let id = stickyReceipt(feature, store)
         store.toggle(store.todayItems[0]) // checked externally first
+        await store.settle()
         feature.applyStamp(id, .done)
+        await store.settle()
         XCTAssertTrue(try String(contentsOf: fileURL, encoding: .utf8).contains("- [x] Ship the release"))
         XCTAssertEqual(feature.receipts.document.receipts.first { $0.id == id }?.state, .filed)
     }

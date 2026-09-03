@@ -31,7 +31,7 @@ final class DrawerVisualRenderTests: XCTestCase {
         )
     }
 
-    func testNotebookHeaderChromeStaysRightOfMarginRule() throws {
+    func testNotebookHeaderChromeStaysRightOfMarginRule() async throws {
         // ponytail: a headless runner antialiases the bundled notebook face
         // differently, so a glyph edge lands in the gutter and this pixel scan
         // fails on something that looks right on a real screen. Drop the skip
@@ -52,6 +52,7 @@ final class DrawerVisualRenderTests: XCTestCase {
 
         let store = TodoStore(fileURL: sampleFile, todayProvider: { "2026-06-07" })
         store.reload()
+        await store.settle()
         let timer = FocusTimer()
         let pomodoroTimer = PomodoroTimer()
         let workLog = WorkSessionLog(
@@ -83,7 +84,7 @@ final class DrawerVisualRenderTests: XCTestCase {
         )
     }
 
-    func testRenderDrawerWhenRequested() throws {
+    func testRenderDrawerWhenRequested() async throws {
         guard let outputDirectory = ProcessInfo.processInfo.environment["DRAWER_RENDER_DIR"] else {
             throw XCTSkip("Set DRAWER_RENDER_DIR to generate visual review images.")
         }
@@ -111,6 +112,7 @@ final class DrawerVisualRenderTests: XCTestCase {
 
         let store = TodoStore(fileURL: sampleFile, todayProvider: { "2026-06-07" })
         store.reload()
+        await store.settle()
         let timer = FocusTimer()
         let pomodoroTimer = PomodoroTimer()
         let workLog = WorkSessionLog(

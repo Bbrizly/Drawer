@@ -44,8 +44,8 @@ final class CompanionPaneRenderTests: XCTestCase {
         XCTAssertGreaterThan(bitmap.pixelsWide, 0)
     }
 
-    func testPlanPaneRendersWithLiveController() throws {
-        let controller = makePlannerController()
+    func testPlanPaneRendersWithLiveController() async throws {
+        let controller = await makePlannerController()
         let bitmap = try renderBitmap(
             CompanionPaneView(pane: .plan, router: PaneRouter(), planner: controller))
         XCTAssertGreaterThan(bitmap.pixelsWide, 0)
@@ -68,11 +68,12 @@ final class CompanionPaneRenderTests: XCTestCase {
             todayProvider: { "2026-07-06" })
     }
 
-    private func makePlannerController() -> PlannerController {
+    private func makePlannerController() async -> PlannerController {
         let file = dir.appendingPathComponent("Drawer.md")
         try? "## 2026-07-06\n- [ ] a task\n".write(to: file, atomically: true, encoding: .utf8)
         let store = TodoStore(fileURL: file, todayProvider: { "2026-07-06" })
         store.reload()
+        await store.settle()
         return PlannerController(
             store: store,
             workLog: WorkSessionLog(fileURL: dir.appendingPathComponent("work.jsonl")),

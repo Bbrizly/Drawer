@@ -1,6 +1,13 @@
 import Combine
 import Foundation
 
+/// The drawer file as the UI sees it. Owns the published sections, the watcher
+/// and the day-change observers; every read, write and parse belongs to
+/// `TodoFileWorker` and happens off this actor.
+///
+/// Operations are chained rather than fired independently, so a burst of
+/// toggles hits the file in the order the user made them, and a slow reload
+/// started before an edit can never publish over the edit's result.
 @MainActor
 public final class TodoStore: ObservableObject {
     @Published public private(set) var todayItems: [TodoItem] = []
@@ -14,14 +21,15 @@ public final class TodoStore: ObservableObject {
     public private(set) var fileURL: URL
     private var watcher: FileWatcher
     private let todayProvider: @MainActor () -> String
-    private let readData: (URL) throws -> Data
-    private let writeData: (Data, URL) throws -> Void
-    private var lastWrittenData: Data?
-    /// The bytes the current display was parsed from. The watcher covers the
-    /// whole directory, so sibling-file saves fire reloads constantly; when
-    /// the drawer file itself is byte-identical, the parse and the publishes
-    /// are skipped outright. Cleared on day change (display depends on today).
-    private var lastAppliedData: Data?
+    private let worker: TodoFileWorker
+    /// Bumped by `updateFileURL`. Work already in flight against the old file
+    /// finishes harmlessly instead of publishing tasks from a file we no longer
+    /// show.
+    private var fileToken = 0
+    /// The tail of the operation chain. Each new operation awaits this one, so
+    /// transactions run in the order they were asked for rather than the order
+    /// the runtime happens to schedule them.
+    private var pipeline: Task<Void, Never>?
     private var calendarObservers: [NSObjectProtocol] = []
 
     public convenience init(
@@ -46,8 +54,8 @@ public final class TodoStore: ObservableObject {
         self.watcher = FileWatcher(
             directory: fileURL.deletingLastPathComponent(), pollFile: fileURL)
         self.todayProvider = todayProvider
-        self.readData = readData
-        self.writeData = writeData
+        self.worker = TodoFileWorker(
+            fileURL: fileURL, readData: readData, writeData: writeData)
     }
 
     /// Switches the backing file at runtime (settings change). Rewires the
@@ -56,12 +64,17 @@ public final class TodoStore: ObservableObject {
         guard url != fileURL else { return }
         watcher.stop()
         fileURL = url
-        lastWrittenData = nil
-        lastAppliedData = nil
+        fileToken += 1
         watcher = FileWatcher(directory: url.deletingLastPathComponent(), pollFile: url)
         watcher.onChange = { [weak self] in self?.reload() }
         watcher.start()
-        reload()
+        let today = todayProvider()
+        enqueue { worker in
+            // Two calls, but nothing else can reach the worker between them:
+            // the next queued operation is waiting on this whole closure.
+            await worker.setFileURL(url)
+            return await worker.reload(today: today)
+        }
     }
 
     /// One cached day formatter. Building a DateFormatter is the expensive
@@ -95,49 +108,16 @@ public final class TodoStore: ObservableObject {
         calendarObservers.removeAll()
     }
 
+    /// Waits until every queued file operation has finished and been applied.
+    /// The UI never needs this: it just gets the publish when it lands. Tests
+    /// and teardown do.
+    public func settle() async {
+        await pipeline?.value
+    }
+
     public func reload() {
-        let data: Data
-        do {
-            data = try readData(fileURL)
-        } catch {
-            todayItems = []
-            carriedItems = []
-            upcomingItems = []
-            upcomingLabel = ""
-            backlogItems = []
-            archiveItems = []
-            statusMessage = Self.isMissingFileError(error)
-                ? "No drawer file yet"
-                : "Could not read drawer file"
-            lastAppliedData = nil
-            return
-        }
-        // Self-write suppression: skip reload churn for our own write.
-        if let last = lastWrittenData {
-            lastWrittenData = nil
-            if data == last { return }
-        }
-        // Sibling-file suppression: the directory watcher fired but the drawer
-        // file itself did not change, so what is displayed is already right.
-        if data == lastAppliedData { return }
-        // Sweep done tasks older than the keep window into Archive > Done.
-        // Idempotent and only writes when something actually moved, so the
-        // follow-up watcher event is caught by the suppression check above.
-        if let text = String(data: data, encoding: .utf8) {
-            let swept = TodoArchiver.archiveCompleted(in: text, today: todayProvider())
-            if swept != text, let sweptData = swept.data(using: .utf8) {
-                do {
-                    lastWrittenData = sweptData
-                    try writeData(sweptData, fileURL)
-                    apply(sweptData)
-                    return
-                } catch {
-                    lastWrittenData = nil
-                    // Fall through and show the data we already read.
-                }
-            }
-        }
-        apply(data)
+        let today = todayProvider()
+        enqueue { await $0.reload(today: today) }
     }
 
     public func toggle(_ item: TodoItem) {
@@ -195,53 +175,24 @@ public final class TodoStore: ObservableObject {
         }
     }
 
-    /// Reads, runs a writeback transform, and writes with a one-shot content-CAS:
-    /// if the file changed between our read and the write (a concurrent
-    /// Obsidian/iCloud/MCP save), the transform is recomputed once against the
-    /// fresh bytes so that edit is not clobbered. The writeback transforms locate
-    /// their target by section + occurrence + exact rawLine, so replaying against
-    /// fresh bytes hits the same logical task. `lastWrittenData` is set only after
-    /// the write succeeds, so a thrown write never leaves a stale suppression
-    /// value that swallows the next external reload.
-    /// ponytail: one re-read, not a loop or a file lock. A single external editor
-    /// is the only other writer in practice; upgrade to NSFileCoordinator if
-    /// cross-process races ever matter.
-    private func commit(readingMissingAsEmpty: Bool = false, _ transform: (Data) throws -> Data) throws {
-        func currentData() throws -> Data {
-            do { return try readData(fileURL) }
-            catch where readingMissingAsEmpty && Self.isMissingFileError(error) { return Data() }
-        }
-        var data = try currentData()
-        var newData = try transform(data)
-        let fresh = try currentData()
-        if fresh != data {
-            data = fresh
-            newData = try transform(data)
-        }
-        try writeData(newData, fileURL)
-        lastWrittenData = newData
-        apply(newData)
-    }
-
-    /// Runs a writeback transform against the file. On any failure (a stale line,
-    /// a vanished file, a write error) it never guesses: it drops the self-write
-    /// guard and reloads the truth on disk.
-    private func mutate(_ transform: (Data) throws -> Data) {
-        do {
-            try commit(transform)
-        } catch {
-            lastWrittenData = nil
-            reload()
-        }
-    }
-
     /// Commits a day plan through the shared PlanWriter (the same path the MCP
     /// server uses). Throws PlanWriter's validation errors so the caller can
     /// surface a rejection instead of silently doing nothing.
-    public func writeDayPlan(date: String, entries: [PlanEntry], replace: Bool) throws {
-        try commit(readingMissingAsEmpty: true) { data in
-            try PlanWriter.write(date: date, entries: entries, replace: replace, in: data)
+    public func writeDayPlan(date: String, entries: [PlanEntry], replace: Bool) async throws {
+        let today = todayProvider()
+        let failure = Box<Error>()
+        let task = enqueue { worker in
+            do {
+                return .display(try await worker.commit(today: today, readingMissingAsEmpty: true) {
+                    try PlanWriter.write(date: date, entries: entries, replace: replace, in: $0)
+                })
+            } catch {
+                failure.value = error
+                return .unchanged
+            }
         }
+        await task.value
+        if let error = failure.value { throw error }
     }
 
     public func add(_ title: String) {
@@ -250,13 +201,8 @@ public final class TodoStore: ObservableObject {
         // Capture today once: the CAS transform may run twice, and it must not
         // roll to a new day between the two passes.
         let today = todayProvider()
-        do {
-            try commit(readingMissingAsEmpty: true) { data in
-                try TodoWriteback.append(title: trimmed, today: today, in: data)
-            }
-        } catch {
-            lastWrittenData = nil
-            statusMessage = "Could not save drawer file"
+        write(readingMissingAsEmpty: true) { data in
+            try TodoWriteback.append(title: trimmed, today: today, in: data)
         }
     }
 
@@ -276,14 +222,9 @@ public final class TodoStore: ObservableObject {
     }
 
     private func insertLine(_ line: String, intoSectionKey key: String, displayHeading: String) {
-        do {
-            try commit(readingMissingAsEmpty: true) { data in
-                try TodoWriteback.insert(
-                    line: line, intoSectionKey: key, displayHeading: displayHeading, in: data)
-            }
-        } catch {
-            lastWrittenData = nil
-            statusMessage = "Could not save drawer file"
+        write(readingMissingAsEmpty: true) { data in
+            try TodoWriteback.insert(
+                line: line, intoSectionKey: key, displayHeading: displayHeading, in: data)
         }
     }
 
@@ -302,35 +243,90 @@ public final class TodoStore: ObservableObject {
         }
     }
 
-    private func apply(_ data: Data) {
-        guard let text = String(data: data, encoding: .utf8) else {
-            statusMessage = "File is not UTF-8"
-            lastAppliedData = nil
-            return
+    // MARK: pipeline
+
+    /// Queues one file transaction behind whatever is already queued and
+    /// publishes its result, unless the file has been switched out from under
+    /// it in the meantime.
+    @discardableResult
+    private func enqueue(
+        _ operation: @escaping @MainActor (TodoFileWorker) async -> TodoFileOutcome
+    ) -> Task<Void, Never> {
+        let previous = pipeline
+        let worker = worker
+        let token = fileToken
+        let task = Task { @MainActor [weak self] in
+            await previous?.value
+            let outcome = await operation(worker)
+            guard let self, self.fileToken == token else { return }
+            self.publish(outcome)
         }
+        pipeline = task
+        return task
+    }
+
+    private func mutate(_ transform: @escaping @Sendable (Data) throws -> Data) {
         let today = todayProvider()
-        let display = TodoParser.display(
-            sections: TodoParser.parse(text),
-            today: today
-        )
+        enqueue { await $0.mutate(today: today, transform) }
+    }
+
+    private func write(
+        readingMissingAsEmpty: Bool,
+        _ transform: @escaping @Sendable (Data) throws -> Data
+    ) {
+        let today = todayProvider()
+        enqueue {
+            await $0.write(
+                today: today, readingMissingAsEmpty: readingMissingAsEmpty, transform)
+        }
+    }
+
+    private func publish(_ outcome: TodoFileOutcome) {
+        switch outcome {
+        case .unchanged:
+            break
+        case let .display(snapshot):
+            apply(snapshot)
+        case .missingFile:
+            clearSections()
+            statusMessage = "No drawer file yet"
+        case .unreadable:
+            clearSections()
+            statusMessage = "Could not read drawer file"
+        case .notUTF8:
+            statusMessage = "File is not UTF-8"
+        case .writeFailed:
+            statusMessage = "Could not save drawer file"
+        }
+    }
+
+    private func clearSections() {
+        todayItems = []
+        carriedItems = []
+        upcomingItems = []
+        upcomingLabel = ""
+        backlogItems = []
+        archiveItems = []
+    }
+
+    private func apply(_ snapshot: TodoDisplaySnapshot) {
         // Publish only what actually changed. An edit usually touches one
         // section; the other five publishes would re-evaluate every
         // subscriber's body for nothing. The compares are cheap value
         // equality on the visible items.
-        if todayItems != display.today { todayItems = display.today }
-        if carriedItems != display.carried { carriedItems = display.carried }
-        if upcomingItems != display.upcoming { upcomingItems = display.upcoming }
-        if backlogItems != display.backlog { backlogItems = display.backlog }
-        if archiveItems != display.archive { archiveItems = display.archive }
+        if todayItems != snapshot.today { todayItems = snapshot.today }
+        if carriedItems != snapshot.carried { carriedItems = snapshot.carried }
+        if upcomingItems != snapshot.upcoming { upcomingItems = snapshot.upcoming }
+        if backlogItems != snapshot.backlog { backlogItems = snapshot.backlog }
+        if archiveItems != snapshot.archive { archiveItems = snapshot.archive }
         let label: String
-        if let next = display.upcomingDate {
-            label = next == Self.dayAfter(today) ? "Tomorrow" : next
+        if let next = snapshot.upcomingDate {
+            label = next == Self.dayAfter(todayProvider()) ? "Tomorrow" : next
         } else {
             label = ""
         }
         if upcomingLabel != label { upcomingLabel = label }
         if statusMessage != nil { statusMessage = nil }
-        lastAppliedData = data
     }
 
     static func dayAfter(_ date: String) -> String? {
@@ -350,20 +346,25 @@ public final class TodoStore: ObservableObject {
         ]
         calendarObservers = names.map { name in
             center.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
-                Task { @MainActor in
-                    // Both caches must go: "today" changed, so identical bytes
-                    // no longer mean an identical display.
-                    self?.lastWrittenData = nil
-                    self?.lastAppliedData = nil
-                    self?.reload()
+                MainActor.assumeIsolated {
+                    guard let self else { return }
+                    let today = self.todayProvider()
+                    self.enqueue { worker in
+                        // Both caches must go: "today" changed, so identical
+                        // bytes no longer mean an identical display.
+                        await worker.forgetSuppression()
+                        return await worker.reload(today: today)
+                    }
                 }
             }
         }
     }
+}
 
-    private static func isMissingFileError(_ error: Error) -> Bool {
-        let nsError = error as NSError
-        return nsError.domain == NSCocoaErrorDomain
-            && nsError.code == CocoaError.fileReadNoSuchFile.rawValue
-    }
+/// A one-slot handoff for a value produced inside a queued operation and read
+/// back on the main actor once it has finished. Both ends are main-actor, so
+/// there is nothing to synchronize.
+@MainActor
+private final class Box<T> {
+    var value: T?
 }

@@ -12,7 +12,7 @@ import XCTest
 /// left unasserted on purpose, per the impl spec's test plan.
 @MainActor
 final class BureauChromeRenderTests: XCTestCase {
-    func testDrawerRendersWithBureauFlagOnAndAQueuedTask() throws {
+    func testDrawerRendersWithBureauFlagOnAndAQueuedTask() async throws {
         FontLoader.registerBundledFonts()
 
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
@@ -27,6 +27,7 @@ final class BureauChromeRenderTests: XCTestCase {
 
         let store = TodoStore(fileURL: fileURL, todayProvider: { "2026-07-13" })
         store.reload()
+        await store.settle()
         let feature = BureauFeature(store: store, directory: dir)
         if let item = store.todayItems.first { feature.queue(item) }
         XCTAssertEqual(feature.queuedCount, 1)
@@ -49,7 +50,7 @@ final class BureauChromeRenderTests: XCTestCase {
 
     /// With the flag off the drawer must render exactly as today (byte-identical
     /// behavior): the facade is wired but the branch never lights up.
-    func testDrawerRendersUnchangedWithBureauFlagOff() throws {
+    func testDrawerRendersUnchangedWithBureauFlagOff() async throws {
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: dir) }
@@ -60,6 +61,7 @@ final class BureauChromeRenderTests: XCTestCase {
 
         let store = TodoStore(fileURL: fileURL, todayProvider: { "2026-07-13" })
         store.reload()
+        await store.settle()
 
         UserDefaults.standard.set(false, forKey: "feature.bureau")
         defer { UserDefaults.standard.removeObject(forKey: "feature.bureau") }

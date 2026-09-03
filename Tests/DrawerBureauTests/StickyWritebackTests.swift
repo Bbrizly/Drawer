@@ -28,9 +28,10 @@ final class StickyWritebackTests: XCTestCase {
         try? FileManager.default.removeItem(at: dir)
     }
 
-    private func makeFeature() -> (BureauFeature, TodoStore) {
+    private func makeFeature() async -> (BureauFeature, TodoStore) {
         let store = TodoStore(fileURL: fileURL, todayProvider: { "2026-07-13" })
         store.reload()
+        await store.settle()
         return (BureauFeature(store: store, directory: dir), store)
     }
 
@@ -43,17 +44,18 @@ final class StickyWritebackTests: XCTestCase {
         return feature.receipts.document.receipts.first { $0.textSnapshot == item.title }!.id
     }
 
-    func testLiveItemResolvesExactTriple() {
-        let (feature, store) = makeFeature()
+    func testLiveItemResolvesExactTriple() async {
+        let (feature, store) = await makeFeature()
         let id = queuedID(feature, store.todayItems[0])
         XCTAssertEqual(feature.liveItem(for: id)?.title, "Call the landlord")
     }
 
-    func testLiveItemRelinksAfterExternalRenameAndRefreshesSnapshot() {
-        let (feature, store) = makeFeature()
+    func testLiveItemRelinksAfterExternalRenameAndRefreshesSnapshot() async {
+        let (feature, store) = await makeFeature()
         let id = queuedID(feature, store.todayItems[1])
         // An external edit (Obsidian) tweaks the title under the receipt.
         store.rename(store.todayItems[1], to: "Ship the release today")
+        await store.settle()
         let item = feature.liveItem(for: id)
         XCTAssertEqual(item?.title, "Ship the release today")
         XCTAssertEqual(
@@ -62,8 +64,8 @@ final class StickyWritebackTests: XCTestCase {
         )
     }
 
-    func testLiveItemOrphanExpiresTheReceipt() {
-        let (feature, _) = makeFeature()
+    func testLiveItemOrphanExpiresTheReceipt() async {
+        let (feature, _) = await makeFeature()
         let link = ReceiptLink(textSnapshot: "Completely unrelated zebra parade", sectionDate: "2026-07-13")
         feature.receipts.add(link)
         XCTAssertNil(feature.liveItem(for: link.id))
@@ -73,10 +75,11 @@ final class StickyWritebackTests: XCTestCase {
         )
     }
 
-    func testRenameStickyWritesThroughToFile() throws {
-        let (feature, store) = makeFeature()
+    func testRenameStickyWritesThroughToFile() async throws {
+        let (feature, store) = await makeFeature()
         let id = queuedID(feature, store.todayItems[0])
         feature.renameSticky(id, to: "Call the mayor")
+        await store.settle()
         XCTAssertTrue(try fileText().contains("- [ ] Call the mayor"))
         XCTAssertFalse(try fileText().contains("Call the landlord"))
         // The note lines stayed with the renamed task.
@@ -87,29 +90,31 @@ final class StickyWritebackTests: XCTestCase {
         )
     }
 
-    func testRenameStickyIgnoresEmptyTitle() throws {
-        let (feature, store) = makeFeature()
+    func testRenameStickyIgnoresEmptyTitle() async throws {
+        let (feature, store) = await makeFeature()
         let id = queuedID(feature, store.todayItems[0])
         feature.renameSticky(id, to: "   ")
+        await store.settle()
         XCTAssertTrue(try fileText().contains("- [ ] Call the landlord"))
     }
 
-    func testSubtasksReadTheNoteLines() {
-        let (feature, store) = makeFeature()
+    func testSubtasksReadTheNoteLines() async {
+        let (feature, store) = await makeFeature()
         let id = queuedID(feature, store.todayItems[0])
         XCTAssertEqual(feature.subtasks(for: id), ["Ask about the lease", "Mention the heater"])
     }
 
-    func testSubtasksAreEmptyForNotelessTask() {
-        let (feature, store) = makeFeature()
+    func testSubtasksAreEmptyForNotelessTask() async {
+        let (feature, store) = await makeFeature()
         let id = queuedID(feature, store.todayItems[1])
         XCTAssertEqual(feature.subtasks(for: id), [])
     }
 
-    func testSetSubtasksWritesNoteLinesAndRoundTrips() throws {
-        let (feature, store) = makeFeature()
+    func testSetSubtasksWritesNoteLinesAndRoundTrips() async throws {
+        let (feature, store) = await makeFeature()
         let id = queuedID(feature, store.todayItems[1])
         feature.setSubtasks(id, ["Tag the build", "  ", "Write the notes"])
+        await store.settle()
         XCTAssertTrue(try fileText().contains("- [ ] Ship the release\n    Tag the build\n    Write the notes"))
         XCTAssertEqual(feature.subtasks(for: id), ["Tag the build", "Write the notes"])
     }
